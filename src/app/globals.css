@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theater app dark theme */
+:root {
+  --bg: #0b1020;
+  --panel: #121a2b;
+  --panel-2: #172033;
+  --text: #eef2ff;
+  --muted: #9fb0d0;
+  --accent: #7dd3fc;
+  --accent2: #86efac;
+  --border: #2b3957;
+  --warn: #fbbf24;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: linear-gradient(180deg, #050814, #0b1020 35%, #111827);
+  min-height: 100vh;
+}
+
+body {
+  background: linear-gradient(180deg, #050814, #0b1020 35%, #111827);
+  color: #eef2ff;
+  margin: 0;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: #eef2ff;
+  margin: 0 0 10px;
+}
+
+p {
+  color: #9fb0d0;
+  line-height: 1.45;
+  margin: 0;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  background: #0c1324;
+  color: #eef2ff;
+  border: 1px solid #2b3957;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 14px;
+}
+
+textarea {
+  min-height: 210px;
+  resize: vertical;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.1);
+}
+
+.card,
+.panel {
+  background: rgba(18, 26, 43, 0.95);
+  border: 1px solid #2b3957;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.pill {
+  display: inline-block;
+  border: 1px solid #2b3957;
+  background: #0d1526;
+  color: #9fb0d0;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+}

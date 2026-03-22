@@ -1,0 +1,1 @@
+# Placeholder for styling patterns and components
