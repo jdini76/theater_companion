@@ -1,3 +1,7 @@
+// Export scene types
+export type { Scene, ParsedScene, SceneContextType } from "./scene";
+
+// Existing types
 export interface Rehearsal {
   id: string;
   title: string;
@@ -15,18 +19,6 @@ export interface CastMember {
   name: string;
   email?: string;
   role?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Scene {
-  id: string;
-  rehearsalId: string;
-  sceneNumber: number;
-  title: string;
-  description?: string;
-  castMembers: string[];
   notes?: string;
   createdAt: string;
   updatedAt: string;
