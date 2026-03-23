@@ -1,6 +1,22 @@
 // Export scene types
 export type { Scene, ParsedScene, SceneContextType } from "./scene";
 
+// Export voice types
+export type {
+  VoiceConfig,
+  CharacterRole,
+  VoiceOption,
+  VoiceContextType,
+} from "./voice";
+
+// Export rehearsal types
+export type {
+  DialogueLine,
+  RehearsalSession,
+  RehearsalConfig,
+  RehearsalContextType,
+} from "./rehearsal";
+
 // Existing types
 export interface Rehearsal {
   id: string;

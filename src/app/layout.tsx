@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ProjectProvider } from "@/contexts/ProjectContext";
 import { SceneProvider } from "@/contexts/SceneContext";
+import { VoiceProvider } from "@/contexts/VoiceContext";
+import { RehearsalProvider } from "@/contexts/RehearsalContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,7 +19,11 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <ProjectProvider>
-          <SceneProvider>{children}</SceneProvider>
+          <SceneProvider>
+            <VoiceProvider>
+              <RehearsalProvider>{children}</RehearsalProvider>
+            </VoiceProvider>
+          </SceneProvider>
         </ProjectProvider>
       </body>
     </html>
