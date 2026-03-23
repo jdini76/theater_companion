@@ -65,6 +65,9 @@ export default function UnifiedRehearsalPage() {
     []
   );
 
+  // Rehearsal mode
+  const [rehearsalMode, setRehearsalMode] = useState<"full" | "cue-only">("full");
+
   // Rehearsal options
   const [speakNames, setSpeakNames] = useState<boolean>(false);
   const [readOwnLines, setReadOwnLines] = useState<boolean>(false);
@@ -104,6 +107,7 @@ export default function UnifiedRehearsalPage() {
     setVoiceAssignments({});
     setSpeakNames(false);
     setReadOwnLines(false);
+    setRehearsalMode("full");
     setPauseMode("manual");
     setCountdownSeconds(4);
     setNarratorVoiceIndex(0);
@@ -121,6 +125,7 @@ export default function UnifiedRehearsalPage() {
     if (saved.voiceAssignments) setVoiceAssignments(saved.voiceAssignments as Record<string, VoiceAssignment>);
     if (typeof saved.speakNames === "boolean") setSpeakNames(saved.speakNames);
     if (typeof saved.readOwnLines === "boolean") setReadOwnLines(saved.readOwnLines);
+    if (saved.rehearsalMode) setRehearsalMode(saved.rehearsalMode as "full" | "cue-only");
     if (saved.pauseMode) setPauseMode(saved.pauseMode as "manual" | "countdown");
     if (saved.countdownSeconds) setCountdownSeconds(saved.countdownSeconds as number);
     if (typeof saved.narratorVoiceIndex === "number") setNarratorVoiceIndex(saved.narratorVoiceIndex);
@@ -303,6 +308,7 @@ MOM: See? You were ready.`
           voiceAssignments,
           speakNames,
           readOwnLines,
+          rehearsalMode,
           pauseMode,
           countdownSeconds,
           narratorVoiceIndex,
@@ -322,6 +328,7 @@ MOM: See? You were ready.`
     voiceAssignments,
     speakNames,
     readOwnLines,
+    rehearsalMode,
     pauseMode,
     countdownSeconds,
     narratorVoiceIndex,
@@ -426,6 +433,18 @@ MOM: See? You were ready.`
       return;
     }
 
+    // Cue Only mode: silently advance past lines that are not the immediate
+    // cue (the line directly before the next user line).
+    if (rehearsalMode === "cue-only") {
+      const nextUserIdx = rehearsal.lines.findIndex(
+        (l, i) => i > rehearsal.index && l.speaker === selectedCharacter,
+      );
+      if (nextUserIdx !== -1 && rehearsal.index < nextUserIdx - 1) {
+        setRehearsal((prev) => ({ ...prev, index: prev.index + 1 }));
+        return;
+      }
+    }
+
     setCurrentSpeaker(line.speaker);
     setCurrentDialogue(line.text);
     setCurrentPrompt(isMine ? "Read-through mode" : "Listening...");
@@ -446,6 +465,7 @@ MOM: See? You were ready.`
     rehearsal,
     selectedCharacter,
     readOwnLines,
+    rehearsalMode,
     pauseMode,
     countdownSeconds,
     speakLine,
@@ -657,6 +677,26 @@ JOEY: I know them until I have to say them out loud..."
                 <option value="countdown">Countdown then continue</option>
               </select>
             </div>
+            <div style={styles.fieldGroup}>
+              <label htmlFor="rehearsalMode" style={styles.label}>
+                Rehearsal mode
+              </label>
+              <select
+                id="rehearsalMode"
+                value={rehearsalMode}
+                onChange={(e) => setRehearsalMode(e.target.value as "full" | "cue-only")}
+                style={styles.input}
+              >
+                <option value="full">Full Scene</option>
+                <option value="cue-only">Cue Only</option>
+              </select>
+              {rehearsalMode === "cue-only" && (
+                <div style={{ fontSize: "12px", color: "#9fb0d0", marginTop: "4px" }}>
+                  Only the line immediately before your next line is spoken.
+                </div>
+              )}
+            </div>
+
             {pauseMode === "countdown" && (
               <div style={styles.fieldGroup}>
                 <label htmlFor="countdownSeconds" style={styles.label}>

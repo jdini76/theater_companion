@@ -254,3 +254,25 @@ export function getLineContext(
     next: lineIndex < lines.length - 1 ? lines[lineIndex + 1] : null,
   };
 }
+
+/**
+ * Cue Only mode helper: given a position in the line list, return the index
+ * of the single line that should be spoken as the "cue" — i.e. the line
+ * immediately before the next occurrence of the user's character.
+ *
+ * Returns null when there are no more user lines after fromIndex (meaning
+ * the rest of the scene can play out normally) or when the user's very
+ * first line is line 0 (no preceding cue exists).
+ */
+export function getCueLineIndex(
+  lines: Array<{ speaker: string }>,
+  fromIndex: number,
+  userCharacter: string,
+): number | null {
+  const nextUserIdx = lines.findIndex(
+    (l, i) => i > fromIndex && l.speaker === userCharacter,
+  );
+  if (nextUserIdx === -1) return null; // no more user lines
+  if (nextUserIdx === 0) return null; // user line is first; no cue before it
+  return nextUserIdx - 1;
+}
