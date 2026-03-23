@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Theater Companion Prototype</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a2b;
+      --panel-2: #172033;
+      --text: #eef2ff;
+      --muted: #9fb0d0;
+      --accent: #7dd3fc;
+      --accent2: #86efac;
+      --border: #2b3957;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, #050814, #0b1020 35%, #111827);
+      color: var(--text);
+    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    h1, h2, h3 { margin: 0 0 10px; }
+    p { color: var(--muted); line-height: 1.45; }
+    .hero { margin-bottom: 18px; }
+    .appmap { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .pill {
+      border: 1px solid var(--border);
+      background: #0d1526;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+    }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card {
+      grid-column: span 12;
+      background: rgba(18,26,43,.95);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 12px 28px rgba(0,0,0,.22);
+    }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    @media (max-width: 960px) {
+      .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
+    }
+    textarea, select, input[type="text"], input[type="number"] {
+      width: 100%;
+      background: #0c1324;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 14px;
+    }
+    textarea { min-height: 210px; resize: vertical; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .row > * { flex:1; }
+    .tight > * { flex:0 0 auto; }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--accent);
+      color: #082f49;
+    }
+    button.secondary { background: #334155; color: var(--text); }
+    button.success { background: var(--accent2); color: #052e16; }
+    button.warn { background: var(--warn); color: #422006; }
+    .scene-list, .checklist { display:grid; gap:10px; }
+    .scene-item, .todo {
+      border: 1px solid var(--border);
+      background: #0c1324;
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .scene-item.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+    .status {
+      border: 1px solid var(--border);
+      background: #0c1324;
+      border-radius: 14px;
+      padding: 11px 12px;
+      color: var(--muted);
+    }
+    .voice-row {
+      display:grid;
+      grid-template-columns: 1.1fr 1fr .6fr .6fr;
+      gap:10px;
+      align-items:center;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:#0c1324;
+      padding:10px;
+      margin-bottom:10px;
+    }
+    @media (max-width: 960px) { .voice-row { grid-template-columns: 1fr; } }
+    .linebox {
+      min-height: 220px;
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:#0c1324;
+      padding:18px;
+    }
+    .speaker { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 1px; margin-bottom: 8px; }
+    .dialogue { font-size: 28px; line-height: 1.28; min-height: 92px; }
+    .prompt { margin-top: 12px; color: var(--warn); font-weight:700; }
+    .small { font-size: 12px; color: var(--muted); }
+  
+    .hero-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+    .info-link {
+      color: var(--accent);
+      text-decoration: underline;
+      cursor: pointer;
+      font-weight: 700;
+      background: transparent;
+      border: 0;
+      padding: 0;
+    }
+    dialog.info-dialog {
+      width: min(900px, calc(100vw - 32px));
+      max-height: 85vh;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 0;
+      background: #0c1324;
+      color: var(--text);
+      box-shadow: 0 18px 50px rgba(0,0,0,.45);
+    }
+    dialog.info-dialog::backdrop { background: rgba(0,0,0,.55); }
+    .dialog-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      padding: 16px 18px;
+      border-bottom:1px solid var(--border);
+      background:#10192d;
+      position: sticky;
+      top: 0;
+    }
+    .dialog-body {
+      padding: 18px;
+      overflow:auto;
+      max-height: calc(85vh - 68px);
+      line-height:1.5;
+      color: var(--muted);
+      white-space: pre-wrap;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <h1>Theater Companion</h1>
+          <p>One-page prototype for the rehearsal-first version of a larger theater app. The focus is simple: load scenes, pick your role, assign voices, and rehearse without needing a live scene partner every time.</p>
+        </div>
+        <div>
+          <button id="infoBtn" class="info-link" type="button">How to use this prototype</button>
+        </div>
+      </div>
+      <div class="appmap">
+        <span class="pill">Projects</span>
+        <span class="pill">Scenes</span>
+        <span class="pill">Rehearse</span>
+        <span class="pill">Voices</span>
+        <span class="pill">Progress</span>
+        <span class="pill">Director Tools later</span>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card span-5">
+        <h2>Project setup</h2>
+        <div class="row" style="margin-bottom:12px;">
+          <div>
+            <label for="projectName">Production / Project name</label>
+            <input id="projectName" type="text" value="Spring Musical Rehearsal" />
+          </div>
+          <div>
+            <label for="actorName">Actor name</label>
+            <input id="actorName" type="text" value="Joey" />
+          </div>
+        </div>
+        <div class="status">Prototype focus: scene-based rehearsal. Production scheduling, parent communication, and director workflows live in the future roadmap, not in the current core experience.</div>
+      </section>
+
+      <section class="card span-7">
+        <h2>Load scenes</h2>
+        <div class="row tight" style="margin-bottom:12px;">
+          <label class="pill"><input type="radio" name="sceneMode" value="single" checked> Single scene</label>
+          <label class="pill"><input type="radio" name="sceneMode" value="multi"> Multiple scenes</label>
+        </div>
+        <label for="scriptInput">Paste script text</label>
+        <textarea id="scriptInput" placeholder="SCENE 1: AUDITION ROOM
+MOM: You know the lines.
+JOEY: I know them until I have to say them out loud.
+DIRECTOR: Start whenever you're ready."></textarea>
+        <div class="row" style="margin-top:12px;">
+          <div>
+            <label for="fileInput">Or upload a .txt file</label>
+            <input id="fileInput" type="file" accept=".txt,text/plain" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <button id="parseBtn">Load script</button>
+          <button id="sampleBtn" class="secondary">Load sample</button>
+          <button id="clearBtn" class="secondary">Clear</button>
+        </div>
+        <p class="small" style="margin-top:12px;">Expected dialogue format: CHARACTER: line. In multiple-scenes mode, headings like SCENE 1 or ACT 1 SCENE 2 are split automatically.</p>
+      </section>
+
+      <section class="card span-4">
+        <h2>Scene library</h2>
+        <div id="sceneSummary" class="status">No scenes loaded yet.</div>
+        <div id="sceneList" class="scene-list" style="margin-top:12px;"></div>
+      </section>
+
+      <section class="card span-4">
+        <h2>Role setup</h2>
+        <label for="roleSelect">My character</label>
+        <select id="roleSelect"></select>
+        <div style="margin-top:12px;">
+          <label class="pill"><input type="checkbox" id="speakNames"> Speak character names</label>
+          <label class="pill"><input type="checkbox" id="readOwnLines"> Read my lines too</label>
+        </div>
+        <div style="margin-top:12px;">
+          <label for="pauseMode">On my line</label>
+          <select id="pauseMode">
+            <option value="manual">Wait for manual continue</option>
+            <option value="countdown">Countdown then continue</option>
+          </select>
+        </div>
+        <div style="margin-top:12px;">
+          <label for="countdownSeconds">Countdown seconds</label>
+          <input id="countdownSeconds" type="number" min="1" max="20" value="4" />
+        </div>
+      </section>
+
+      <section class="card span-4">
+        <h2>Future app map</h2>
+        <div class="checklist">
+          <div class="todo">✅ Current core: scene loading and rehearsal</div>
+          <div class="todo">⬜ Saved projects and roles</div>
+          <div class="todo">⬜ Mic auto-advance</div>
+          <div class="todo">⬜ Line critique</div>
+          <div class="todo">⬜ Better AI voices</div>
+          <div class="todo">⬜ Parent and cast communication</div>
+        </div>
+      </section>
+
+      <section class="card span-8">
+        <h2>Character voices</h2>
+        <div id="voiceTable"></div>
+        <p class="small">These voices come from your browser and device. They vary, which is fun in theory and mildly annoying in practice, but it is enough for prototyping.</p>
+      </section>
+
+      <section class="card span-4">
+        <h2>Rehearsal controls</h2>
+        <div class="row">
+          <button id="startBtn" class="success">Start</button>
+          <button id="pauseBtn" class="warn">Pause</button>
+          <button id="resumeBtn" class="secondary">Resume</button>
+        </div>
+        <div id="rehearsalStatus" class="status" style="margin-top:12px;">Ready when you are.</div>
+      </section>
+
+      <section class="card span-12">
+        <h2>Rehearsal player</h2>
+        <div class="linebox">
+          <div id="speakerLabel" class="speaker">SPEAKER</div>
+          <div id="dialogueLabel" class="dialogue">Load a scene, pick your role, and press Start.</div>
+          <div id="promptLabel" class="prompt"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+
+  <dialog id="infoDialog" class="info-dialog">
+    <div class="dialog-head">
+      <h2 style="margin:0;">Prototype Guide</h2>
+      <button id="closeInfoBtn" class="secondary" type="button">Close</button>
+    </div>
+    <div id="readmeContent" class="dialog-body"></div>
+  </dialog>
+
+<script>
+const README_TEXT = "# Theater Companion Prototype\n\n## What this prototype is\nTheater Companion is a one page rehearsal prototype for actors working on scenes. It is designed to let an actor load script text, choose a role, assign voices to the other characters, and rehearse without needing another person to read the scene.\n\nThis is a prototype, not a finished production app. It focuses on the rehearsal experience first.\n\n## What it can do\n- Paste a script directly into the app\n- Upload a plain text `.txt` script file\n- Treat the input as a single scene or multiple scenes\n- Automatically split multiple scenes when headings such as `SCENE 1` or `ACT 1 SCENE 2` are present\n- Let the user select which scene to rehearse\n- Let the user choose which character they are playing\n- Assign different browser voices to characters\n- Adjust speaking speed and pitch for each character\n- Rehearse in a mode where the app speaks the other lines and pauses for the actor\n\n## Expected script format\nThe parser expects dialogue in this format:\n\n```text\nSCENE 1: AUDITION ROOM\nMOM: You know the lines.\nJOEY: I know them until I have to say them out loud.\nDIRECTOR: Start whenever you're ready.\n```\n\n### Notes about formatting\n- Character names should be uppercase for best results\n- Dialogue lines should use `CHARACTER: dialogue`\n- In multiple scene mode, scene headings such as `SCENE 1`, `Scene 2`, or `ACT 1 SCENE 3` help the app split scenes automatically\n- Lines that continue onto the next line will be joined to the previous character's dialogue when possible\n\n## How to use the prototype\n\n### 1. Set up the project\nAt the top of the page, enter:\n- **Production / Project name**\n- **Actor name**\n\nThese fields are mainly for context in the prototype.\n\n### 2. Load scenes\nChoose one of these options:\n- **Single scene** if you are only loading one scene\n- **Multiple scenes** if your pasted text or text file contains several scenes\n\nThen either:\n- paste script text into the text area\n- or upload a `.txt` file\n\nClick **Load script**.\n\nYou can also click **Load sample** to see a preloaded demo.\n\n### 3. Choose a scene\nIf multiple scenes are detected, they appear in the **Scene library**.\nClick a scene to make it active.\n\n### 4. Pick your role\nIn **Role setup**, choose the character you are playing.\n\nOptional settings:\n- **Speak character names**: the app will say the character name before the dialogue\n- **Read my lines too**: the app will also read your lines instead of pausing for you\n- **On my line**:\n  - **Wait for manual continue** pauses until you press Resume\n  - **Countdown then continue** waits a set number of seconds before moving on automatically\n\n### 5. Configure voices\nIn **Character voices**, each row represents one character in the selected scene.\n\nEach row includes:\n- **Character name**\n- **Voice selection**\n- **Rate**: controls how fast the character speaks\n  - `1` is normal speed\n  - lower than `1` is slower\n  - higher than `1` is faster\n- **Pitch**: controls how high or low the voice sounds\n  - `1` is normal pitch\n  - lower than `1` is lower\n  - higher than `1` is higher\n\nThe available voices come from the browser and device, so they may differ depending on where the prototype is opened.\n\n## Rehearsal controls\n- **Start**: begins rehearsal for the selected scene\n- **Pause**: pauses playback\n- **Resume**: continues playback or continues after your line in manual mode\n\n## How rehearsal works\n- The app speaks the lines for the other characters\n- When it reaches your character, it either:\n  - pauses and waits for you to press Resume\n  - or counts down and continues automatically\n- The current speaker and line are displayed in the rehearsal player\n\n## Tips for best results\n- Use Chrome, Edge, or Safari for the best built in speech support\n- Test a few voices because browser voices vary a lot by device\n- If a scene is not splitting correctly, add clearer scene headings\n- If dialogue is not being recognized, make sure lines use `CHARACTER: text`\n\n## Current limitations\n- Voices are browser based and may sound robotic\n- No microphone listening yet\n- No line critique yet\n- No saved projects yet\n- No account system or multi user collaboration yet\n- Script parsing is basic and works best with clean text formatting\n\n## Planned backlog ideas\n- Microphone input to detect when a line is completed\n- Line critique and matching against the script\n- Higher quality AI generated voices with saved audio files\n- Saved projects and actor profiles\n- Parent, cast, and director communication tools\n- A larger production management experience beyond rehearsal\n\n## Summary\nThis prototype is meant to validate the core idea:\n**Can an actor load a scene, choose a role, and rehearse effectively with an AI scene partner?**\n\nThat is the main goal of this version.\n";
+</script>
+
+<script>
+const scriptInput = document.getElementById('scriptInput');
+const fileInput = document.getElementById('fileInput');
+const parseBtn = document.getElementById('parseBtn');
+const sampleBtn = document.getElementById('sampleBtn');
+const clearBtn = document.getElementById('clearBtn');
+const roleSelect = document.getElementById('roleSelect');
+const sceneList = document.getElementById('sceneList');
+const sceneSummary = document.getElementById('sceneSummary');
+const voiceTable = document.getElementById('voiceTable');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resumeBtn = document.getElementById('resumeBtn');
+const speakerLabel = document.getElementById('speakerLabel');
+const dialogueLabel = document.getElementById('dialogueLabel');
+const promptLabel = document.getElementById('promptLabel');
+const rehearsalStatus = document.getElementById('rehearsalStatus');
+const speakNames = document.getElementById('speakNames');
+const readOwnLines = document.getElementById('readOwnLines');
+const pauseMode = document.getElementById('pauseMode');
+const countdownSeconds = document.getElementById('countdownSeconds');
+const infoBtn = document.getElementById('infoBtn');
+const infoDialog = document.getElementById('infoDialog');
+const closeInfoBtn = document.getElementById('closeInfoBtn');
+const readmeContent = document.getElementById('readmeContent');
+readmeContent.textContent = README_TEXT;
+infoBtn.onclick = () => infoDialog.showModal();
+closeInfoBtn.onclick = () => infoDialog.close();
+infoDialog.addEventListener('click', (e) => { const rect = infoDialog.getBoundingClientRect(); const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom; if (!inside) infoDialog.close(); });
+
+let availableVoices = [];
+let scenes = [];
+let selectedSceneIndex = 0;
+let voiceAssignments = {};
+let rehearsalLines = [];
+let rehearsalIndex = 0;
+let rehearsalStopped = true;
+let paused = false;
+let pendingTimeout = null;
+let countdownInterval = null;
+
+function loadVoices() {
+  availableVoices = speechSynthesis.getVoices();
+  renderVoiceTable();
+}
+speechSynthesis.onvoiceschanged = loadVoices;
+loadVoices();
+
+function normalizeText(text) {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+}
+function isSceneHeading(line) {
+  const t = line.trim();
+  return /^(SCENE|Scene|ACT\s+\d+\s+SCENE|Act\s+\d+\s+Scene)\b/.test(t) || /^\[.*\]$/.test(t);
+}
+function parseDialogueBlock(text, fallbackTitle='Scene 1') {
+  const lines = normalizeText(text).split('\n');
+  const parsed = [];
+  let speaker = null, current = '';
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (isSceneHeading(line)) continue;
+    const m = line.match(/^([A-Z][A-Z0-9 .\-']{1,40}):\s*(.*)$/);
+    if (m) {
+      if (speaker) parsed.push({ speaker, text: current.trim() });
+      speaker = m[1].trim();
+      current = m[2].trim();
+    } else if (speaker) {
+      current += ' ' + line;
+    }
+  }
+  if (speaker) parsed.push({ speaker, text: current.trim() });
+  const titleLine = lines.find(l => isSceneHeading(l.trim()));
+  return { title: titleLine || fallbackTitle, lines: parsed };
+}
+function parseScenes(text, mode) {
+  const normalized = normalizeText(text);
+  if (!normalized) return [];
+  if (mode === 'single') return [parseDialogueBlock(normalized, 'Scene 1')].filter(s => s.lines.length);
+  const lines = normalized.split('\n');
+  const chunks = [];
+  let currentTitle = 'Scene 1';
+  let buffer = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (isSceneHeading(line)) {
+      if (buffer.length) chunks.push({ title: currentTitle, text: buffer.join('\n') });
+      currentTitle = line;
+      buffer = [line];
+    } else {
+      buffer.push(raw);
+    }
+  }
+  if (buffer.length) chunks.push({ title: currentTitle, text: buffer.join('\n') });
+  return chunks.map((c, i) => parseDialogueBlock(c.text, c.title || `Scene ${i+1}`)).filter(s => s.lines.length);
+}
+function currentMode() {
+  return document.querySelector('input[name="sceneMode"]:checked').value;
+}
+function getCharacters(scene) {
+  return [...new Set(scene.lines.map(l => l.speaker))];
+}
+function ensureVoiceAssignments() {
+  const scene = scenes[selectedSceneIndex];
+  if (!scene) return;
+  const chars = getCharacters(scene);
+  chars.forEach((char, idx) => {
+    if (!voiceAssignments[char]) voiceAssignments[char] = { voiceIndex: idx % Math.max(availableVoices.length, 1), rate: 1, pitch: 1 };
+  });
+}
+function renderScenes() {
+  sceneList.innerHTML = '';
+  if (!scenes.length) {
+    sceneSummary.textContent = 'No scenes loaded yet.';
+    roleSelect.innerHTML = '';
+    voiceTable.innerHTML = '';
+    return;
+  }
+  sceneSummary.textContent = `${scenes.length} scene${scenes.length === 1 ? '' : 's'} loaded.`;
+  scenes.forEach((scene, i) => {
+    const div = document.createElement('div');
+    div.className = 'scene-item' + (i === selectedSceneIndex ? ' active' : '');
+    div.innerHTML = `<strong>${scene.title}</strong><div class="small">${scene.lines.length} lines • ${getCharacters(scene).length} characters</div>`;
+    div.onclick = () => { selectedSceneIndex = i; renderScenes(); renderRolesAndVoices(); };
+    sceneList.appendChild(div);
+  });
+  renderRolesAndVoices();
+}
+function renderRolesAndVoices() {
+  const scene = scenes[selectedSceneIndex];
+  roleSelect.innerHTML = '';
+  if (!scene) return;
+  const chars = getCharacters(scene);
+  chars.forEach(char => {
+    const opt = document.createElement('option');
+    opt.value = char; opt.textContent = char; roleSelect.appendChild(opt);
+  });
+  renderVoiceTable();
+}
+function renderVoiceTable() {
+  voiceTable.innerHTML = '';
+  const scene = scenes[selectedSceneIndex];
+  if (!scene) return;
+  ensureVoiceAssignments();
+  getCharacters(scene).forEach(char => {
+    const cfg = voiceAssignments[char];
+    const row = document.createElement('div');
+    row.className = 'voice-row';
+    const name = document.createElement('div');
+    name.innerHTML = `<strong>${char}</strong>`;
+    const voiceSel = document.createElement('select');
+    if (!availableVoices.length) {
+      const opt = document.createElement('option');
+      opt.textContent = 'Default browser voice';
+      voiceSel.appendChild(opt);
+    } else {
+      availableVoices.forEach((v, i) => {
+        const opt = document.createElement('option');
+        opt.value = i; opt.textContent = `${v.name} (${v.lang})`;
+        if (cfg.voiceIndex === i) opt.selected = true;
+        voiceSel.appendChild(opt);
+      });
+    }
+    voiceSel.onchange = () => cfg.voiceIndex = Number(voiceSel.value);
+    const rate = document.createElement('input');
+    rate.type = 'number'; rate.step = '0.1'; rate.min = '0.5'; rate.max = '2'; rate.value = cfg.rate;
+    rate.onchange = () => cfg.rate = Number(rate.value || 1);
+    const pitch = document.createElement('input');
+    pitch.type = 'number'; pitch.step = '0.1'; pitch.min = '0'; pitch.max = '2'; pitch.value = cfg.pitch;
+    pitch.onchange = () => cfg.pitch = Number(pitch.value || 1);
+    row.append(name, voiceSel, rate, pitch);
+    voiceTable.appendChild(row);
+  });
+}
+function setDisplay(speaker, text, prompt='') {
+  speakerLabel.textContent = speaker || 'SPEAKER';
+  dialogueLabel.textContent = text || '';
+  promptLabel.textContent = prompt || '';
+}
+function setStatus(text) { rehearsalStatus.textContent = text; }
+function speakLine(line, done) {
+  const utter = new SpeechSynthesisUtterance();
+  const cfg = voiceAssignments[line.speaker] || { rate:1, pitch:1, voiceIndex:0 };
+  utter.text = speakNames.checked ? `${line.speaker}. ${line.text}` : line.text;
+  utter.rate = cfg.rate || 1;
+  utter.pitch = cfg.pitch || 1;
+  if (availableVoices.length && availableVoices[cfg.voiceIndex]) utter.voice = availableVoices[cfg.voiceIndex];
+  utter.onend = done;
+  utter.onerror = done;
+  speechSynthesis.speak(utter);
+}
+function stopTimers() {
+  if (pendingTimeout) clearTimeout(pendingTimeout);
+  if (countdownInterval) clearInterval(countdownInterval);
+  pendingTimeout = null; countdownInterval = null;
+}
+function runNext() {
+  if (rehearsalStopped || paused) return;
+  if (rehearsalIndex >= rehearsalLines.length) {
+    setStatus('Scene complete.');
+    setDisplay('DONE', 'End of scene. Nice work.', '');
+    rehearsalStopped = true;
+    return;
+  }
+  const line = rehearsalLines[rehearsalIndex++];
+  const isMine = line.speaker === roleSelect.value;
+  if (isMine && !readOwnLines.checked) {
+    setDisplay(line.speaker, line.text, 'Your turn.');
+    setStatus('Waiting on your line.');
+    if (pauseMode.value === 'countdown') {
+      let sec = Math.max(1, Number(countdownSeconds.value || 4));
+      promptLabel.textContent = `Your turn. Continuing in ${sec}...`;
+      countdownInterval = setInterval(() => {
+        sec -= 1;
+        if (sec <= 0) {
+          clearInterval(countdownInterval); countdownInterval = null;
+          pendingTimeout = setTimeout(() => { promptLabel.textContent = ''; runNext(); }, 250);
+        } else {
+          promptLabel.textContent = `Your turn. Continuing in ${sec}...`;
+        }
+      }, 1000);
+    } else {
+      paused = true;
+    }
+    return;
+  }
+  setDisplay(line.speaker, line.text, isMine ? 'Read-through mode' : 'Listening...');
+  setStatus(`Speaking: ${line.speaker}`);
+  speakLine(line, () => {
+    if (!rehearsalStopped && !paused) pendingTimeout = setTimeout(runNext, 250);
+  });
+}
+parseBtn.onclick = () => {
+  scenes = parseScenes(scriptInput.value, currentMode());
+  selectedSceneIndex = 0;
+  renderScenes();
+  setDisplay('READY', scenes.length ? 'Script loaded.' : 'No dialogue detected.', '');
+  setStatus(scenes.length ? 'Script loaded and ready.' : 'Could not find any dialogue lines.');
+};
+sampleBtn.onclick = () => {
+  scriptInput.value = `SCENE 1: AUDITION ROOM\nMOM: You know the lines. Just breathe.\nJOEY: I always know them until someone asks me to say them.\nDIRECTOR: Whenever you're ready, Joey.\nJOEY: Thank you. I'll begin from the top.\n\nSCENE 2: BACKSTAGE\nFRIEND: You did great out there.\nJOEY: I skipped one word.\nFRIEND: That is called acting confidence. Keep it moving.\nMOM: See? You were ready.`;
+  document.querySelector('input[name="sceneMode"][value="multi"]').checked = true;
+  parseBtn.click();
+};
+clearBtn.onclick = () => {
+  scriptInput.value = ''; fileInput.value = ''; scenes = []; selectedSceneIndex = 0; voiceAssignments = {};
+  roleSelect.innerHTML = ''; sceneList.innerHTML = ''; voiceTable.innerHTML = '';
+  sceneSummary.textContent = 'No scenes loaded yet.';
+  speechSynthesis.cancel(); stopTimers(); rehearsalStopped = true; paused = false;
+  setDisplay('SPEAKER', 'Load a scene, pick your role, and press Start.', '');
+  setStatus('Ready when you are.');
+};
+fileInput.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0]; if (!file) return; scriptInput.value = await file.text();
+});
+startBtn.onclick = () => {
+  if (!scenes.length) { setStatus('Please load a script first.'); return; }
+  speechSynthesis.cancel(); stopTimers(); rehearsalLines = scenes[selectedSceneIndex].lines.slice(); rehearsalIndex = 0; rehearsalStopped = false; paused = false;
+  setStatus(`Rehearsing ${scenes[selectedSceneIndex].title}`); runNext();
+};
+pauseBtn.onclick = () => {
+  if (rehearsalStopped) return; paused = true; stopTimers(); speechSynthesis.pause(); setStatus('Paused.');
+};
+resumeBtn.onclick = () => {
+  if (rehearsalStopped && scenes.length) { startBtn.click(); return; }
+  stopTimers(); if (speechSynthesis.paused) speechSynthesis.resume(); if (paused) { paused = false; setStatus('Resumed.'); runNext(); }
+};
+</script>
+</body>
+</html>

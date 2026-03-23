@@ -2,18 +2,23 @@ import { DialogueLine } from "@/types/rehearsal";
 
 /**
  * Parse dialogue lines from scene content
- * Detects "CHARACTER NAME: dialogue" format
+ * Detects "CHARACTER NAME: dialogue" format with multiline support
  * Also handles stage directions in [brackets] or (parentheses)
  */
 export function parseDialogueLines(sceneContent: string): DialogueLine[] {
   const lines: DialogueLine[] = [];
   const contentLines = sceneContent.split("\n");
   let lineNumber = 0;
+  let lastCharacter: string | null = null;
 
-  for (const line of contentLines) {
+  for (let i = 0; i < contentLines.length; i++) {
+    const line = contentLines[i];
     const trimmed = line.trim();
 
-    if (!trimmed) continue;
+    if (!trimmed) {
+      lastCharacter = null; // Reset when encountering blank line
+      continue;
+    }
 
     // Check for stage directions (lines in brackets or parentheses)
     const stageDirectionPattern = /^[\[\(].*[\]\)]$/;
@@ -24,13 +29,12 @@ export function parseDialogueLines(sceneContent: string): DialogueLine[] {
         dialogue: trimmed,
         isStageDirection: true,
       });
+      lastCharacter = null;
       continue;
     }
 
     // Try to detect character name and dialogue
-    const dialogueMatch = trimmed.match(
-      /^([A-Z][A-Z\s\-']*?)\s*:\s*(.+)$/
-    );
+    const dialogueMatch = trimmed.match(/^([A-Z][A-Z\s\-']*?)\s*:\s*(.+)$/);
 
     if (dialogueMatch) {
       const character = dialogueMatch[1].trim();
@@ -44,6 +48,7 @@ export function parseDialogueLines(sceneContent: string): DialogueLine[] {
           character: "[Narrative]",
           dialogue: trimmed,
         });
+        lastCharacter = null;
         continue;
       }
 
@@ -52,6 +57,19 @@ export function parseDialogueLines(sceneContent: string): DialogueLine[] {
         character,
         dialogue,
       });
+      lastCharacter = character;
+    } else if (
+      lastCharacter &&
+      line.startsWith("  ") &&
+      !trimmed.startsWith("[") &&
+      !trimmed.startsWith("(")
+    ) {
+      // Multiline dialogue continuation (starts with whitespace)
+      // Append to the last dialogue line
+      const lastLine = lines[lines.length - 1];
+      if (lastLine && lastLine.character === lastCharacter) {
+        lastLine.dialogue += " " + trimmed;
+      }
     } else {
       // Narrative or continued dialogue
       lines.push({
@@ -59,6 +77,7 @@ export function parseDialogueLines(sceneContent: string): DialogueLine[] {
         character: "[Narrative]",
         dialogue: trimmed,
       });
+      lastCharacter = null;
     }
   }
 
@@ -102,7 +121,7 @@ export function extractCharacterNames(lines: DialogueLine[]): string[] {
  */
 export function getLinesByCharacter(
   lines: DialogueLine[],
-  characterName: string
+  characterName: string,
 ): DialogueLine[] {
   return lines.filter((line) => line.character === characterName);
 }
@@ -112,13 +131,13 @@ export function getLinesByCharacter(
  */
 export function getNonUserLines(
   lines: DialogueLine[],
-  userCharacterName: string
+  userCharacterName: string,
 ): DialogueLine[] {
   return lines.filter(
     (line) =>
       line.character !== userCharacterName &&
       line.character !== "[Narrative]" &&
-      !line.isStageDirection
+      !line.isStageDirection,
   );
 }
 
@@ -158,6 +177,37 @@ export function getSceneStatistics(lines: DialogueLine[]): SceneStatistics {
 }
 
 /**
+ * Get a summary of the scene for UI display
+ */
+export interface SceneSummary {
+  characters: string[];
+  dialogueLineCount: number;
+  stageDirectionCount: number;
+  narrativeLineCount: number;
+  characterLineBreakdown: { [character: string]: number };
+}
+
+export function getSceneSummary(sceneContent: string): SceneSummary {
+  const lines = parseDialogueLines(sceneContent);
+  const stats = getSceneStatistics(lines);
+
+  let narrativeLineCount = 0;
+  for (const line of lines) {
+    if (line.character === "[Narrative]") {
+      narrativeLineCount++;
+    }
+  }
+
+  return {
+    characters: extractCharacterNames(lines),
+    dialogueLineCount: stats.dialogueLines,
+    stageDirectionCount: stats.stageDirections,
+    narrativeLineCount,
+    characterLineBreakdown: stats.characterLineCount,
+  };
+}
+
+/**
  * Generate a rehearsal ID
  */
 export function generateRehearsalId(): string {
@@ -171,7 +221,7 @@ export function generateRehearsalId(): string {
 export function findNextCharacterLine(
   lines: DialogueLine[],
   currentIndex: number,
-  characterName: string
+  characterName: string,
 ): DialogueLine | null {
   for (let i = currentIndex + 1; i < lines.length; i++) {
     if (lines[i].character === characterName) {
@@ -192,7 +242,7 @@ export interface LineContext {
 
 export function getLineContext(
   lines: DialogueLine[],
-  lineIndex: number
+  lineIndex: number,
 ): LineContext | null {
   if (lineIndex < 0 || lineIndex >= lines.length) {
     return null;
