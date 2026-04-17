@@ -9,6 +9,7 @@
     "jsx": "preserve",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "outDir": "./dist",
@@ -44,8 +45,6 @@
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "**/*.test.ts",
-    "**/*.test.tsx"
+    "dist"
   ]
 }

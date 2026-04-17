@@ -11,6 +11,7 @@ import {
   generateSceneId,
   detectSceneCount,
   detectSceneBreaks,
+  extractSceneCharacters,
 } from "@/lib/scenes";
 import { Scene, ParsedScene } from "@/types/scene";
 
@@ -124,45 +125,48 @@ More content.`;
     });
   });
 
-  describe("Scene Parsing - Format 3 (Separators)", () => {
-    it("should parse with --- separators", () => {
-      const text = `First scene content here.
-Line two.
+  describe("Scene Parsing - Format 3 (Scene Number Heading)", () => {
+    it("should parse #N - Title with hyphen", () => {
+      const text = `#1 - TV Studio
+PHIL: Hello.
+DIRECTOR: Cut!
 
----
-
-Second scene content.
-Different location.`;
+#2 - Gobbler's Knob
+PHIL: We're here.`;
       const scenes = parseScenes(text);
       expect(scenes).toHaveLength(2);
-      expect(scenes[0].content).toContain("First scene");
-      expect(scenes[1].content).toContain("Second scene");
+      expect(scenes[0].content).toContain("PHIL: Hello");
+      expect(scenes[1].content).toContain("We're here");
     });
 
-    it("should parse with === separators", () => {
-      const text = `Content one
-===
-Content two
-===
-Content three`;
-      const scenes = parseScenes(text);
-      expect(scenes).toHaveLength(3);
-    });
+    it("should parse #N – Title with en-dash", () => {
+      const text = `#4 \u2013 B&B Parlor
+MRS. LANCASTER: Good morning!
 
-    it("should parse with *** separators", () => {
-      const text = `Scene one
-***
-Scene two`;
+#5 - The Town
+PHIL: Let's go.`;
       const scenes = parseScenes(text);
       expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toContain("B&B Parlor");
+      expect(scenes[1].title).toContain("The Town");
     });
 
-    it("should handle multiple separator styles", () => {
-      const text = `First
----
-Second
-===
-Third`;
+    it("should extract scene title from heading", () => {
+      const text = `#1 - TV Studio
+Content here.`;
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes[0].title).toContain("TV Studio");
+    });
+
+    it("should handle multiple scenes with #N format", () => {
+      const text = `#1 - Opening
+Content one.
+
+#2 - Middle
+Content two.
+
+#3 - Closing
+Content three.`;
       const scenes = parseScenes(text);
       expect(scenes).toHaveLength(3);
     });
@@ -753,6 +757,209 @@ JULIET: Response`;
       expect(scenes[0].id).toMatch(/^scene_/);
       expect(scenes[0].content).toContain("ROMEO");
       expect(scenes[0].content).toContain("continuation");
+    });
+  });
+
+  describe("Act Context Tracking", () => {
+    it("should prepend act to scene titles when act appears on separate line", () => {
+      const text = `ACT 1
+Scene 1: The Garden
+ROMEO: Hello!
+
+Scene 2: The Balcony
+JULIET: Good night!
+
+ACT 2
+Scene 1: The Street
+MERCUTIO: Fight!
+
+Scene 2: The Tomb
+ROMEO: Farewell!`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(4);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: The Garden");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: The Balcony");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: The Street");
+      expect(scenes[3].title).toBe("Act 2, Scene 2: The Tomb");
+    });
+
+    it("should handle word-form acts (ACT ONE, ACT TWO)", () => {
+      const text = `ACT ONE
+Scene 1: Opening
+Content here.
+
+Scene 2: Middle
+More content.
+
+ACT TWO
+Scene 1: Climax
+Exciting content.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(3);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: Opening");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: Middle");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: Climax");
+    });
+
+    it("should not prepend act when no act context exists", () => {
+      const text = `Scene 1: First
+Content one.
+
+Scene 2: Second
+Content two.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toBe("Scene 1: First");
+      expect(scenes[1].title).toBe("Scene 2: Second");
+    });
+
+    it("should keep combined ACT/SCENE format intact", () => {
+      const text = `ACT 1, SCENE 1: Meeting
+Content one.
+
+ACT 1, SCENE 2: Conflict
+Content two.
+
+ACT 2, SCENE 1: Resolution
+Content three.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(3);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: Meeting");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: Conflict");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: Resolution");
+    });
+
+    it("should apply act context to bracketed scenes", () => {
+      const text = `ACT 1
+[SCENE 1: Palace]
+KING: Welcome!
+
+[SCENE 2: Courtyard]
+KNIGHT: Ready!
+
+ACT 2
+[SCENE 1: Battlefield]
+SOLDIER: Charge!`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(3);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: Palace");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: Courtyard");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: Battlefield");
+    });
+
+    it("should handle prologue before first act", () => {
+      const text = `Prologue: The Beginning
+Narrator speaks.
+
+ACT 1
+Scene 1: First Scene
+Content here.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toBe("Prologue: The Beginning");
+      expect(scenes[1].title).toBe("Act 1, Scene 1: First Scene");
+    });
+
+    it("should carry act context from combined format to standalone scenes", () => {
+      const text = `ACT 2, SCENE 1: Opening of Act Two
+Content one.
+
+Scene 2: Continuation
+Content two.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toBe("Act 2, Scene 1: Opening of Act Two");
+      expect(scenes[1].title).toBe("Act 2, Scene 2: Continuation");
+    });
+  });
+
+  describe("extractSceneCharacters", () => {
+    it("should extract unique character names from colon-format dialogue", () => {
+      const content = `ROMEO: Wherefore art thou?
+JULIET: I am here.
+ROMEO: My love!`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should split ampersand groups into individual characters", () => {
+      const content = `FRED & DEBBIE: Let's dance!
+FRED: One more time.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["DEBBIE", "FRED"]);
+    });
+
+    it("should split comma-separated groups into individual characters", () => {
+      const content = `MRS. LANCASTER, NED & CHUBBY MAN: Welcome!
+NED: Hello!`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["CHUBBY MAN", "MRS. LANCASTER", "NED"]);
+    });
+
+    it("should exclude ALL as a character", () => {
+      const content = `ROMEO: Hello.
+ALL: Goodbye!
+JULIET: Wait.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should exclude EVERYONE and ENSEMBLE", () => {
+      const content = `PHIL: Good morning.
+EVERYONE: Good morning, Phil!
+ENSEMBLE: Welcome to Punxsutawney!`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["PHIL"]);
+    });
+
+    it("should not include stage directions or narrative", () => {
+      const content = `ROMEO: Hello.
+(They embrace)
+[Thunder sounds]
+JULIET: My love.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should return empty array for content with no dialogue", () => {
+      const content = `(The stage is dark)
+[Lights come up slowly]`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual([]);
+    });
+
+    it("should return sorted unique list", () => {
+      const content = `ZARA: First.
+ANNA: Second.
+MIKE: Third.
+ANNA: Fourth.
+ZARA: Fifth.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["ANNA", "MIKE", "ZARA"]);
+    });
+  });
+
+  describe("parseScenes with characters", () => {
+    it("should include characters in parsed scenes", () => {
+      const text = `SCENE 1: The Garden
+ROMEO: O Romeo!
+JULIET: What's in a name?
+
+SCENE 2: The Balcony
+NURSE: My lady!
+JULIET: Coming!`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].characters).toEqual(["JULIET", "ROMEO"]);
+      expect(scenes[1].characters).toEqual(["JULIET", "NURSE"]);
+    });
+
+    it("should include characters for single scene mode", () => {
+      const text = `ROMEO: Hello.
+JULIET: Hi.`;
+      const scenes = parseScenes(text, { mode: "single" });
+      expect(scenes).toHaveLength(1);
+      expect(scenes[0].characters).toEqual(["JULIET", "ROMEO"]);
     });
   });
 });

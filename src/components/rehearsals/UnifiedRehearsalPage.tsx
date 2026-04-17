@@ -1,10 +1,31 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { parseScenes } from "@/lib/scenes";
+import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
+import { useScenes } from "@/contexts/SceneContext";
+import { Scene as StoredScene } from "@/types/scene";
+import {
+  getTTSSettings,
+  fetchApiVoices,
+  speakTextViaApi,
+  stopApiAudio,
+  ApiVoice,
+  characterNamesMatch,
+} from "@/lib/voice";
+import { useVoice } from "@/contexts/VoiceContext";
 
 const CURRENT_PROJECT_KEY = "theater_current_project_id";
+
+function parseStoredProjectId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(CURRENT_PROJECT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 function saveKeyForProject(projectId: string | null) {
   return projectId
@@ -24,6 +45,7 @@ function loadSavedForProject(projectId: string | null) {
 interface Scene {
   title: string;
   lines: Array<{ speaker: string; text: string }>;
+  characters?: string[];
 }
 
 interface VoiceAssignment {
@@ -40,17 +62,26 @@ interface RehearsalState {
 }
 
 export default function UnifiedRehearsalPage() {
+  // Access saved scenes from the Scene Library (scenes page)
+  const { getProjectScenes } = useScenes();
+
+  // Access cast voice configs
+  const { getVoiceConfigByCharacter, updateVoiceConfig: updateCastVoiceConfig, getProjectCharacters, createVoiceConfig: createCastVoiceConfig, updateCharacter: updateCastCharacter, getVoiceConfig: getCastVoiceConfig } = useVoice();
+
   // Active project ID (mirrors theater_current_project_id in localStorage)
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(
-    () => (typeof window !== "undefined" ? localStorage.getItem(CURRENT_PROJECT_KEY) : null)
+    () => parseStoredProjectId()
   );
 
   // Track whether initial load from storage has happened
   const loadedRef = useRef(false);
 
   // Script loading
+  const [loadSource, setLoadSource] = useState<"paste" | "library">("paste");
   const [scriptInput, setScriptInput] = useState<string>("");
   const [sceneMode, setSceneMode] = useState<"single" | "multiple">("single");
+  const [selectedLibrarySceneIds, setSelectedLibrarySceneIds] = useState<Set<string>>(new Set());
+  const [libraryFilter, setLibraryFilter] = useState<string>("");
 
   // Scenes
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -67,6 +98,14 @@ export default function UnifiedRehearsalPage() {
 
   // Rehearsal mode
   const [rehearsalMode, setRehearsalMode] = useState<"full" | "cue-only">("full");
+
+  // TTS provider: browser speech synthesis vs external API
+  const [ttsProvider, setTtsProvider] = useState<"browser" | "api">("browser");
+  const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
+  const [apiVoicesLoading, setApiVoicesLoading] = useState(false);
+  const [apiVoicesError, setApiVoicesError] = useState<string | null>(null);
+  const [apiVoiceAssignments, setApiVoiceAssignments] = useState<Record<string, string>>({});
+  const [previewingChar, setPreviewingChar] = useState<string | null>(null);
 
   // Rehearsal options
   const [speakNames, setSpeakNames] = useState<boolean>(false);
@@ -111,6 +150,8 @@ export default function UnifiedRehearsalPage() {
     setPauseMode("manual");
     setCountdownSeconds(4);
     setNarratorVoiceIndex(0);
+    setTtsProvider("browser");
+    setApiVoiceAssignments({});
     setCurrentSpeaker("");
     setCurrentDialogue("Load a scene, pick your role, and press Start.");
     setCurrentPrompt("");
@@ -129,6 +170,8 @@ export default function UnifiedRehearsalPage() {
     if (saved.pauseMode) setPauseMode(saved.pauseMode as "manual" | "countdown");
     if (saved.countdownSeconds) setCountdownSeconds(saved.countdownSeconds as number);
     if (typeof saved.narratorVoiceIndex === "number") setNarratorVoiceIndex(saved.narratorVoiceIndex);
+    if (saved.ttsProvider) setTtsProvider(saved.ttsProvider as "browser" | "api");
+    if (saved.apiVoiceAssignments) setApiVoiceAssignments(saved.apiVoiceAssignments as Record<string, string>);
     if (typeof saved.selectedSceneIndex === "number") setSelectedSceneIndex(saved.selectedSceneIndex as number);
 
     if (saved.scriptInput) {
@@ -176,7 +219,12 @@ export default function UnifiedRehearsalPage() {
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key !== CURRENT_PROJECT_KEY) return;
-      const newProjectId = e.newValue;
+      let newProjectId: string | null = null;
+      try {
+        newProjectId = e.newValue ? JSON.parse(e.newValue) : null;
+      } catch {
+        newProjectId = null;
+      }
       setCurrentProjectId(newProjectId);
       applySettings(loadSavedForProject(newProjectId));
     };
@@ -188,7 +236,7 @@ export default function UnifiedRehearsalPage() {
   // Also poll for same-tab project changes (storage events don't fire in the same tab)
   useEffect(() => {
     const interval = setInterval(() => {
-      const pid = localStorage.getItem(CURRENT_PROJECT_KEY);
+      const pid = parseStoredProjectId();
       setCurrentProjectId((prev) => {
         if (pid !== prev) {
           applySettings(loadSavedForProject(pid));
@@ -200,30 +248,64 @@ export default function UnifiedRehearsalPage() {
     return () => clearInterval(interval);
   }, [applySettings]);
 
-  // Get characters from current scene
-  const getCharacters = (scene: Scene): string[] => {
-    return [...new Set(scene.lines.map((l) => l.speaker))];
+  // Split a combined speaker label ("MOM + JOEY") into individual names
+  const splitSpeaker = (speaker: string): string[] => {
+    return speaker
+      .split(/\s*[,&+]\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   };
 
-  // Ensure voice assignments exist
+  // Get unique individual characters from current scene
+  // Prefers saved character overrides from the scenes page
+  const getCharacters = (scene: Scene): string[] => {
+    if (scene.characters && scene.characters.length > 0) {
+      return scene.characters;
+    }
+    const chars = new Set<string>();
+    for (const line of scene.lines) {
+      for (const name of splitSpeaker(line.speaker)) {
+        chars.add(name);
+      }
+    }
+    return [...chars];
+  };
+
+  // Ensure voice assignments exist, loading saved configs from cast page
   const ensureVoiceAssignments = useCallback(() => {
     if (!scenes[selectedSceneIndex]) return;
     const scene = scenes[selectedSceneIndex];
     const chars = getCharacters(scene);
-    const updated = { ...voiceAssignments };
+    const updatedVoice = { ...voiceAssignments };
+    const updatedApi = { ...apiVoiceAssignments };
 
     chars.forEach((char, idx) => {
-      if (!updated[char]) {
-        updated[char] = {
-          voiceIndex: idx % Math.max(availableVoices.length, 1),
-          rate: 1,
-          pitch: 1,
-        };
+      if (!updatedVoice[char]) {
+        // Try loading from saved cast voice config
+        const saved = getVoiceConfigByCharacter(char);
+        if (saved) {
+          const voiceIdx = availableVoices.findIndex((v) => v.name === saved.voiceName);
+          updatedVoice[char] = {
+            voiceIndex: voiceIdx >= 0 ? voiceIdx : idx % Math.max(availableVoices.length, 1),
+            rate: saved.rate,
+            pitch: saved.pitch,
+          };
+          if (saved.apiVoiceId && !updatedApi[char]) {
+            updatedApi[char] = saved.apiVoiceId;
+          }
+        } else {
+          updatedVoice[char] = {
+            voiceIndex: idx % Math.max(availableVoices.length, 1),
+            rate: 1,
+            pitch: 1,
+          };
+        }
       }
     });
 
-    setVoiceAssignments(updated);
-  }, [scenes, selectedSceneIndex, voiceAssignments, availableVoices]);
+    setVoiceAssignments(updatedVoice);
+    setApiVoiceAssignments(updatedApi);
+  }, [scenes, selectedSceneIndex, voiceAssignments, apiVoiceAssignments, availableVoices, getVoiceConfigByCharacter]);
 
   // Parse script
   const handleParseScript = () => {
@@ -287,10 +369,175 @@ MOM: See? You were ready.`
     );
   };
 
+  // Load scenes from the library (scenes page)
+  const handleLoadFromLibrary = () => {
+    if (!currentProjectId) {
+      setRehearsalStatus("Please select a project first.");
+      return;
+    }
+
+    const libraryScenes: StoredScene[] = getProjectScenes(currentProjectId);
+    if (libraryScenes.length === 0) {
+      setRehearsalStatus("No scenes found for this project. Import scenes on the Scenes page first.");
+      return;
+    }
+
+    // Filter to selected scenes, or all if none selected
+    const toLoad: StoredScene[] = selectedLibrarySceneIds.size > 0
+      ? libraryScenes.filter((s) => selectedLibrarySceneIds.has(s.id))
+      : libraryScenes;
+
+    if (toLoad.length === 0) {
+      setRehearsalStatus("No scenes selected.");
+      return;
+    }
+
+    const processedScenes: Scene[] = toLoad
+      .map((s) => {
+        const dialogueLines = parseDialogueLines(s.content);
+        return {
+          title: s.title,
+          lines: dialogueLines.map((dl) => ({
+            speaker: dl.character,
+            text: dl.dialogue,
+          })),
+          characters: s.characters,
+        };
+      })
+      .filter((s) => s.lines.length > 0);
+
+    if (processedScenes.length === 0) {
+      setRehearsalStatus("Selected scenes have no dialogue. Ensure scenes use FORMAT: CHARACTER: line");
+      return;
+    }
+
+    setScenes(processedScenes);
+    setSelectedSceneIndex(0);
+    setCurrentSpeaker("READY");
+    setCurrentDialogue("Scenes loaded from library.");
+    setCurrentPrompt("");
+    setRehearsalStatus(
+      `${processedScenes.length} scene${processedScenes.length === 1 ? "" : "s"} loaded from library.`
+    );
+  };
+
+  const toggleLibraryScene = (sceneId: string) => {
+    setSelectedLibrarySceneIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sceneId)) {
+        next.delete(sceneId);
+      } else {
+        next.add(sceneId);
+      }
+      return next;
+    });
+  };
+
+  // Preview a character's voice using the preview text from Settings
+  const handlePreviewVoice = useCallback(async (char: string) => {
+    if (previewingChar === char) {
+      // Stop current preview
+      if (ttsProvider === "api") {
+        stopApiAudio();
+      } else {
+        window.speechSynthesis.cancel();
+      }
+      setPreviewingChar(null);
+      return;
+    }
+
+    const ttsSettings = getTTSSettings();
+    const text = ttsSettings.previewText || "Hello, this is a voice test.";
+
+    setPreviewingChar(char);
+    try {
+      if (ttsProvider === "api") {
+        const apiVoiceId = apiVoiceAssignments[char] || ttsSettings.defaultVoiceId;
+        const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
+        await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate });
+      } else {
+        window.speechSynthesis.cancel();
+        const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = cfg.rate;
+        utterance.pitch = cfg.pitch;
+        if (availableVoices[cfg.voiceIndex]) {
+          utterance.voice = availableVoices[cfg.voiceIndex];
+        }
+        await new Promise<void>((resolve, reject) => {
+          utterance.onend = () => resolve();
+          utterance.onerror = (e) => reject(new Error(e.error));
+          window.speechSynthesis.speak(utterance);
+        });
+      }
+    } catch {
+      // ignore preview errors
+    } finally {
+      setPreviewingChar(null);
+    }
+  }, [previewingChar, ttsProvider, apiVoiceAssignments, voiceAssignments, availableVoices]);
+
+  // Save a character's voice settings to the cast page
+  const handleSaveVoiceToCast = useCallback((char: string) => {
+    if (!currentProjectId) return;
+    const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
+    const voiceName = availableVoices[cfg.voiceIndex]?.name || "Default";
+    const apiVoiceId = apiVoiceAssignments[char] || undefined;
+
+    // Find the cast character (fuzzy: first-name match)
+    const castChars = getProjectCharacters(currentProjectId);
+    const castChar = castChars.find(
+      (c) => characterNamesMatch(c.characterName, char)
+    );
+
+    // If the cast character has a linked voice config, update that one directly
+    if (castChar?.voiceConfigId) {
+      const linked = getCastVoiceConfig(castChar.voiceConfigId);
+      if (linked) {
+        updateCastVoiceConfig(linked.id, {
+          voiceName,
+          rate: cfg.rate,
+          pitch: cfg.pitch,
+          apiVoiceId,
+        });
+        return;
+      }
+    }
+
+    // Fallback: find any voice config by character name
+    const existing = getVoiceConfigByCharacter(char);
+    if (existing) {
+      updateCastVoiceConfig(existing.id, {
+        voiceName,
+        rate: cfg.rate,
+        pitch: cfg.pitch,
+        apiVoiceId,
+      });
+      // Link it to the cast character if not already linked
+      if (castChar && castChar.voiceConfigId !== existing.id) {
+        updateCastCharacter(castChar.id, { voiceConfigId: existing.id });
+      }
+      return;
+    }
+
+    // No existing config found — create a new one and link it
+    const newConfig = createCastVoiceConfig(char, voiceName, {
+      rate: cfg.rate,
+      pitch: cfg.pitch,
+    });
+    if (apiVoiceId) {
+      updateCastVoiceConfig(newConfig.id, { apiVoiceId });
+    }
+    if (castChar) {
+      updateCastCharacter(castChar.id, { voiceConfigId: newConfig.id });
+    }
+  }, [currentProjectId, voiceAssignments, apiVoiceAssignments, availableVoices, getVoiceConfigByCharacter, updateCastVoiceConfig, getProjectCharacters, createCastVoiceConfig, updateCastCharacter, getCastVoiceConfig]);
+
   // Clear everything for current project
   const handleClear = () => {
     window.speechSynthesis.cancel();
     localStorage.removeItem(saveKeyForProject(currentProjectId));
+    setSelectedLibrarySceneIds(new Set());
     applySettings(null);
   };
 
@@ -312,6 +559,8 @@ MOM: See? You were ready.`
           pauseMode,
           countdownSeconds,
           narratorVoiceIndex,
+          ttsProvider,
+          apiVoiceAssignments,
         };
         localStorage.setItem(saveKeyForProject(pid), JSON.stringify(toSave));
       } catch {
@@ -332,12 +581,54 @@ MOM: See? You were ready.`
     pauseMode,
     countdownSeconds,
     narratorVoiceIndex,
+    ttsProvider,
+    apiVoiceAssignments,
   ]);
 
   // Rehearsal playback logic
   const speakLine = useCallback(
     (line: { speaker: string; text: string }, onDone: () => void) => {
-      const cfg = voiceAssignments[line.speaker] || { rate: 1, pitch: 1, voiceIndex: 0 };
+      // For combined speakers like "MOM + JOEY", use the first individual's voice
+      const primarySpeaker = splitSpeaker(line.speaker)[0] || line.speaker;
+
+      // ── API TTS path ──────────────────────────────────────────────────
+      if (ttsProvider === "api") {
+        const voiceId = apiVoiceAssignments[primarySpeaker] || "";
+        const cfg = voiceAssignments[primarySpeaker] || { rate: 1, pitch: 1, voiceIndex: 0 };
+
+        console.log("[TTS API]", {
+          speaker: line.speaker,
+          primarySpeaker,
+          voiceId,
+          allAssignments: { ...apiVoiceAssignments },
+        });
+
+        const speakViaApi = (text: string, voice: string, speed: number) => {
+          speakTextViaApi(text, { voice, speed })
+            .then(onDone)
+            .catch(() => onDone());
+        };
+
+        if (speakNames) {
+          // Narrator reads the character name via browser TTS, then API speaks the line
+          const nameUtter = new SpeechSynthesisUtterance();
+          nameUtter.text = `${line.speaker}.`;
+          nameUtter.rate = 1;
+          nameUtter.pitch = 1;
+          if (availableVoices.length && availableVoices[narratorVoiceIndex]) {
+            nameUtter.voice = availableVoices[narratorVoiceIndex];
+          }
+          nameUtter.onend = () => speakViaApi(line.text, voiceId, cfg.rate || 1);
+          nameUtter.onerror = () => speakViaApi(line.text, voiceId, cfg.rate || 1);
+          window.speechSynthesis.speak(nameUtter);
+        } else {
+          speakViaApi(line.text, voiceId, cfg.rate || 1);
+        }
+        return;
+      }
+
+      // ── Browser TTS path ──────────────────────────────────────────────
+      const cfg = voiceAssignments[primarySpeaker] || { rate: 1, pitch: 1, voiceIndex: 0 };
 
       // If speakNames is enabled, speak character name with narrator voice first
       if (speakNames) {
@@ -386,7 +677,7 @@ MOM: See? You were ready.`
         window.speechSynthesis.speak(utter);
       }
     },
-    [voiceAssignments, speakNames, availableVoices, narratorVoiceIndex]
+    [voiceAssignments, apiVoiceAssignments, ttsProvider, speakNames, availableVoices, narratorVoiceIndex]
   );
 
   const runRehearsalLine = useCallback(() => {
@@ -402,7 +693,8 @@ MOM: See? You were ready.`
     }
 
     const line = rehearsal.lines[rehearsal.index];
-    const isMine = line.speaker === selectedCharacter;
+    // Combined line is "mine" if my character is one of the speakers
+    const isMine = splitSpeaker(line.speaker).includes(selectedCharacter);
 
     if (isMine && !readOwnLines) {
       setCurrentSpeaker(line.speaker);
@@ -491,6 +783,7 @@ MOM: See? You were ready.`
     }
 
     window.speechSynthesis.cancel();
+    stopApiAudio();
 
     ensureVoiceAssignments();
 
@@ -508,6 +801,7 @@ MOM: See? You were ready.`
   const handlePause = () => {
     if (!rehearsal.isPlaying) return;
     window.speechSynthesis.pause();
+    stopApiAudio();
     setRehearsal((prev) => ({ ...prev, isPaused: true }));
     setRehearsalStatus("Paused.");
 
@@ -533,6 +827,19 @@ MOM: See? You were ready.`
     setRehearsalStatus("Resumed.");
   };
 
+  // Reset rehearsal back to beginning
+  const handleReset = () => {
+    window.speechSynthesis.cancel();
+    stopApiAudio();
+    if (countdownInterval) clearInterval(countdownInterval);
+    if (nextLineTimeout) clearTimeout(nextLineTimeout);
+    setRehearsal({ lines: [], index: 0, isPlaying: false, isPaused: false });
+    setCurrentSpeaker("");
+    setCurrentDialogue("Load a scene, pick your role, and press Start.");
+    setCurrentPrompt("");
+    setRehearsalStatus("Ready when you are.");
+  };
+
   const currentScene = scenes[selectedSceneIndex];
   const characters = currentScene ? getCharacters(currentScene) : [];
 
@@ -552,48 +859,219 @@ MOM: See? You were ready.`
           {/* Load Scenes */}
           <section style={{ ...styles.card, gridColumn: "span 12" }}>
             <h2 style={styles.h2}>Load Scenes</h2>
-            <div style={styles.rowTight}>
-              <label style={styles.pill}>
-                <input
-                  type="radio"
-                  name="sceneMode"
-                  value="single"
-                  checked={sceneMode === "single"}
-                  onChange={(e) => setSceneMode(e.target.value as "single" | "multiple")}
-                />
-                {" "}Single scene
-              </label>
-              <label style={styles.pill}>
-                <input
-                  type="radio"
-                  name="sceneMode"
-                  value="multiple"
-                  checked={sceneMode === "multiple"}
-                  onChange={(e) => setSceneMode(e.target.value as "single" | "multiple")}
-                />
-                {" "}Multiple scenes
-              </label>
+
+            {/* Source tabs */}
+            <div style={{ ...styles.rowTight, marginBottom: "16px" }}>
+              <button
+                onClick={() => setLoadSource("paste")}
+                style={{
+                  ...styles.sourceTab,
+                  ...(loadSource === "paste" ? styles.sourceTabActive : {}),
+                }}
+              >
+                Paste Script
+              </button>
+              <button
+                onClick={() => setLoadSource("library")}
+                style={{
+                  ...styles.sourceTab,
+                  ...(loadSource === "library" ? styles.sourceTabActive : {}),
+                }}
+              >
+                From Scene Library
+              </button>
             </div>
-            <label style={styles.label}>Paste script text</label>
-            <textarea
-              value={scriptInput}
-              onChange={(e) => setScriptInput(e.target.value)}
-              placeholder="SCENE 1: AUDITION ROOM
+
+            {loadSource === "paste" && (
+              <>
+                <div style={styles.rowTight}>
+                  <label style={styles.pill}>
+                    <input
+                      type="radio"
+                      name="sceneMode"
+                      value="single"
+                      checked={sceneMode === "single"}
+                      onChange={(e) => setSceneMode(e.target.value as "single" | "multiple")}
+                    />
+                    {" "}Single scene
+                  </label>
+                  <label style={styles.pill}>
+                    <input
+                      type="radio"
+                      name="sceneMode"
+                      value="multiple"
+                      checked={sceneMode === "multiple"}
+                      onChange={(e) => setSceneMode(e.target.value as "single" | "multiple")}
+                    />
+                    {" "}Multiple scenes
+                  </label>
+                </div>
+                <label style={styles.label}>Paste script text</label>
+                <textarea
+                  value={scriptInput}
+                  onChange={(e) => setScriptInput(e.target.value)}
+                  placeholder="SCENE 1: AUDITION ROOM
 MOM: You know the lines.
 JOEY: I know them until I have to say them out loud..."
-              style={styles.textarea}
-            />
-            <div style={styles.row}>
-              <button onClick={handleParseScript} style={styles.buttonPrimary}>
-                Load script
-              </button>
-              <button onClick={handleLoadSample} style={styles.buttonSecondary}>
-                Load sample
-              </button>
-              <button onClick={handleClear} style={styles.buttonSecondary}>
-                Clear
-              </button>
-            </div>
+                  style={styles.textarea}
+                />
+                <div style={styles.row}>
+                  <button onClick={handleParseScript} style={styles.buttonPrimary}>
+                    Load script
+                  </button>
+                  <button onClick={handleLoadSample} style={styles.buttonSecondary}>
+                    Load sample
+                  </button>
+                  <button onClick={handleClear} style={styles.buttonSecondary}>
+                    Clear
+                  </button>
+                </div>
+              </>
+            )}
+
+            {loadSource === "library" && (
+              <>
+                {(() => {
+                  const libraryScenes: StoredScene[] = currentProjectId
+                    ? getProjectScenes(currentProjectId)
+                    : [];
+                  if (libraryScenes.length === 0) {
+                    return (
+                      <div style={styles.status}>
+                        No scenes found for this project. Import scenes on the Scenes page first.
+                      </div>
+                    );
+                  }
+                  return (
+                    <>
+                      <div style={{ fontSize: "14px", color: "#9fb0d0", marginBottom: "12px" }}>
+                        Select scenes to rehearse, or load all.
+                      </div>
+                      <input
+                        type="text"
+                        value={libraryFilter}
+                        onChange={(e) => setLibraryFilter(e.target.value)}
+                        placeholder="Filter by title, character, or keyword..."
+                        style={{ ...styles.input, marginBottom: "12px" }}
+                      />
+                      <div style={styles.sceneList}>
+                        {(() => {
+                          const query = libraryFilter.trim().toLowerCase();
+                          const filtered = query
+                            ? libraryScenes.filter((ls) => {
+                                const chars = ls.characters ?? extractSceneCharacters(ls.content);
+                                return (
+                                  ls.title.toLowerCase().includes(query) ||
+                                  ls.content.toLowerCase().includes(query) ||
+                                  chars.some((c) => c.toLowerCase().includes(query))
+                                );
+                              })
+                            : libraryScenes;
+                          if (filtered.length === 0) {
+                            return (
+                              <div style={{ ...styles.status, padding: "12px" }}>
+                                No scenes match &ldquo;{libraryFilter.trim()}&rdquo;
+                              </div>
+                            );
+                          }
+                          const allFilteredSelected = filtered.every((ls) => selectedLibrarySceneIds.has(ls.id));
+                          const someFilteredSelected = filtered.some((ls) => selectedLibrarySceneIds.has(ls.id));
+                          const handleToggleAll = () => {
+                            setSelectedLibrarySceneIds((prev) => {
+                              const next = new Set(prev);
+                              if (allFilteredSelected) {
+                                filtered.forEach((ls) => next.delete(ls.id));
+                              } else {
+                                filtered.forEach((ls) => next.add(ls.id));
+                              }
+                              return next;
+                            });
+                          };
+                          return (
+                          <>
+                          <div
+                            onClick={handleToggleAll}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              padding: "8px 12px",
+                              borderBottom: "1px solid #334155",
+                              cursor: "pointer",
+                              fontSize: "14px",
+                              color: "#9fb0d0",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={allFilteredSelected}
+                              ref={(el) => { if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected; }}
+                              onChange={handleToggleAll}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ accentColor: "#7dd3fc" }}
+                            />
+                            <span>Select All{query ? ` (${filtered.length} matching)` : ""}</span>
+                          </div>
+                          {filtered.map((ls) => {
+                          const isSelected = selectedLibrarySceneIds.has(ls.id);
+                          return (
+                            <div
+                              key={ls.id}
+                              onClick={() => toggleLibraryScene(ls.id)}
+                              style={{
+                                ...styles.sceneItem,
+                                ...(isSelected ? styles.sceneItemActive : {}),
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleLibraryScene(ls.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ accentColor: "#7dd3fc" }}
+                                />
+                                <strong>{ls.title}</strong>
+                              </div>
+                              <div style={styles.small}>
+                                {ls.content.split("\n").length} lines •{" "}
+                                {Math.ceil(ls.content.length / 5)} words
+                              </div>
+                              {(() => {
+                                const chars = ls.characters ?? extractSceneCharacters(ls.content);
+                                return chars.length > 0 ? (
+                                  <div style={{ fontSize: "12px", marginTop: "2px" }}>
+                                    <span style={{ color: "#9fb0d0" }}>Characters: </span>
+                                    <span style={{ color: "#7dd3fc" }}>{chars.join(", ")}</span>
+                                  </div>
+                                ) : null;
+                              })()}
+                              <div style={{ ...styles.small, marginTop: "4px" }}>
+                                {ls.content.substring(0, 120).replace(/\n/g, " ")}
+                                {ls.content.length > 120 ? "..." : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                          </>
+                          );
+                        })()}
+                      </div>
+                      <div style={{ ...styles.row, marginTop: "12px" }}>
+                        <button onClick={handleLoadFromLibrary} style={styles.buttonPrimary}>
+                          {selectedLibrarySceneIds.size > 0
+                            ? `Load ${selectedLibrarySceneIds.size} selected scene${selectedLibrarySceneIds.size === 1 ? "" : "s"}`
+                            : `Load all ${libraryScenes.length} scene${libraryScenes.length === 1 ? "" : "s"}`}
+                        </button>
+                        <button onClick={handleClear} style={styles.buttonSecondary}>
+                          Clear
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </section>
 
           {/* Scene Library */}
@@ -718,6 +1196,68 @@ JOEY: I know them until I have to say them out loud..."
           {/* Voice Configuration */}
           <section style={{ ...styles.card, gridColumn: "span 8" }}>
             <h2 style={styles.h2}>Character Voices</h2>
+
+            {/* TTS Provider Toggle */}
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+              <button
+                onClick={() => setTtsProvider("browser")}
+                style={{
+                  ...styles.buttonSecondary,
+                  ...(ttsProvider === "browser" ? { borderColor: "#00d4ff", color: "#00d4ff", backgroundColor: "rgba(0,212,255,0.1)" } : {}),
+                }}
+              >
+                Browser TTS
+              </button>
+              <button
+                onClick={() => {
+                  const ttsSettings = getTTSSettings();
+                  if (!ttsSettings.apiUrl) {
+                    alert("Configure your TTS API in Settings first.");
+                    return;
+                  }
+                  setTtsProvider("api");
+                  if (apiVoices.length === 0) {
+                    setApiVoicesLoading(true);
+                    setApiVoicesError(null);
+                    fetchApiVoices(ttsSettings)
+                      .then((voices) => {
+                        setApiVoices(voices);
+                        if (voices.length === 0) setApiVoicesError("No voices returned.");
+                      })
+                      .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+                      .finally(() => setApiVoicesLoading(false));
+                  }
+                }}
+                style={{
+                  ...styles.buttonSecondary,
+                  ...(ttsProvider === "api" ? { borderColor: "#00d4ff", color: "#00d4ff", backgroundColor: "rgba(0,212,255,0.1)" } : {}),
+                }}
+              >
+                API TTS
+              </button>
+              {ttsProvider === "api" && (
+                <button
+                  onClick={() => {
+                    setApiVoicesLoading(true);
+                    setApiVoicesError(null);
+                    fetchApiVoices(getTTSSettings())
+                      .then((voices) => {
+                        setApiVoices(voices);
+                        if (voices.length === 0) setApiVoicesError("No voices returned.");
+                      })
+                      .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+                      .finally(() => setApiVoicesLoading(false));
+                  }}
+                  disabled={apiVoicesLoading}
+                  style={styles.buttonSecondary}
+                >
+                  {apiVoicesLoading ? "Loading..." : "↻ Refresh Voices"}
+                </button>
+              )}
+            </div>
+            {apiVoicesError && ttsProvider === "api" && (
+              <div style={{ color: "#ff6b6b", fontSize: "12px", marginBottom: "8px" }}>{apiVoicesError}</div>
+            )}
             
             {/* Narrator Voice (only shown when "Speak character names" is checked) */}
             {speakNames && (
@@ -743,7 +1283,7 @@ JOEY: I know them until I have to say them out loud..."
                   )}
                 </select>
                 <div style={{ gridColumn: "span 2", fontSize: "12px", color: "#9fb0d0" }}>
-                  Reads character names
+                  Reads character names (always uses browser voice)
                 </div>
               </div>
             )}
@@ -751,6 +1291,82 @@ JOEY: I know them until I have to say them out loud..."
             <div style={styles.voiceTable}>
               {characters.map((char) => {
                 const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
+
+                if (ttsProvider === "api") {
+                  // API TTS: voice dropdown + speed control
+                  const apiVoiceId = apiVoiceAssignments[char] || "";
+                  return (
+                    <div key={char} style={styles.voiceRow}>
+                      <div>
+                        <strong>{char}</strong>
+                      </div>
+                      <select
+                        value={apiVoiceId}
+                        onChange={(e) => {
+                          setApiVoiceAssignments((prev) => ({
+                            ...prev,
+                            [char]: e.target.value,
+                          }));
+                        }}
+                        style={styles.input}
+                      >
+                        <option value="">
+                          {apiVoices.length === 0
+                            ? (apiVoicesLoading ? "Loading voices..." : "Click Refresh Voices")
+                            : "Default voice"}
+                        </option>
+                        {apiVoices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name ? `${v.name} (${v.id})` : v.id}
+                          </option>
+                        ))}
+                      </select>
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.miniLabel}>Speed</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.5"
+                          max="2"
+                          value={cfg.rate}
+                          onChange={(e) => {
+                            setVoiceAssignments((prev) => ({
+                              ...prev,
+                              [char]: { ...cfg, rate: parseFloat(e.target.value) || 1 },
+                            }));
+                          }}
+                          style={styles.input}
+                        />
+                      </div>
+                      <button
+                        onClick={() => handlePreviewVoice(char)}
+                        style={{
+                          ...styles.buttonSecondary,
+                          padding: "4px 10px",
+                          fontSize: "13px",
+                          minWidth: "auto",
+                          ...(previewingChar === char ? { borderColor: "#ff6b6b", color: "#ff6b6b" } : {}),
+                        }}
+                      >
+                        {previewingChar === char ? "⏹ Stop" : "▶ Preview"}
+                      </button>
+                      <button
+                        onClick={() => handleSaveVoiceToCast(char)}
+                        style={{
+                          ...styles.buttonSecondary,
+                          padding: "4px 10px",
+                          fontSize: "13px",
+                          minWidth: "auto",
+                        }}
+                        title="Save voice settings to cast page"
+                      >
+                        💾 Save
+                      </button>
+                    </div>
+                  );
+                }
+
+                // Browser TTS: voice dropdown + rate/pitch
                 return (
                   <div key={char} style={styles.voiceRow}>
                     <div>
@@ -810,6 +1426,30 @@ JOEY: I know them until I have to say them out loud..."
                         style={styles.input}
                       />
                     </div>
+                    <button
+                      onClick={() => handlePreviewVoice(char)}
+                      style={{
+                        ...styles.buttonSecondary,
+                        padding: "4px 10px",
+                        fontSize: "13px",
+                        minWidth: "auto",
+                        ...(previewingChar === char ? { borderColor: "#ff6b6b", color: "#ff6b6b" } : {}),
+                      }}
+                    >
+                      {previewingChar === char ? "⏹ Stop" : "▶ Preview"}
+                    </button>
+                    <button
+                      onClick={() => handleSaveVoiceToCast(char)}
+                      style={{
+                        ...styles.buttonSecondary,
+                        padding: "4px 10px",
+                        fontSize: "13px",
+                        minWidth: "auto",
+                      }}
+                      title="Save voice settings to cast page"
+                    >
+                      💾 Save
+                    </button>
                   </div>
                 );
               })}
@@ -828,6 +1468,9 @@ JOEY: I know them until I have to say them out loud..."
               </button>
               <button onClick={handleResume} style={styles.buttonSecondary}>
                 ▶ Resume
+              </button>
+              <button onClick={handleReset} style={styles.buttonDanger}>
+                ⏹ Reset
               </button>
             </div>
             <div style={styles.status}>{rehearsalStatus}</div>
@@ -1073,5 +1716,38 @@ const styles = {
     color: "#422006",
     fontSize: "14px",
     flex: 1,
+  },
+  buttonDanger: {
+    border: "0",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    fontWeight: "700",
+    cursor: "pointer",
+    background: "#ef4444",
+    color: "#fff",
+    fontSize: "14px",
+    flex: 1,
+  },
+  sourceTab: {
+    borderTop: "1px solid #2b3957",
+    borderRight: "1px solid #2b3957",
+    borderBottom: "1px solid #2b3957",
+    borderLeft: "1px solid #2b3957",
+    borderRadius: "12px 12px 0 0",
+    padding: "10px 18px",
+    fontWeight: "700",
+    cursor: "pointer",
+    background: "#0c1324",
+    color: "#9fb0d0",
+    fontSize: "14px",
+    transition: "all 0.2s",
+  } as React.CSSProperties,
+  sourceTabActive: {
+    background: "#1e293b",
+    color: "#7dd3fc",
+    borderTop: "1px solid #7dd3fc",
+    borderRight: "1px solid #7dd3fc",
+    borderLeft: "1px solid #7dd3fc",
+    borderBottom: "2px solid #7dd3fc",
   },
 } as const;

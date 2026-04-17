@@ -50,6 +50,50 @@ export function SceneProvider({ children }: { children: ReactNode }) {
     return newScene;
   };
 
+  const createScenes = (
+    projectId: string,
+    scenesData: Array<{title: string; content: string; description?: string; characters?: string[]}>
+  ): Scene[] => {
+    // Validate all scenes first
+    for (const sceneData of scenesData) {
+      const titleValidation = validateSceneTitle(sceneData.title);
+      if (!titleValidation.valid) {
+        throw new Error(titleValidation.error);
+      }
+
+      const contentValidation = validateSceneContent(sceneData.content);
+      if (!contentValidation.valid) {
+        throw new Error(contentValidation.error);
+      }
+    }
+
+    // Get the highest order for this project
+    const projectScenes = scenes.filter((s) => s.projectId === projectId);
+    const maxOrder =
+      projectScenes.length > 0
+        ? Math.max(...projectScenes.map((s) => s.order))
+        : -1;
+
+    // Create all scenes with sequential order numbers
+    const newScenes = scenesData.map((sceneData, index) => {
+      const scene = createSceneUtil(
+        projectId,
+        sceneData.title,
+        sceneData.content,
+        sceneData.description,
+        maxOrder + 1 + index
+      );
+      if (sceneData.characters) {
+        scene.characters = sceneData.characters;
+      }
+      return scene;
+    });
+
+    // Add all scenes in a single state update
+    setScenes([...scenes, ...newScenes]);
+    return newScenes;
+  };
+
   const updateScene = (
     id: string,
     updates: Partial<Omit<Scene, "id" | "projectId" | "createdAt">>
@@ -97,6 +141,27 @@ export function SceneProvider({ children }: { children: ReactNode }) {
     setScenes([...reordered, ...otherScenes]);
   };
 
+  const deleteScenes = (ids: string[]): void => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const toDelete = scenes.filter((s) => idSet.has(s.id));
+    if (toDelete.length === 0) return;
+
+    const filtered = scenes.filter((s) => !idSet.has(s.id));
+
+    // Collect affected projects and reorder each
+    const affectedProjects = new Set(toDelete.map((s) => s.projectId));
+    let result = filtered.filter((s) => !affectedProjects.has(s.projectId));
+    for (const pid of affectedProjects) {
+      const projectScenes = filtered
+        .filter((s) => s.projectId === pid)
+        .sort((a, b) => a.order - b.order)
+        .map((s, index) => ({ ...s, order: index }));
+      result = [...result, ...projectScenes];
+    }
+    setScenes(result);
+  };
+
   const getProjectScenes = (projectId: string): Scene[] => {
     return scenes
       .filter((s) => s.projectId === projectId)
@@ -116,8 +181,10 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       value={{
         scenes,
         createScene,
+        createScenes,
         updateScene,
         deleteScene,
+        deleteScenes,
         getProjectScenes,
         reorderScenes,
       }}

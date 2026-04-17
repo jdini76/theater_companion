@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { VoiceConfig } from "@/types/voice";
+import { characterNamesMatch } from "@/lib/voice";
 
 /**
  * Test suite for TTS Voice Configuration retrieval
@@ -300,6 +301,37 @@ describe("TTS Voice Config Integration", () => {
       const retrieved = getVoiceConfigByCharacter("SPIRIT OF MARS");
       expect(retrieved).toBeDefined();
       expect(retrieved?.characterName).toBe("SPIRIT OF MARS");
+    });
+  });
+
+  describe("characterNamesMatch — fuzzy first-name matching", () => {
+    it("matches exact names case-insensitively", () => {
+      expect(characterNamesMatch("Phil Connors", "PHIL CONNORS")).toBe(true);
+      expect(characterNamesMatch("romeo", "ROMEO")).toBe(true);
+    });
+
+    it("matches first name to full name", () => {
+      expect(characterNamesMatch("PHIL", "Phil Connors")).toBe(true);
+      expect(characterNamesMatch("Phil Connors", "PHIL")).toBe(true);
+    });
+
+    it("does not match different first names", () => {
+      expect(characterNamesMatch("PHIL", "Bill Connors")).toBe(false);
+      expect(characterNamesMatch("ROMEO", "JULIET")).toBe(false);
+    });
+
+    it("does not match partial first names", () => {
+      expect(characterNamesMatch("PHI", "Phil Connors")).toBe(false);
+    });
+
+    it("handles empty / whitespace strings", () => {
+      expect(characterNamesMatch("", "Phil")).toBe(false);
+      expect(characterNamesMatch("  ", "Phil")).toBe(false);
+    });
+
+    it("matches single-word names exactly", () => {
+      expect(characterNamesMatch("NURSE", "Nurse")).toBe(true);
+      expect(characterNamesMatch("NURSE", "Doctor")).toBe(false);
     });
   });
 });
