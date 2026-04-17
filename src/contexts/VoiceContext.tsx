@@ -10,6 +10,7 @@ import {
   updateCharacter as updateCharacterUtil,
   validateCharacterName,
   validateVoiceConfig,
+  characterNamesMatch,
 } from "@/lib/voice";
 
 const VoiceContext = createContext<VoiceContextType | undefined>(undefined);
@@ -66,7 +67,12 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   };
 
   const getVoiceConfigByCharacter = (characterName: string): VoiceConfig | null => {
-    return voiceConfigs.find((c) => c.characterName === characterName) || null;
+    const upper = characterName.trim().toUpperCase();
+    // Exact match first
+    const exact = voiceConfigs.find((c) => c.characterName.toUpperCase() === upper);
+    if (exact) return exact;
+    // Fuzzy: first-name / prefix match
+    return voiceConfigs.find((c) => characterNamesMatch(c.characterName, characterName)) || null;
   };
 
   const createCharacter = (
@@ -136,6 +142,38 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       );
   };
 
+  const importCastCharacters = (
+    projectId: string,
+    names: string[],
+  ): CharacterRole[] => {
+    const existing = new Set(
+      characters
+        .filter((c) => c.projectId === projectId)
+        .map((c) => c.characterName.toUpperCase()),
+    );
+
+    const newCharacters: CharacterRole[] = [];
+    const newConfigs: VoiceConfig[] = [];
+
+    for (const name of names) {
+      const trimmed = name.trim();
+      if (!trimmed || existing.has(trimmed.toUpperCase())) continue;
+      existing.add(trimmed.toUpperCase());
+
+      const character = createCharacterUtil(projectId, trimmed);
+      const config = createVoiceConfigUtil(trimmed, "Default");
+      newCharacters.push({ ...character, voiceConfigId: config.id });
+      newConfigs.push(config);
+    }
+
+    if (newCharacters.length > 0) {
+      setVoiceConfigs([...voiceConfigs, ...newConfigs]);
+      setCharacters([...characters, ...newCharacters]);
+    }
+
+    return newCharacters;
+  };
+
   const setCurrentCharacterById = (characterId: string): void => {
     const character = characters.find((c) => c.id === characterId);
     if (!character) {
@@ -164,6 +202,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         updateCharacter,
         deleteCharacter,
         getProjectCharacters,
+        importCastCharacters,
         setCurrentCharacter: setCurrentCharacterById,
         getCurrentCharacter,
       }}

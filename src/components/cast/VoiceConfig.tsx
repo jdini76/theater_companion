@@ -2,7 +2,17 @@
 
 import React, { useState, useEffect } from "react";
 import { useVoice } from "@/contexts/VoiceContext";
-import { getAvailableVoices, speakText, stopSpeaking } from "@/lib/voice";
+import {
+  getAvailableVoices,
+  speakText,
+  stopSpeaking,
+  getTTSSettings,
+  fetchApiVoices,
+  speakTextViaApi,
+  stopApiAudio,
+  ApiVoice,
+} from "@/lib/voice";
+import { TTSSettings } from "@/types/voice";
 import { Button } from "@/components/ui/Button";
 
 interface VoiceConfigProps {
@@ -25,6 +35,10 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
       : null;
 
   const [voices, setVoices] = useState(getAvailableVoices());
+  const [ttsSettings, setTtsSettings] = useState<TTSSettings | null>(null);
+  const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
+  const [apiVoicesLoading, setApiVoicesLoading] = useState(false);
+  const [apiVoicesError, setApiVoicesError] = useState<string | null>(null);
   const [testText, setTestText] = useState(
     character?.characterName
       ? `Hello, I am ${character.characterName}.`
@@ -32,8 +46,15 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   );
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // Load TTS settings to know which provider is active
   useEffect(() => {
-    // Reload voices when component mounts (can be async in some browsers)
+    setTtsSettings(getTTSSettings());
+  }, []);
+
+  const isApiMode = ttsSettings?.provider === "api" && !!ttsSettings.apiUrl;
+
+  useEffect(() => {
+    // Reload browser voices when component mounts
     const loadVoices = () => {
       const availableVoices = getAvailableVoices();
       if (availableVoices.length > 0) {
@@ -48,6 +69,27 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     };
   }, []);
 
+  // Load API voices when in API mode
+  useEffect(() => {
+    if (!isApiMode || !ttsSettings || apiVoices.length > 0) return;
+    setApiVoicesLoading(true);
+    setApiVoicesError(null);
+    fetchApiVoices(ttsSettings)
+      .then((v) => {
+        setApiVoices(v);
+        if (v.length === 0) setApiVoicesError("No voices returned.");
+      })
+      .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+      .finally(() => setApiVoicesLoading(false));
+  }, [isApiMode, ttsSettings, apiVoices.length]);
+
+  // Update test text when character changes
+  useEffect(() => {
+    if (character?.characterName) {
+      setTestText(`Hello, I am ${character.characterName}.`);
+    }
+  }, [character?.characterName]);
+
   if (!character || !voiceConfig) {
     return (
       <div className="card">
@@ -60,6 +102,10 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
 
   const handleVoiceChange = (voiceName: string) => {
     updateVoiceConfig(voiceConfig.id, { voiceName });
+  };
+
+  const handleApiVoiceChange = (apiVoiceId: string) => {
+    updateVoiceConfig(voiceConfig.id, { apiVoiceId: apiVoiceId || undefined });
   };
 
   const handleRateChange = (rate: number) => {
@@ -86,7 +132,15 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
 
     try {
       setIsSpeaking(true);
-      await speakText(testText, voiceConfig);
+      if (isApiMode) {
+        await speakTextViaApi(testText, {
+          voice: voiceConfig.apiVoiceId || ttsSettings?.defaultVoiceId,
+          speed: voiceConfig.rate,
+          volume: voiceConfig.volume,
+        });
+      } else {
+        await speakText(testText, voiceConfig);
+      }
     } catch (error) {
       alert(
         `Error speaking: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -97,7 +151,11 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   };
 
   const handleStopSpeech = () => {
-    stopSpeaking();
+    if (isApiMode) {
+      stopApiAudio();
+    } else {
+      stopSpeaking();
+    }
     setIsSpeaking(false);
   };
 
@@ -110,34 +168,91 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
         <p className="text-muted">
           Character: <span className="text-accent-cyan font-semibold">{character.characterName}</span>
         </p>
+        <p className="text-xs text-muted mt-1">
+          TTS Provider: <span className="text-accent-cyan">{isApiMode ? "API TTS" : "Browser TTS"}</span>
+          {isApiMode && <span className="text-muted"> — change in Settings</span>}
+        </p>
       </div>
 
-      {/* Voice Selection */}
-      <div>
-        <label className="block text-light font-semibold mb-2">
-          🎙️ Voice
-        </label>
-        <select
-          value={voiceConfig.voiceName}
-          onChange={(e) => handleVoiceChange(e.target.value)}
-          disabled={voiceConfig.muted}
-          className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
-        >
-          <option value="">-- Select Voice --</option>
-          {voices.map((voice) => (
-            <option key={voice.voiceURI || voice.name} value={voice.name}>
-              {voice.name} ({voice.lang})
-            </option>
-          ))}
-        </select>
-        <p className="text-muted text-xs mt-1">Select the voice for this character</p>
-      </div>
+      {/* Voice Selection — API mode */}
+      {isApiMode ? (
+        <div>
+          <label className="block text-light font-semibold mb-2">
+            🎙️ API Voice
+          </label>
+          <div className="flex gap-2">
+            <select
+              value={voiceConfig.apiVoiceId || ""}
+              onChange={(e) => handleApiVoiceChange(e.target.value)}
+              disabled={voiceConfig.muted}
+              className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
+            >
+              <option value="">
+                {apiVoices.length === 0
+                  ? (apiVoicesLoading ? "Loading voices..." : "Click Refresh to load")
+                  : "Default voice"}
+              </option>
+              {apiVoices.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name ? `${v.name} (${v.id})` : v.id}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (!ttsSettings) return;
+                setApiVoicesLoading(true);
+                setApiVoicesError(null);
+                fetchApiVoices(ttsSettings)
+                  .then((v) => {
+                    setApiVoices(v);
+                    if (v.length === 0) setApiVoicesError("No voices returned.");
+                  })
+                  .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+                  .finally(() => setApiVoicesLoading(false));
+              }}
+              disabled={apiVoicesLoading}
+            >
+              {apiVoicesLoading ? "..." : "↻"}
+            </Button>
+          </div>
+          {apiVoicesError && (
+            <p className="text-red-400 text-xs mt-1">{apiVoicesError}</p>
+          )}
+          {voiceConfig.apiVoiceId && (
+            <p className="text-muted text-xs mt-1">Current: {voiceConfig.apiVoiceId}</p>
+          )}
+        </div>
+      ) : (
+        /* Voice Selection — Browser mode */
+        <div>
+          <label className="block text-light font-semibold mb-2">
+            🎙️ Voice
+          </label>
+          <select
+            value={voiceConfig.voiceName}
+            onChange={(e) => handleVoiceChange(e.target.value)}
+            disabled={voiceConfig.muted}
+            className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
+          >
+            <option value="">-- Select Voice --</option>
+            {voices.map((voice) => (
+              <option key={voice.voiceURI || voice.name} value={voice.name}>
+                {voice.name} ({voice.lang})
+              </option>
+            ))}
+          </select>
+          <p className="text-muted text-xs mt-1">Select the voice for this character</p>
+        </div>
+      )}
 
-      {/* Rate Control */}
+      {/* Rate / Speed Control */}
       <div>
         <div className="flex justify-between items-center mb-2">
           <label className="text-light font-semibold">
-            ⚡ Speech Rate
+            ⚡ {isApiMode ? "Speed" : "Speech Rate"}
           </label>
           <span className="text-accent-cyan font-mono">
             {voiceConfig.rate.toFixed(1)}x
@@ -145,8 +260,8 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
         </div>
         <input
           type="range"
-          min="0.1"
-          max="10"
+          min={isApiMode ? "0.5" : "0.1"}
+          max={isApiMode ? "2" : "10"}
           step="0.1"
           value={voiceConfig.rate}
           onChange={(e) => handleRateChange(parseFloat(e.target.value))}
@@ -154,13 +269,14 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
           className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
         />
         <div className="flex justify-between text-xs text-muted mt-1">
-          <span>Slow (0.1x)</span>
+          <span>Slow ({isApiMode ? "0.5x" : "0.1x"})</span>
           <span>Normal (1x)</span>
-          <span>Fast (10x)</span>
+          <span>Fast ({isApiMode ? "2x" : "10x"})</span>
         </div>
       </div>
 
-      {/* Pitch Control */}
+      {/* Pitch Control — browser TTS only */}
+      {!isApiMode && (
       <div>
         <div className="flex justify-between items-center mb-2">
           <label className="text-light font-semibold">
@@ -186,6 +302,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
           <span>High (2)</span>
         </div>
       </div>
+      )}
 
       {/* Volume Control */}
       <div>

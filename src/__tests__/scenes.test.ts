@@ -9,6 +9,9 @@ import {
   reorderScenes,
   createScenesFromInput,
   generateSceneId,
+  detectSceneCount,
+  detectSceneBreaks,
+  extractSceneCharacters,
 } from "@/lib/scenes";
 import { Scene, ParsedScene } from "@/types/scene";
 
@@ -122,45 +125,48 @@ More content.`;
     });
   });
 
-  describe("Scene Parsing - Format 3 (Separators)", () => {
-    it("should parse with --- separators", () => {
-      const text = `First scene content here.
-Line two.
+  describe("Scene Parsing - Format 3 (Scene Number Heading)", () => {
+    it("should parse #N - Title with hyphen", () => {
+      const text = `#1 - TV Studio
+PHIL: Hello.
+DIRECTOR: Cut!
 
----
-
-Second scene content.
-Different location.`;
+#2 - Gobbler's Knob
+PHIL: We're here.`;
       const scenes = parseScenes(text);
       expect(scenes).toHaveLength(2);
-      expect(scenes[0].content).toContain("First scene");
-      expect(scenes[1].content).toContain("Second scene");
+      expect(scenes[0].content).toContain("PHIL: Hello");
+      expect(scenes[1].content).toContain("We're here");
     });
 
-    it("should parse with === separators", () => {
-      const text = `Content one
-===
-Content two
-===
-Content three`;
-      const scenes = parseScenes(text);
-      expect(scenes).toHaveLength(3);
-    });
+    it("should parse #N – Title with en-dash", () => {
+      const text = `#4 \u2013 B&B Parlor
+MRS. LANCASTER: Good morning!
 
-    it("should parse with *** separators", () => {
-      const text = `Scene one
-***
-Scene two`;
+#5 - The Town
+PHIL: Let's go.`;
       const scenes = parseScenes(text);
       expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toContain("B&B Parlor");
+      expect(scenes[1].title).toContain("The Town");
     });
 
-    it("should handle multiple separator styles", () => {
-      const text = `First
----
-Second
-===
-Third`;
+    it("should extract scene title from heading", () => {
+      const text = `#1 - TV Studio
+Content here.`;
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes[0].title).toContain("TV Studio");
+    });
+
+    it("should handle multiple scenes with #N format", () => {
+      const text = `#1 - Opening
+Content one.
+
+#2 - Middle
+Content two.
+
+#3 - Closing
+Content three.`;
       const scenes = parseScenes(text);
       expect(scenes).toHaveLength(3);
     });
@@ -173,7 +179,7 @@ Third`;
         "Test Scene",
         "Scene content here",
         "Description",
-        0
+        0,
       );
       expect(scene.projectId).toBe("project_123");
       expect(scene.title).toBe("Test Scene");
@@ -388,6 +394,572 @@ SCENE III: FINAL
 Both characters together.`;
       const scenes = parseScenes(screenplay);
       expect(scenes.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe("Input Mode Selection", () => {
+    const singleContent = `ROMEO: O Romeo wherefore art thou?
+JULIET: 'Tis but thy name that is my enemy.`;
+
+    const multiContent = `SCENE 1: The Garden
+ROMEO: O Romeo wherefore art thou?
+
+SCENE 2: The Balcony
+JULIET: 'Tis but thy name that is my enemy.`;
+
+    describe("Single Mode", () => {
+      it("should treat entire input as one scene in single mode", () => {
+        const scenes = parseScenes(multiContent, { mode: "single" });
+        expect(scenes).toHaveLength(1);
+        expect(scenes[0].title).toBe("Scene 1");
+        expect(scenes[0].content).toContain("SCENE 1:");
+        expect(scenes[0].content).toContain("SCENE 2:");
+      });
+
+      it("should preserve all content including headers in single mode", () => {
+        const scenes = parseScenes(multiContent, { mode: "single" });
+        expect(scenes[0].content).toContain("The Garden");
+        expect(scenes[0].content).toContain("The Balcony");
+      });
+    });
+
+    describe("Multiple Mode", () => {
+      it("should detect and split multiple scenes in multiple mode", () => {
+        const scenes = parseScenes(multiContent, { mode: "multiple" });
+        expect(scenes.length).toBeGreaterThanOrEqual(2);
+        expect(scenes[0].title).toContain("Scene 1");
+        expect(scenes[1].title).toContain("Scene 2");
+      });
+
+      it("should strip headers from scene content in multiple mode", () => {
+        const scenes = parseScenes(multiContent, { mode: "multiple" });
+        expect(scenes[0].content).not.toContain("SCENE 1:");
+        expect(scenes[1].content).not.toContain("SCENE 2:");
+      });
+
+      it("should return single scene if no breaks found in multiple mode", () => {
+        const scenes = parseScenes(singleContent, { mode: "multiple" });
+        expect(scenes).toHaveLength(1);
+      });
+    });
+
+    describe("Auto Mode", () => {
+      it("should return single scene if no breaks detected in auto mode", () => {
+        const scenes = parseScenes(singleContent, { mode: "auto" });
+        expect(scenes).toHaveLength(1);
+      });
+
+      it("should detect multiple scenes in auto mode", () => {
+        const scenes = parseScenes(multiContent, { mode: "auto" });
+        expect(scenes.length).toBeGreaterThanOrEqual(2);
+      });
+
+      it("should be used as default when mode is not specified", () => {
+        const defaultScenes = parseScenes(multiContent);
+        const autoScenes = parseScenes(multiContent, { mode: "auto" });
+        expect(defaultScenes).toEqual(autoScenes);
+      });
+    });
+  });
+
+  describe("Scene Detection - Enhanced Patterns", () => {
+    it("should detect bracketed scene headers", () => {
+      const text = `[SCENE 1: The Garden]
+ROMEO: Content
+
+[SCENE 2: The Balcony]
+JULIET: More content`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should detect lowercase bracketed headers", () => {
+      const text = `[scene 1]
+Content one
+
+[scene 2]
+Content two`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should detect multiple separator styles in same document", () => {
+      const text = `Scene one
+---
+Scene two
+===
+Scene three
+***
+Scene four`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("should preserve scene titles from all patterns", () => {
+      const breaks = detectSceneBreaks(`SCENE 1: The Beginning\nContent`);
+      expect(breaks.length).toBeGreaterThan(0);
+      expect(breaks[0].title).toContain("1");
+    });
+
+    it("should handle scene headers with detailed titles", () => {
+      const text = `SCENE 1: The Bedroom - A dark, cold morning
+ROMEO: Where art thou?`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThan(0);
+      expect(scenes[0].title).toContain("dark");
+    });
+  });
+
+  describe("Multiline Dialogue in Multiple Scenes", () => {
+    it("should preserve multiline dialogue across multiple scenes", () => {
+      const text = `SCENE 1: First
+ROMEO: O Romeo wherefore art thou?
+  Why must thou be Romeo?
+  Deny thy father!
+
+SCENE 2: Second
+JULIET: What's in a name?
+  That which we call a rose
+  By any other name would smell as sweet.`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThanOrEqual(2);
+      // Content should preserve multiline structure
+      expect(scenes[0].content).toContain("wherefore");
+      expect(scenes[1].content).toContain("rose");
+    });
+
+    it("should handle indented multiline dialogue after headers", () => {
+      const text = `SCENE 1
+ROMEO: First line
+  Second line
+  Third line`;
+
+      const scenes = parseScenes(text, { mode: "single" });
+      expect(scenes[0].content).toContain("First line");
+      expect(scenes[0].content).toContain("Second line");
+    });
+
+    it("should handle stage directions between multiline dialogue", () => {
+      const text = `SCENE 1
+ROMEO: O Romeo!
+  Wherefore art thou?
+[pauses]
+  Actually, never mind.`;
+
+      const scenes = parseScenes(text, { mode: "single" });
+      expect(scenes[0].content).toContain("pauses");
+    });
+  });
+
+  describe("Error Handling & Edge Cases", () => {
+    it("should throw error for empty input in createScenesFromInput", () => {
+      expect(() => createScenesFromInput("proj_1", "")).toThrow();
+    });
+
+    it("should throw error for whitespace-only input in createScenesFromInput", () => {
+      expect(() => createScenesFromInput("proj_1", "   \n\n  ")).toThrow();
+    });
+
+    it("should handle malformed headers gracefully", () => {
+      const text = `Scene: Missing number
+ROMEO: Content here`;
+
+      // Should not crash
+      const scenes = parseScenes(text, { mode: "single" });
+      expect(scenes).toBeDefined();
+      expect(scenes.length).toBeGreaterThan(0);
+    });
+
+    it("should skip empty scenes between breaks", () => {
+      const text = `SCENE 1: First
+ROMEO: Text
+
+SCENE 2: 
+
+SCENE 3: Third
+JULIET: More text`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+
+      // Should only have scenes with content
+      expect(scenes.every((s) => s.content.trim().length > 0)).toBe(true);
+    });
+
+    it("should handle scenes with only stage directions", () => {
+      const text = `SCENE 1
+[Lights dim]
+[Curtain rises]`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThan(0);
+    });
+
+    it("should handle mixed line endings (CRLF and LF)", () => {
+      const text = `SCENE 1\r\nROMEO: Text here\n\nSCENE 2\r\nJULIET: More text`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should handle very long scene titles", () => {
+      const longTitle = "A".repeat(200);
+      const text = `SCENE 1: ${longTitle}
+Content`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThan(0);
+    });
+
+    it("should handle scenes with special characters in titles", () => {
+      const text = `SCENE 1: Room @ 3 o'clock w/ Romeo & Juliet
+ROMEO: Content`;
+
+      const scenes = parseScenes(text, { mode: "multiple" });
+      expect(scenes.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("detectSceneCount", () => {
+    it("should return 1 for content without scene breaks", () => {
+      const count = detectSceneCount(`ROMEO: O Romeo
+JULIET: What's in a name?`);
+      expect(count).toBe(1);
+    });
+
+    it("should return 0 for empty input", () => {
+      expect(detectSceneCount("")).toBe(0);
+    });
+
+    it("should return 0 for whitespace-only input", () => {
+      expect(detectSceneCount("   \n\n  \t")).toBe(0);
+    });
+
+    it("should detect multiple scenes accurately", () => {
+      const text = `SCENE 1: First
+Content
+
+SCENE 2: Second
+More
+
+SCENE 3: Third
+Even more`;
+
+      const count = detectSceneCount(text);
+      expect(count).toBeGreaterThanOrEqual(3);
+    });
+
+    it("should count separator-based scenes", () => {
+      const text = `First\n---\nSecond\n===\nThird`;
+
+      const count = detectSceneCount(text);
+      expect(count).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("detectSceneBreaks - Detailed Analysis", () => {
+    it("should return empty array for no breaks", () => {
+      const breaks = detectSceneBreaks(`ROMEO: Just text
+JULIET: No headers`);
+
+      expect(breaks).toEqual([]);
+    });
+
+    it("should return DetectedScene objects with line ranges", () => {
+      const text = `SCENE 1: First
+Content here
+
+SCENE 2: Second
+More content`;
+
+      const breaks = detectSceneBreaks(text);
+
+      if (breaks.length > 0) {
+        expect(breaks[0]).toHaveProperty("title");
+        expect(breaks[0]).toHaveProperty("startLine");
+        expect(breaks[0]).toHaveProperty("endLine");
+      }
+    });
+
+    it("should preserve special formatting in titles", () => {
+      const text = `SCENE 1: "The Room" - Midnight
+Content`;
+
+      const breaks = detectSceneBreaks(text);
+
+      if (breaks.length > 0) {
+        expect(breaks[0].title).toContain("Room");
+      }
+    });
+  });
+
+  describe("Integration: FullWorkflow", () => {
+    it("should support complete single-to-multi workflow", () => {
+      const input = `SCENE 1: Opening
+ROMEO: Hello!
+
+SCENE 2: Closing
+JULIET: Goodbye!`;
+
+      // Single mode
+      const single = parseScenes(input, { mode: "single" });
+      expect(single).toHaveLength(1);
+
+      // Multiple mode
+      const multi = parseScenes(input, { mode: "multiple" });
+      expect(multi.length).toBeGreaterThanOrEqual(2);
+
+      // Auto mode (should match multiple)
+      const auto = parseScenes(input, { mode: "auto" });
+      expect(auto.length).toBe(multi.length);
+
+      // Create scenes
+      const scenes = createScenesFromInput("proj", input, "multiple");
+      expect(scenes.length).toBeGreaterThanOrEqual(2);
+      expect(scenes[0].order).toBe(0);
+      expect(scenes[1].order).toBe(1);
+    });
+
+    it("should handle title editing workflow", () => {
+      const input = `SCENE 1
+Content
+
+SCENE 2
+More content`;
+
+      // Parse scenes
+      const scenes = createScenesFromInput("proj", input, "multiple");
+
+      // Simulate title editing
+      const edited = scenes.map((s, i) => ({
+        ...s,
+        title: `Custom Scene ${i + 1}`,
+      }));
+
+      expect(edited[0].title).toBe("Custom Scene 1");
+      expect(edited[1].title).toBe("Custom Scene 2");
+    });
+
+    it("should preserve scene integrity through entire pipeline", () => {
+      const input = `SCENE 1: Original Title
+ROMEO: Line one
+  Line continuation
+[stage direction]
+JULIET: Response`;
+
+      const scenes = createScenesFromInput("proj", input, "single");
+
+      expect(scenes).toHaveLength(1);
+      expect(scenes[0].id).toMatch(/^scene_/);
+      expect(scenes[0].content).toContain("ROMEO");
+      expect(scenes[0].content).toContain("continuation");
+    });
+  });
+
+  describe("Act Context Tracking", () => {
+    it("should prepend act to scene titles when act appears on separate line", () => {
+      const text = `ACT 1
+Scene 1: The Garden
+ROMEO: Hello!
+
+Scene 2: The Balcony
+JULIET: Good night!
+
+ACT 2
+Scene 1: The Street
+MERCUTIO: Fight!
+
+Scene 2: The Tomb
+ROMEO: Farewell!`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(4);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: The Garden");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: The Balcony");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: The Street");
+      expect(scenes[3].title).toBe("Act 2, Scene 2: The Tomb");
+    });
+
+    it("should handle word-form acts (ACT ONE, ACT TWO)", () => {
+      const text = `ACT ONE
+Scene 1: Opening
+Content here.
+
+Scene 2: Middle
+More content.
+
+ACT TWO
+Scene 1: Climax
+Exciting content.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(3);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: Opening");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: Middle");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: Climax");
+    });
+
+    it("should not prepend act when no act context exists", () => {
+      const text = `Scene 1: First
+Content one.
+
+Scene 2: Second
+Content two.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toBe("Scene 1: First");
+      expect(scenes[1].title).toBe("Scene 2: Second");
+    });
+
+    it("should keep combined ACT/SCENE format intact", () => {
+      const text = `ACT 1, SCENE 1: Meeting
+Content one.
+
+ACT 1, SCENE 2: Conflict
+Content two.
+
+ACT 2, SCENE 1: Resolution
+Content three.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(3);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: Meeting");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: Conflict");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: Resolution");
+    });
+
+    it("should apply act context to bracketed scenes", () => {
+      const text = `ACT 1
+[SCENE 1: Palace]
+KING: Welcome!
+
+[SCENE 2: Courtyard]
+KNIGHT: Ready!
+
+ACT 2
+[SCENE 1: Battlefield]
+SOLDIER: Charge!`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(3);
+      expect(scenes[0].title).toBe("Act 1, Scene 1: Palace");
+      expect(scenes[1].title).toBe("Act 1, Scene 2: Courtyard");
+      expect(scenes[2].title).toBe("Act 2, Scene 1: Battlefield");
+    });
+
+    it("should handle prologue before first act", () => {
+      const text = `Prologue: The Beginning
+Narrator speaks.
+
+ACT 1
+Scene 1: First Scene
+Content here.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toBe("Prologue: The Beginning");
+      expect(scenes[1].title).toBe("Act 1, Scene 1: First Scene");
+    });
+
+    it("should carry act context from combined format to standalone scenes", () => {
+      const text = `ACT 2, SCENE 1: Opening of Act Two
+Content one.
+
+Scene 2: Continuation
+Content two.`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].title).toBe("Act 2, Scene 1: Opening of Act Two");
+      expect(scenes[1].title).toBe("Act 2, Scene 2: Continuation");
+    });
+  });
+
+  describe("extractSceneCharacters", () => {
+    it("should extract unique character names from colon-format dialogue", () => {
+      const content = `ROMEO: Wherefore art thou?
+JULIET: I am here.
+ROMEO: My love!`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should split ampersand groups into individual characters", () => {
+      const content = `FRED & DEBBIE: Let's dance!
+FRED: One more time.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["DEBBIE", "FRED"]);
+    });
+
+    it("should split comma-separated groups into individual characters", () => {
+      const content = `MRS. LANCASTER, NED & CHUBBY MAN: Welcome!
+NED: Hello!`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["CHUBBY MAN", "MRS. LANCASTER", "NED"]);
+    });
+
+    it("should exclude ALL as a character", () => {
+      const content = `ROMEO: Hello.
+ALL: Goodbye!
+JULIET: Wait.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should exclude EVERYONE and ENSEMBLE", () => {
+      const content = `PHIL: Good morning.
+EVERYONE: Good morning, Phil!
+ENSEMBLE: Welcome to Punxsutawney!`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["PHIL"]);
+    });
+
+    it("should not include stage directions or narrative", () => {
+      const content = `ROMEO: Hello.
+(They embrace)
+[Thunder sounds]
+JULIET: My love.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should return empty array for content with no dialogue", () => {
+      const content = `(The stage is dark)
+[Lights come up slowly]`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual([]);
+    });
+
+    it("should return sorted unique list", () => {
+      const content = `ZARA: First.
+ANNA: Second.
+MIKE: Third.
+ANNA: Fourth.
+ZARA: Fifth.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["ANNA", "MIKE", "ZARA"]);
+    });
+  });
+
+  describe("parseScenes with characters", () => {
+    it("should include characters in parsed scenes", () => {
+      const text = `SCENE 1: The Garden
+ROMEO: O Romeo!
+JULIET: What's in a name?
+
+SCENE 2: The Balcony
+NURSE: My lady!
+JULIET: Coming!`;
+      const scenes = parseScenes(text);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0].characters).toEqual(["JULIET", "ROMEO"]);
+      expect(scenes[1].characters).toEqual(["JULIET", "NURSE"]);
+    });
+
+    it("should include characters for single scene mode", () => {
+      const text = `ROMEO: Hello.
+JULIET: Hi.`;
+      const scenes = parseScenes(text, { mode: "single" });
+      expect(scenes).toHaveLength(1);
+      expect(scenes[0].characters).toEqual(["JULIET", "ROMEO"]);
     });
   });
 });

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Scene } from "@/types/scene";
-import { CharacterRole, VoiceConfig } from "@/types/voice";
+import { VoiceConfig } from "@/types/voice";
 import { useRehearsals } from "@/hooks/useRehearsals";
 import { useVoice } from "@/hooks/useVoice";
 import { Button } from "@/components/ui/Button";
@@ -13,7 +13,6 @@ import { RehearsalControls } from "./RehearsalControls";
 interface RehearsalPlayerProps {
   projectId: string;
   scenes: Scene[];
-  characters: CharacterRole[];
   onClose: () => void;
 }
 
@@ -22,7 +21,6 @@ type RehearsalState = "setup" | "active" | "complete";
 export function RehearsalPlayer({
   projectId,
   scenes,
-  characters,
   onClose,
 }: RehearsalPlayerProps) {
   const [state, setState] = useState<RehearsalState>("setup");
@@ -53,17 +51,16 @@ export function RehearsalPlayer({
   // Get voice config for the character speaking (if not user)
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
   useEffect(() => {
-    if (currentLine && !isUserLine && currentSession?.userCharacterId) {
-      // Get voice config for other characters
-      // For now, we'll use the character's voice if available
-      // This could be expanded to use voice configs per character
-      setVoiceConfig(getVoiceConfigByCharacter(currentSession.userCharacterId));
+    if (currentLine && !isUserLine) {
+      // Get voice config for the current speaking character by their name
+      setVoiceConfig(getVoiceConfigByCharacter(currentLine.character));
+    } else {
+      setVoiceConfig(null);
     }
-  }, [currentLine, isUserLine, currentSession?.userCharacterId, getVoiceConfigByCharacter]);
+  }, [currentLine, isUserLine, getVoiceConfigByCharacter]);
 
   const handleStartRehearsalSession = (
     sceneId: string,
-    characterId: string,
     characterName: string
   ) => {
     try {
@@ -78,7 +75,7 @@ export function RehearsalPlayer({
         projectId,
         sceneId,
         sceneContent: scene.content,
-        userCharacterId: characterId,
+        userCharacterId: `char_${characterName}`,
         userCharacterName: characterName,
         autoPlayNonUserLines: true,
         enableSubtitles: true,
@@ -146,7 +143,6 @@ export function RehearsalPlayer({
             </h3>
             <RehearsalSetup
               scenes={scenes}
-              characters={characters}
               onStart={handleStartRehearsalSession}
               onCancel={handleClose}
             />
