@@ -3,7 +3,9 @@
 import React, { useState } from "react";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
-import { createScenesFromInput, detectSceneCount, extractSceneCharacters, extractCastNames, SceneInputMode } from "@/lib/scenes";
+import { createScenesFromInput, detectSceneCount, extractSceneCharacters, extractCastNames, parseTOC, findSongsForScene, stripTocSection, SceneInputMode } from "@/lib/scenes";
+import type { ParsedToc } from "@/types/scene";
+import { extractTextFromPdf } from "@/lib/pdf-client";
 import { Button } from "@/components/ui/Button";
 
 interface SceneImportFormProps {
@@ -16,6 +18,7 @@ interface ScenePreview {
   contentPreview: string;
   fullContent: string;
   characters: string[];
+  songs: string[];
   deleted?: boolean;
 }
 
@@ -41,6 +44,7 @@ export function SceneImportForm({
   const [isCreating, setIsCreating] = useState(false);
   const [detectedSceneCount, setDetectedSceneCount] = useState<number>(0);
   const [castNames, setCastNames] = useState<string[]>([]);
+  const [tocData, setTocData] = useState<ParsedToc | null>(null);
 
   const handleParseText = (text: string) => {
     setError(null);
@@ -52,8 +56,15 @@ export function SceneImportForm({
     }
 
     try {
+      // Parse TOC ("Scenes & Songs") section if present
+      const toc = parseTOC(text);
+      setTocData(toc);
+
+      // Strip the TOC section from the text so it doesn't appear as a scene
+      const sceneText = toc ? stripTocSection(text, toc) : text;
+
       // Detect scene count even if in "single" mode to show user info
-      const sceneCount = detectSceneCount(text);
+      const sceneCount = detectSceneCount(sceneText);
       setDetectedSceneCount(sceneCount);
 
       // Extract known cast from the full text (if a cast page exists),
@@ -64,7 +75,7 @@ export function SceneImportForm({
       }
       setCastNames(cast);
 
-      const scenes = createScenesFromInput(projectId, text, inputMode);
+      const scenes = createScenesFromInput(projectId, sceneText, inputMode);
       
       if (scenes.length === 0) {
         setError("No content to parse");
@@ -72,13 +83,14 @@ export function SceneImportForm({
         return;
       }
 
-      // Prepare previews with editable titles
+      // Prepare previews with editable titles and TOC song data
       setPreview(
         scenes.map((scene) => ({
           title: scene.title,
           contentPreview: scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
           fullContent: scene.content,
           characters: extractSceneCharacters(scene.content, cast),
+          songs: toc ? findSongsForScene(toc, scene.title) : [],
           deleted: false,
         }))
       );
@@ -119,21 +131,8 @@ export function SceneImportForm({
       }
 
       if (name.endsWith(".pdf")) {
-        const form = new FormData();
-        form.append("file", file);
-
-        const res = await fetch("/api/parse-pdf", {
-          method: "POST",
-          body: form,
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error ?? "Failed to parse PDF");
-        }
-
-        handleParseText(data.text as string);
+        const text = await extractTextFromPdf(file);
+        handleParseText(text);
         return;
       }
 
@@ -284,7 +283,7 @@ export function SceneImportForm({
 
       // Use batch createScenes method to create all scenes at once,
       // including the final (possibly edited) character lists per scene.
-      const finalScenes = scenesToCreate.map((scene, i) => {
+      const finalScenes = scenesToCreate.map((scene) => {
         // Find the original index in the full preview to get edited characters
         const originalIndex = preview.indexOf(scene);
         const chars = editingCharacters.get(originalIndex) ?? scene.characters;
@@ -292,6 +291,7 @@ export function SceneImportForm({
           title: scene.title,
           content: scene.fullContent,
           characters: chars,
+          songs: scene.songs.length > 0 ? scene.songs : undefined,
         };
       });
 
@@ -322,6 +322,7 @@ export function SceneImportForm({
       setSelectedForDelete(new Set());
       setDetectedSceneCount(0);
       setCastNames([]);
+      setTocData(null);
       onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create scenes");
@@ -335,6 +336,7 @@ export function SceneImportForm({
     setPreview([]);
     setError(null);
     setDetectedSceneCount(0);
+    setTocData(null);
     setEditingIndices(new Set());
     setEditingTitles(new Map());
     setExpandedIndex(null);
@@ -519,6 +521,21 @@ export function SceneImportForm({
             </div>
           </div>
 
+          {/* TOC Summary Banner */}
+          {tocData && (
+            <div className="p-3 rounded bg-yellow-500/10 border border-yellow-500/30">
+              <div className="flex items-center gap-2 text-yellow-400 text-sm font-medium mb-1">
+                ♪ Scenes &amp; Songs detected
+              </div>
+              <p className="text-xs text-muted">
+                {tocData.entries.length} scene{tocData.entries.length !== 1 ? "s" : ""},{" "}
+                {tocData.entries.reduce((sum, e) => sum + e.songs.length, 0)} song
+                {tocData.entries.reduce((sum, e) => sum + e.songs.length, 0) !== 1 ? "s" : ""}{" "}
+                found in table of contents. Songs are shown on matching scene cards below.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-3 max-h-96 overflow-y-auto">
             {preview.map((scene, index) => (
               <div
@@ -684,6 +701,23 @@ export function SceneImportForm({
                       );
                     })()}
 
+                    {/* Songs (from TOC - read-only in edit view) */}
+                    {scene.songs.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-xs text-muted">Songs:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {scene.songs.map((song) => (
+                            <span
+                              key={song}
+                              className="inline-flex items-center px-2 py-0.5 bg-yellow-500/15 text-yellow-400 text-xs rounded"
+                            >
+                              ♪ {song}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleSaveContent(index)}
@@ -716,6 +750,16 @@ export function SceneImportForm({
                         <span className="text-muted">Characters: </span>
                         <span className="text-accent-cyan">
                           {scene.characters.join(", ")}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Songs (from TOC) */}
+                    {scene.songs.length > 0 && (
+                      <div className="text-xs">
+                        <span className="text-muted">Songs: </span>
+                        <span className="text-yellow-400">
+                          {scene.songs.join(", ")}
                         </span>
                       </div>
                     )}

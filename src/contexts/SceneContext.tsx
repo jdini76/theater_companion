@@ -52,7 +52,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
 
   const createScenes = (
     projectId: string,
-    scenesData: Array<{title: string; content: string; description?: string; characters?: string[]}>
+    scenesData: Array<{title: string; content: string; description?: string; characters?: string[]; songs?: string[]}>
   ): Scene[] => {
     // Validate all scenes first
     for (const sceneData of scenesData) {
@@ -85,6 +85,9 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       );
       if (sceneData.characters) {
         scene.characters = sceneData.characters;
+      }
+      if (sceneData.songs) {
+        scene.songs = sceneData.songs;
       }
       return scene;
     });
