@@ -1,4 +1,4 @@
-import { Scene, ParsedScene } from "@/types/scene";
+import { Scene, ParsedScene, TocEntry, ParsedToc } from "@/types/scene";
 import { parseDialogueLines } from "@/lib/rehearsal";
 
 /**
@@ -41,7 +41,9 @@ export function extractSceneCharacters(
     return castPage.raw.sort();
   }
 
-  const lines = parseDialogueLines(content);
+  // Use "mixed" format so all character patterns (colon, standalone, inline)
+  // are checked.  For character extraction purposes we want maximum recall.
+  const lines = parseDialogueLines(content, "mixed");
   const characters = new Set<string>();
 
   // ── Build cast lookup tables (if cast list provided) ────────────
@@ -90,13 +92,23 @@ export function extractSceneCharacters(
         continue;
       }
 
-      // When we have a cast list, only keep names that match it
-      if (castUpper) {
-        if (castUpper.has(upper) || (firstNameMap && firstNameMap.get(upper))) {
-          characters.add(part);
+      // Always keep characters detected by the dialogue parser.
+      // When we have a cast list, resolve to the canonical cast name
+      // (e.g. "PHIL" → "PHIL CONNORS") to avoid duplicates.
+      // Non-cast names are SKIPPED when a cast list is provided — the
+      // "mixed" parser picks up too many false positives from song lyrics.
+      if (castUpper && firstNameMap) {
+        if (castUpper.has(upper)) {
+          characters.add(upper);
+        } else {
+          const fullName = firstNameMap.get(upper);
+          if (fullName) {
+            characters.add(fullName);
+          }
+          // Non-cast names are intentionally dropped here.
         }
       } else {
-        characters.add(part);
+        characters.add(upper);
       }
     }
   }
@@ -122,10 +134,10 @@ export function extractSceneCharacters(
         if (castUpper.has(upper)) {
           characters.add(upper);
         } else {
-          // Check first-name match (e.g. "NANCY" → "NANCY TAYLOR")
+          // Check first-name match (e.g. "PHIL" → "PHIL CONNORS")
           const fullName = firstNameMap.get(upper);
           if (fullName) {
-            characters.add(upper);
+            characters.add(fullName);
           }
         }
       }
@@ -208,8 +220,8 @@ export function parseCastList(
     if (CAST_END_RE.test(trimmed)) break;
 
     // ── Lone bullet on its own line ───────────────────────────────
-    // "•" or "- " or "* " alone → main level, name on next line
-    if (/^[•\-\*]$/.test(trimmed)) {
+    // "•" or "-" or "*" alone → main level, name on next line
+    if (/^[•\-\*▪►◦·‣⁃]$/.test(trimmed)) {
       pendingIndent = 0;
       continue;
     }
@@ -227,21 +239,30 @@ export function parseCastList(
     // If no pending bullet, check for inline bullet patterns
     if (indent === 0) {
       // Sub-bullet inline: "  o Name" (indented o + space + name)
-      const subBullet = raw.match(/^[\t ]+o\s+(.+)$/);
+      // OR "o Name" without indentation (PDF extraction may strip leading spaces)
+      const subBullet =
+        raw.match(/^[\t ]+o\s+(.+)$/) || trimmed.match(/^o\s+(.+)$/);
       if (subBullet) {
         indent = 1;
         name = subBullet[1].trim();
       } else {
-        // Main bullet inline: "• Name", "- Name", "* Name"
-        const mainBullet = trimmed.match(/^[•\-\*]\s+(.+)$/);
+        // Main bullet inline: "•Name", "• Name", "- Name", "* Name"
+        // Space after bullet is optional (PDF extraction may omit it)
+        const mainBullet = trimmed.match(/^[•\-\*▪►◦·‣⁃]\s*(.+)$/);
         if (mainBullet) {
           name = mainBullet[1].trim();
         }
       }
     }
 
+    // Final cleanup: strip any remaining leading bullet/punctuation artifacts
+    name = name.replace(/^[•\-\*▪►◦·‣⁃]\s*/, "").trim();
+
     // Skip empty after stripping bullet
     if (!name) continue;
+
+    // Skip pure numbers (page numbers leaking from TOC)
+    if (/^\d+$/.test(name)) continue;
 
     entries.push({ text: name, indent, lineIdx: i });
   }
@@ -598,6 +619,12 @@ export function detectSceneBreaks(text: string): DetectedScene[] {
     const trimmed = line.trim();
     let title = "";
 
+    // Skip lines that look like TOC entries (contain dot/ellipsis leaders
+    // followed by a page number, e.g. "#1 - TV Studio ........... 7")
+    if (/[.…·]{2,}\s*\d+\s*$/.test(trimmed)) {
+      continue;
+    }
+
     // Try pattern 4: #N - Title (before SCENE header so it takes priority)
     let match = trimmed.match(numberHeadingPattern);
     if (match) {
@@ -899,6 +926,209 @@ export function validateSceneContent(content: string): {
  */
 export function sortScenesByOrder(scenes: Scene[]): Scene[] {
   return [...scenes].sort((a, b) => a.order - b.order);
+}
+
+// ────────────────────────────────────────
+// Scenes & Songs TOC Parser
+// ────────────────────────────────────────
+
+/** Regex for detecting the TOC heading line — matches "Scenes & Songs" anywhere in the line */
+const TOC_HEADING_RE = /Scenes?\s*(?:&|and)\s*Songs?/i;
+
+/** Regex for scene entries: #N - Title ...... page */
+const TOC_SCENE_RE = /^[\s]*#(\d+)\s*[-–—]\s*(.+?)[\s.…·]+(\d+)\s*$/;
+
+/** Regex for act markers: ACT ONE ...... page */
+const TOC_ACT_RE =
+  /^[\s]*ACT\s+(ONE|TWO|THREE|FOUR|FIVE|[IVX]+|\d+)[\s.…·]*(\d+)?\s*$/i;
+
+/** Regex for song entries: ALL CAPS TITLE ...... page */
+const TOC_SONG_RE = /^[\s]*([A-Z][A-Z\s/'()\-,!?.&]+?)[\s.…·]+(\d+)\s*$/;
+
+/**
+ * Headings that signal the end of the TOC section.
+ * Case-insensitive match at start of line.
+ */
+const TOC_END_HEADINGS = [
+  /^[\s]*cast\s+(of\s+)?characters/i,
+  /^[\s]*musical\s+numbers/i,
+  /^[\s]*production\s+notes/i,
+  /^[\s]*setting/i,
+  /^[\s]*synopsis/i,
+  /^[\s]*characters?\s*$/i,
+];
+
+/**
+ * Check if a line is a plausible ALL-CAPS song title.
+ * Must be predominantly uppercase letters (allow punctuation/spaces).
+ * Filters out short lines and pure number lines.
+ */
+function isSongTitle(text: string): boolean {
+  const stripped = text.replace(/[\s.…·\d]+$/, "").trim();
+  if (stripped.length < 3) return false;
+  const letters = stripped.replace(/[^a-zA-Z]/g, "");
+  if (letters.length === 0) return false;
+  const upperLetters = stripped.replace(/[^A-Z]/g, "");
+  // At least 80% uppercase letters
+  return upperLetters.length / letters.length >= 0.8;
+}
+
+/**
+ * Parse a "Scenes & Songs" table of contents from script text.
+ *
+ * Looks for a heading like "Scenes & Songs" or "Scenes and Songs",
+ * then parses scene entries (#N - Title), act markers (ACT ONE),
+ * and song titles (ALL CAPS lines) until the section ends.
+ *
+ * @returns ParsedToc with entries, or null if no TOC found
+ */
+export function parseTOC(text: string): ParsedToc | null {
+  if (!text || text.trim().length === 0) return null;
+
+  const lines = text.split(/\r?\n/);
+
+  // ── Find the TOC heading ──
+  let tocStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (TOC_HEADING_RE.test(lines[i])) {
+      tocStart = i;
+      break;
+    }
+  }
+  if (tocStart === -1) return null;
+
+  // ── Parse entries until an end heading or large gap ──
+  const entries: TocEntry[] = [];
+  let currentAct = "";
+  let currentEntry: TocEntry | null = null;
+  let lastMatchedLine = tocStart; // track last line that matched a TOC pattern
+  let emptyLineCount = 0;
+
+  for (let i = tocStart + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Check for end of TOC
+    if (TOC_END_HEADINGS.some((re) => re.test(line))) {
+      lastMatchedLine = i - 1;
+      break;
+    }
+
+    // Skip blank lines (but track them to detect section end)
+    if (trimmed === "") {
+      emptyLineCount++;
+      // More than 3 consecutive blank lines suggests a page break / section end
+      if (emptyLineCount > 3) {
+        break;
+      }
+      continue;
+    }
+    emptyLineCount = 0;
+
+    // Act marker
+    const actMatch = TOC_ACT_RE.exec(line);
+    if (actMatch) {
+      // Save any pending entry
+      if (currentEntry) entries.push(currentEntry);
+      currentEntry = null;
+      currentAct = `ACT ${actMatch[1].toUpperCase()}`;
+      lastMatchedLine = i;
+      continue;
+    }
+
+    // Scene entry: #N - Title
+    const sceneMatch = TOC_SCENE_RE.exec(line);
+    if (sceneMatch) {
+      // Save any pending entry
+      if (currentEntry) entries.push(currentEntry);
+      currentEntry = {
+        sceneNumber: sceneMatch[1],
+        sceneTitle: sceneMatch[2].trim(),
+        act: currentAct,
+        songs: [],
+        page: parseInt(sceneMatch[3], 10),
+      };
+      lastMatchedLine = i;
+      continue;
+    }
+
+    // Song entry: ALL CAPS line with page number
+    const songMatch = TOC_SONG_RE.exec(line);
+    if (songMatch && isSongTitle(line)) {
+      const songTitle = songMatch[1].trim();
+      // Associate with the current scene, or create a standalone entry
+      if (currentEntry) {
+        currentEntry.songs.push(songTitle);
+      } else {
+        // Orphan song (before any scene listed), attach to a placeholder
+        entries.push({
+          sceneNumber: "0",
+          sceneTitle: "Pre-scene",
+          act: currentAct,
+          songs: [songTitle],
+        });
+      }
+      lastMatchedLine = i;
+      continue;
+    }
+
+    // Non-blank line that doesn't match any TOC pattern → end of TOC
+    break;
+  }
+
+  // Push last pending entry
+  if (currentEntry) entries.push(currentEntry);
+
+  // If we found no entries, the heading was likely a false positive
+  if (entries.length === 0) return null;
+
+  // Build raw text for reference
+  const rawLines = lines.slice(tocStart, lastMatchedLine + 1);
+
+  return {
+    entries,
+    rawText: rawLines.join("\n"),
+    lineRange: [tocStart, lastMatchedLine],
+  };
+}
+
+/**
+ * Remove the TOC section from script text so it doesn't appear as a scene.
+ * Returns the text with the TOC lines replaced by blank lines (preserving
+ * line numbering for downstream parsers).
+ */
+export function stripTocSection(text: string, toc: ParsedToc): string {
+  const lines = text.split(/\r?\n/);
+  const [start, end] = toc.lineRange;
+  for (let i = start; i <= end && i < lines.length; i++) {
+    lines[i] = "";
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Given a parsed TOC and a scene title, find the matching TOC entry
+ * and return the list of songs in that scene.
+ */
+export function findSongsForScene(
+  toc: ParsedToc,
+  sceneTitle: string,
+): string[] {
+  const normalized = sceneTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const entry of toc.entries) {
+    const entryNorm = entry.sceneTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const entryWithNum = `${entry.sceneNumber}${entryNorm}`;
+    // Match by title content or scene number in title
+    if (
+      normalized.includes(entryNorm) ||
+      entryNorm.includes(normalized) ||
+      normalized.includes(entryWithNum) ||
+      normalized.includes(entry.sceneNumber)
+    ) {
+      return entry.songs;
+    }
+  }
+  return [];
 }
 
 /**

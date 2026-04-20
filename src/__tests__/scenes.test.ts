@@ -12,8 +12,13 @@ import {
   detectSceneCount,
   detectSceneBreaks,
   extractSceneCharacters,
+  parseTOC,
+  findSongsForScene,
+  stripTocSection,
+  parseCastList,
+  extractCastNames,
 } from "@/lib/scenes";
-import { Scene, ParsedScene } from "@/types/scene";
+import { Scene, ParsedScene, ParsedToc } from "@/types/scene";
 
 describe("Scene Management", () => {
   describe("Scene ID Generation", () => {
@@ -960,6 +965,374 @@ JULIET: Hi.`;
       const scenes = parseScenes(text, { mode: "single" });
       expect(scenes).toHaveLength(1);
       expect(scenes[0].characters).toEqual(["JULIET", "ROMEO"]);
+    });
+  });
+
+  // ────────────────────────────────────────
+  // Scenes & Songs TOC Parser Tests
+  // ────────────────────────────────────────
+
+  describe("parseTOC", () => {
+    const groundhogTOC = `Groundhog Day - The Musical
+
+Scenes & Songs
+
+ACT ONE
+
+#1 - TV Studio ........... 7
+FANFARE FOR THE COMMON GROUNDHOG ........... 7
+#2 - Gobbler's Knob ........... 12
+THERE WILL BE SUN ........... 15
+#3 - The Tip Top Cafe ........... 20
+SMALL TOWN USA ........... 22
+#4 - Cherry Street Inn ........... 28
+#5 - Gobbler's Knob ........... 32
+ONE DAY ........... 35
+#6 - Around Town ........... 38
+PLAYING NANCY ........... 40
+
+ACT TWO
+
+#7 - Gobbler's Knob ........... 45
+IF I HAD MY TIME AGAIN ........... 48
+#8 - Around Town (Scenes of Kindness) ........... 52
+#9 - Cherry Street Inn ........... 58
+SEEING YOU ........... 60
+
+Cast of Characters
+PHIL CONNORS - a weatherman`;
+
+    it("should parse a full TOC section", () => {
+      const result = parseTOC(groundhogTOC);
+      expect(result).not.toBeNull();
+      expect(result!.entries).toHaveLength(9);
+    });
+
+    it("should extract scene numbers and titles", () => {
+      const result = parseTOC(groundhogTOC)!;
+      expect(result.entries[0].sceneNumber).toBe("1");
+      expect(result.entries[0].sceneTitle).toBe("TV Studio");
+      expect(result.entries[1].sceneNumber).toBe("2");
+      expect(result.entries[1].sceneTitle).toBe("Gobbler's Knob");
+    });
+
+    it("should associate songs with their parent scene", () => {
+      const result = parseTOC(groundhogTOC)!;
+      // Scene #1 has FANFARE
+      expect(result.entries[0].songs).toEqual([
+        "FANFARE FOR THE COMMON GROUNDHOG",
+      ]);
+      // Scene #2 has THERE WILL BE SUN
+      expect(result.entries[1].songs).toEqual(["THERE WILL BE SUN"]);
+      // Scene #4 has no songs
+      expect(result.entries[3].songs).toEqual([]);
+    });
+
+    it("should track act assignments", () => {
+      const result = parseTOC(groundhogTOC)!;
+      // First 6 scenes are ACT ONE
+      expect(result.entries[0].act).toBe("ACT ONE");
+      expect(result.entries[5].act).toBe("ACT ONE");
+      // Scenes 7-9 are ACT TWO
+      expect(result.entries[6].act).toBe("ACT TWO");
+      expect(result.entries[8].act).toBe("ACT TWO");
+    });
+
+    it("should extract page numbers", () => {
+      const result = parseTOC(groundhogTOC)!;
+      expect(result.entries[0].page).toBe(7);
+      expect(result.entries[2].page).toBe(20);
+      expect(result.entries[8].page).toBe(58);
+    });
+
+    it("should stop parsing at Cast of Characters", () => {
+      const result = parseTOC(groundhogTOC)!;
+      // Should not include "PHIL CONNORS" as a song
+      const allSongs = result.entries.flatMap((e) => e.songs);
+      expect(allSongs).not.toContain("PHIL CONNORS");
+    });
+
+    it("should store raw text and line range", () => {
+      const result = parseTOC(groundhogTOC)!;
+      expect(result.rawText).toContain("Scenes & Songs");
+      expect(result.lineRange[0]).toBeGreaterThanOrEqual(0);
+      expect(result.lineRange[1]).toBeGreaterThan(result.lineRange[0]);
+    });
+
+    it("should return null for text without a TOC section", () => {
+      const text = `SCENE 1: The Garden
+ROMEO: O Romeo!
+JULIET: What's in a name?`;
+      expect(parseTOC(text)).toBeNull();
+    });
+
+    it("should return null for empty text", () => {
+      expect(parseTOC("")).toBeNull();
+      expect(parseTOC("  \n\n  ")).toBeNull();
+    });
+
+    it("should handle TOC with 'Scenes and Songs' heading", () => {
+      const text = `Scenes and Songs
+
+ACT ONE
+#1 - Opening ........... 5
+OVERTURE ........... 5`;
+      const result = parseTOC(text);
+      expect(result).not.toBeNull();
+      expect(result!.entries).toHaveLength(1);
+      expect(result!.entries[0].songs).toEqual(["OVERTURE"]);
+    });
+
+    it("should handle scenes with multiple songs", () => {
+      const text = `Scenes & Songs
+
+#1 - The Ballroom ........... 10
+WELCOME DANCE ........... 10
+MIDNIGHT WALTZ ........... 14
+THE FINAL BOW ........... 18`;
+      const result = parseTOC(text);
+      expect(result).not.toBeNull();
+      expect(result!.entries[0].songs).toHaveLength(3);
+      expect(result!.entries[0].songs).toEqual([
+        "WELCOME DANCE",
+        "MIDNIGHT WALTZ",
+        "THE FINAL BOW",
+      ]);
+    });
+  });
+
+  describe("findSongsForScene", () => {
+    let toc: ParsedToc;
+
+    beforeEach(() => {
+      toc = {
+        entries: [
+          {
+            sceneNumber: "1",
+            sceneTitle: "TV Studio",
+            act: "ACT ONE",
+            songs: ["FANFARE FOR THE COMMON GROUNDHOG"],
+            page: 7,
+          },
+          {
+            sceneNumber: "2",
+            sceneTitle: "Gobbler's Knob",
+            act: "ACT ONE",
+            songs: ["THERE WILL BE SUN"],
+            page: 12,
+          },
+          {
+            sceneNumber: "3",
+            sceneTitle: "The Tip Top Cafe",
+            act: "ACT ONE",
+            songs: ["SMALL TOWN USA"],
+            page: 20,
+          },
+        ],
+        rawText: "",
+        lineRange: [0, 10],
+      };
+    });
+
+    it("should find songs by matching scene title", () => {
+      expect(findSongsForScene(toc, "TV Studio")).toEqual([
+        "FANFARE FOR THE COMMON GROUNDHOG",
+      ]);
+    });
+
+    it("should find songs with scene number in title", () => {
+      expect(findSongsForScene(toc, "#1 - TV Studio")).toEqual([
+        "FANFARE FOR THE COMMON GROUNDHOG",
+      ]);
+    });
+
+    it("should return empty array for non-matching title", () => {
+      expect(findSongsForScene(toc, "Unknown Scene")).toEqual([]);
+    });
+
+    it("should match case-insensitively", () => {
+      expect(findSongsForScene(toc, "tv studio")).toEqual([
+        "FANFARE FOR THE COMMON GROUNDHOG",
+      ]);
+    });
+  });
+
+  describe("parseTOC – heading variants", () => {
+    it("should detect TOC when show title precedes heading", () => {
+      const text = `Groundhog Day Scenes & Songs
+
+ACT ONE
+#1 - TV Studio ........... 7
+FANFARE ........... 7`;
+      const result = parseTOC(text);
+      expect(result).not.toBeNull();
+      expect(result!.entries).toHaveLength(1);
+      expect(result!.entries[0].songs).toEqual(["FANFARE"]);
+    });
+
+    it("should detect SCENES AND SONGS (all caps, word 'and')", () => {
+      const text = `SCENES AND SONGS
+
+#1 - Opening ........... 5`;
+      const result = parseTOC(text);
+      expect(result).not.toBeNull();
+    });
+  });
+
+  describe("stripTocSection", () => {
+    it("should blank TOC lines from text", () => {
+      const text = `Title Page
+
+Scenes & Songs
+
+ACT ONE
+#1 - TV Studio ........... 7
+FANFARE ........... 7
+
+Cast of Characters
+PHIL - a weatherman
+
+#1 - TV Studio
+PHIL: Good morning!`;
+      const toc = parseTOC(text);
+      expect(toc).not.toBeNull();
+      const stripped = stripTocSection(text, toc!);
+      // TOC lines should be blanked
+      expect(stripped).not.toContain("Scenes & Songs");
+      expect(stripped).not.toContain("FANFARE ........... 7");
+      // Non-TOC content should remain
+      expect(stripped).toContain("Title Page");
+      expect(stripped).toContain("Cast of Characters");
+      expect(stripped).toContain("PHIL: Good morning!");
+    });
+
+    it("should not strip the entire document when TOC has no end heading", () => {
+      const text = `Scenes & Songs
+
+#1 - Opening ........... 5
+OVERTURE ........... 5
+
+#1 - Opening
+PHIL: Hello world.`;
+      const toc = parseTOC(text);
+      expect(toc).not.toBeNull();
+      const stripped = stripTocSection(text, toc!);
+      // The actual scene content must survive
+      expect(stripped).toContain("PHIL: Hello world.");
+    });
+  });
+
+  describe("detectSceneBreaks – TOC immunity", () => {
+    it("should not treat TOC entries with dot leaders as scene breaks", () => {
+      const text = `Scenes & Songs
+
+ACT ONE
+#1 - TV Studio ........... 7
+FANFARE FOR THE COMMON GROUNDHOG ........... 7
+#2 - Gobbler's Knob ........... 12
+THERE WILL BE SUN ........... 15
+
+ACT TWO
+#7 - Gobbler's Knob ........... 45
+
+Cast of Characters
+PHIL - a weatherman
+
+#1 - TV Studio
+PHIL: Good morning, Punxsutawney!
+
+#2 - Gobbler's Knob
+BUSTER: Six more weeks of winter!`;
+      const breaks = detectSceneBreaks(text);
+      // Should only detect the real scenes (#1 and #2 without dot leaders),
+      // not the TOC entries
+      const titles = breaks.map((b) => b.title);
+      expect(titles.every((t) => !t.includes("....."))).toBe(true);
+      expect(breaks.length).toBe(2);
+      expect(titles[0]).toContain("TV Studio");
+      expect(titles[1]).toContain("Gobbler's Knob");
+    });
+  });
+
+  describe("parseCastList – bullet variants", () => {
+    const castPage = `Cast of Characters
+
+•Buster
+•Larry
+•Experts
+ o Healer
+ o Naturopath
+ o Psychiatric Pharmacologist
+ o Scientologist
+ o AA Person
+ o Reverend
+• At the Bar
+  o Ralph
+  o Gus
+  o Barflies
+•In the Parlor
+  o Chubby Man
+  o Mrs. Mabel Lancaster`;
+
+    it("should strip bullet points from character names", () => {
+      const result = parseCastList(castPage);
+      expect(result).not.toBeNull();
+      const names = result!.raw;
+      // No name should start with a bullet character
+      for (const name of names) {
+        expect(name, `"${name}" has leading bullet`).not.toMatch(
+          /^[•\-\*▪►◦·‣⁃]/,
+        );
+      }
+    });
+
+    it("should identify group headings and not include them as characters", () => {
+      const result = parseCastList(castPage);
+      expect(result).not.toBeNull();
+      const names = result!.raw;
+      // Group headings should NOT be in the character list
+      expect(names).not.toContain("Experts");
+      expect(names).not.toContain("At the Bar");
+      expect(names).not.toContain("In the Parlor");
+    });
+
+    it("should extract all individual characters", () => {
+      const result = parseCastList(castPage);
+      expect(result).not.toBeNull();
+      const names = result!.raw;
+      expect(names).toContain("Buster");
+      expect(names).toContain("Larry");
+      expect(names).toContain("Healer");
+      expect(names).toContain("Naturopath");
+      expect(names).toContain("Psychiatric Pharmacologist");
+      expect(names).toContain("Scientologist");
+      expect(names).toContain("AA Person");
+      expect(names).toContain("Reverend");
+      expect(names).toContain("Ralph");
+      expect(names).toContain("Gus");
+      expect(names).toContain("Barflies");
+      expect(names).toContain("Chubby Man");
+      expect(names).toContain("Mrs. Mabel Lancaster");
+    });
+
+    it("should assign groups to sub-items", () => {
+      const result = parseCastList(castPage);
+      expect(result).not.toBeNull();
+      const healer = result!.characters.find((c) => c.name === "Healer");
+      expect(healer?.group).toBe("Experts");
+      const ralph = result!.characters.find((c) => c.name === "Ralph");
+      expect(ralph?.group).toBe("At the Bar");
+      const chubby = result!.characters.find((c) => c.name === "Chubby Man");
+      expect(chubby?.group).toBe("In the Parlor");
+    });
+
+    it("should handle bullet with no space (•Name)", () => {
+      const text = `Cast of Characters
+•Phil
+•Rita`;
+      const result = parseCastList(text);
+      expect(result).not.toBeNull();
+      expect(result!.raw).toEqual(["Phil", "Rita"]);
     });
   });
 });
