@@ -576,10 +576,10 @@ export default function SettingsPage() {
             <h3 className="text-lg font-semibold text-light">Getting Started</h3>
             <ol className="list-decimal list-inside space-y-2 text-muted text-sm">
               <li><span className="text-light font-medium">Create a Project</span> — Go to the <span className="text-accent-cyan">Projects</span> page and create a new production. Each project keeps its scenes, cast, and rehearsal settings separate.</li>
-              <li><span className="text-light font-medium">Import Scenes</span> — On the <span className="text-accent-cyan">Scenes</span> page, paste or import your script text. The parser will split it into character lines and stage directions automatically.</li>
-              <li><span className="text-light font-medium">Set Up Cast</span> — Visit the <span className="text-accent-cyan">Cast</span> page to see your characters. You can assign voices to each character for text-to-speech playback.</li>
-              <li><span className="text-light font-medium">Configure Voices</span> — In <span className="text-accent-cyan">Voice Settings</span>, choose between the built-in browser speech or connect an external TTS API for higher quality voices.</li>
-              <li><span className="text-light font-medium">Rehearse</span> — Open the <span className="text-accent-cyan">Rehearsals</span> page, select your scene and the character you&apos;re playing. The app will read the other characters&apos; lines aloud and pause for yours.</li>
+              <li><span className="text-light font-medium">Import Scenes</span> — In the <span className="text-accent-cyan">Rehearse</span> section, select the <span className="text-accent-cyan">Scenes</span> tab and paste or import your script text. The parser will split it into character lines and stage directions automatically.</li>
+              <li><span className="text-light font-medium">Set Up Cast</span> — In <span className="text-accent-cyan">Rehearse</span>, switch to the <span className="text-accent-cyan">Cast</span> tab to see your characters. You can assign voices to each character for text-to-speech playback.</li>
+              <li><span className="text-light font-medium">Configure Voices</span> — In <span className="text-accent-cyan">Settings</span> &rarr; <span className="text-accent-cyan">Voice Settings</span>, choose between the built-in browser speech or connect an external TTS API for higher quality voices.</li>
+              <li><span className="text-light font-medium">Run Lines</span> — In <span className="text-accent-cyan">Rehearse</span>, open the <span className="text-accent-cyan">Run Lines</span> tab, select your scene and the character you&apos;re playing. The app will read the other characters&apos; lines aloud and pause for yours.</li>
             </ol>
           </div>
 
