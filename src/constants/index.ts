@@ -5,9 +5,6 @@ export const ROLES = ["admin", "director", "cast", "crew"] as const;
 
 export const NAVIGATION_ITEMS = [
   { href: "/projects", label: "Projects" },
-  { href: "/scenes", label: "Scenes" },
-  { href: "/rehearsals", label: "Rehearsals" },
-  { href: "/cast", label: "Cast" },
-  { href: "/schedule", label: "Schedule" },
+  { href: "/rehearse", label: "Rehearse" },
   { href: "/settings", label: "Settings" },
 ];
