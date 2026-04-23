@@ -693,8 +693,8 @@ MOM: See? You were ready.`
     }
 
     const line = rehearsal.lines[rehearsal.index];
-    // Combined line is "mine" if my character is one of the speakers
-    const isMine = splitSpeaker(line.speaker).includes(selectedCharacter);
+    // Combined line is "mine" if any speaker matches selectedCharacter
+    const isMine = splitSpeaker(line.speaker).some((name) => characterNamesMatch(name, selectedCharacter));
 
     if (isMine && !readOwnLines) {
       setCurrentSpeaker(line.speaker);
