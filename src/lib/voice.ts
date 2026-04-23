@@ -312,11 +312,18 @@ export function characterNamesMatch(a: string, b: string): boolean {
   // Exact match
   if (au === bu) return true;
 
-  // First-name match: shorter string equals the first word of the longer string
-  const aFirst = au.split(/\s+/)[0];
-  const bFirst = bu.split(/\s+/)[0];
+  // Fuzzy match: all words in the shorter name must appear in the longer name
+  const aWords = au.split(/\s+/).filter(Boolean);
+  const bWords = bu.split(/\s+/).filter(Boolean);
 
-  if (au === bFirst || bu === aFirst) return true;
+  // If either is a single word, allow first-name match
+  if (aWords.length === 1 && bWords.includes(aWords[0])) return true;
+  if (bWords.length === 1 && aWords.includes(bWords[0])) return true;
+
+  // Check if all words in the shorter name are present in the longer name
+  const [shorter, longer] =
+    aWords.length <= bWords.length ? [aWords, bWords] : [bWords, aWords];
+  if (shorter.every((word) => longer.includes(word))) return true;
 
   return false;
 }
