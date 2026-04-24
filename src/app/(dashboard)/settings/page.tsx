@@ -593,6 +593,33 @@ export default function SettingsPage() {
             </ul>
           </div>
 
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-light">Contact & Feedback</h3>
+            <div className="space-y-3 text-muted text-sm">
+              <p>
+                Have suggestions, found a bug, or need help? I&apos;d love to hear from you:
+              </p>
+              
+              <div className="bg-dark-panel rounded p-4">
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <div>
+                    <div className="text-light font-medium">Email</div>
+                    <p className="text-xs">General feedback, questions, or collaboration</p>
+                    <a 
+                      href="mailto:joe@dinicola.com?subject=Theater%20Companion%20Feedback" 
+                      className="text-accent-cyan hover:underline text-xs"
+                    >
+                      joe@joedinicola.com
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="border-t border-border pt-4">
             <p className="text-muted text-xs">
               All data is stored locally in your browser. Nothing is sent to any server except the TTS endpoint you configure. API keys never leave your machine.
