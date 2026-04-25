@@ -166,6 +166,14 @@ const NON_CHARACTER_WORDS = new Set([
   "NEGLECTED",
   "SWEAR",
   "TOAST",
+  // Informal pronouns / filler words common in song lyrics (Annie, etc.)
+  "YA",
+  "YO",
+  "AIN'T",
+  "BETCHA",
+  "BETCHA'",
+  "STEADA",
+  "HARK",
 ]);
 
 // ── Inline parenthetical helpers ─────────────────────────────────────────────
@@ -390,6 +398,10 @@ function isValidCharacterName(name: string): boolean {
   // Reject URLs, email addresses, file paths
   if (name.includes("/") || name.includes("@") || name.includes(".com"))
     return false;
+
+  // Reject names containing ellipsis-style punctuation (lyric fragments
+  // like "YA DAH DAH..." are not character names)
+  if (/\.{2,}/.test(name)) return false;
 
   // Character names rarely exceed 4 words; longer ALL-CAPS lines are almost
   // certainly song lyrics (e.g. "CAUSE THE PINSTRIPES ARE ALL THAT THEY SEE").

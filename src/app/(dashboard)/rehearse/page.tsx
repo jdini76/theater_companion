@@ -1,5 +1,8 @@
 "use client";
 import { useState } from "react";
+import ScenesPage from "../scenes/page";
+import CastPage from "../cast/page";
+import RehearsalPage from "../rehearsals/page";
 
 const TABS = [
   { id: "scenes", label: "Scenes" },
@@ -37,17 +40,13 @@ export default function RehearsePage() {
 }
 
 function ScenesTab() {
-  // Lazy-load the actual scenes page
-  const ScenesPage = require("../scenes/page").default;
   return <ScenesPage />;
 }
 
 function CastTab() {
-  const CastPage = require("../cast/page").default;
   return <CastPage />;
 }
 
 function RunLinesTab() {
-  const RehearsalPage = require("../rehearsals/page").default;
   return <RehearsalPage />;
 }

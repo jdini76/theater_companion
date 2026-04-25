@@ -6,7 +6,10 @@ import { useVoice } from "@/contexts/VoiceContext";
 import { createScenesFromInput, detectSceneCount, extractSceneCharacters, extractCastNames, parseTOC, findSongsForScene, stripTocSection, SceneInputMode } from "@/lib/scenes";
 import type { ParsedToc } from "@/types/scene";
 import { extractTextFromPdf } from "@/lib/pdf-client";
+
+// import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/Button";
+import { OcrUploaderWrapper } from "../common/OcrUploaderWrapper";
 
 interface SceneImportFormProps {
   projectId: string;
@@ -29,6 +32,8 @@ export function SceneImportForm({
   const { createScenes } = useScenes();
   const { importCastCharacters, getProjectCharacters } = useVoice();
   const [selectedTab, setSelectedTab] = useState<"paste" | "upload">("paste");
+  const [uploadMode, setUploadMode] = useState<"text" | "image">("text");
+  const [ocrText, setOcrText] = useState("");
   const [pastedText, setPastedText] = useState("");
   const [inputMode, setInputMode] = useState<SceneInputMode>("auto");
   const [preview, setPreview] = useState<ScenePreview[]>([]);
@@ -136,7 +141,7 @@ export function SceneImportForm({
         return;
       }
 
-      throw new Error("Only .txt and .pdf files are supported");
+      throw new Error("Only .txt and .pdf files are supported in Text mode");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file");
       setPreview([]);
@@ -450,30 +455,57 @@ export function SceneImportForm({
       {/* Upload Tab */}
       {selectedTab === "upload" && (
         <div className="space-y-4">
-          <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-            <label className="cursor-pointer">
-              <input
-                type="file"
-                accept=".txt,.pdf"
-                onChange={handleFileUpload}
-                disabled={isLoading}
-                className="hidden"
-              />
-              <div className="space-y-2">
-                <div className="text-4xl">📄</div>
-                <p className="text-light font-semibold">
-                  {isLoading ? "Parsing…" : "Click to upload a script file"}
-                </p>
-                <p className="text-muted text-sm">
-                  Supports <strong>.pdf</strong> and <strong>.txt</strong>
-                </p>
-                <p className="text-muted text-xs">
-                  Note: PDFs must have a selectable text layer. Image-based or
-                  print-locked PDFs cannot be parsed automatically.
-                </p>
-              </div>
-            </label>
+          <div className="flex gap-4 mb-4">
+            <button
+              className={`px-4 py-2 rounded font-semibold border transition-colors ${uploadMode === "text" ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan" : "bg-background border-border text-muted hover:text-light"}`}
+              onClick={() => setUploadMode("text")}
+            >
+              Upload Text/PDF
+            </button>
+            <button
+              className={`px-4 py-2 rounded font-semibold border transition-colors ${uploadMode === "image" ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan" : "bg-background border-border text-muted hover:text-light"}`}
+              onClick={() => setUploadMode("image")}
+            >
+              Upload Image (OCR)
+            </button>
           </div>
+          {uploadMode === "text" ? (
+            <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept=".txt,.pdf"
+                  onChange={handleFileUpload}
+                  disabled={isLoading}
+                  className="hidden"
+                />
+                <div className="space-y-2">
+                  <div className="text-4xl">📄</div>
+                  <p className="text-light font-semibold">
+                    {isLoading ? "Parsing…" : "Click to upload a script file"}
+                  </p>
+                  <p className="text-muted text-sm">
+                    Supports <strong>.pdf</strong> and <strong>.txt</strong>
+                  </p>
+                  <p className="text-muted text-xs">
+                    Note: PDFs must have a selectable text layer. Image-based or
+                    print-locked PDFs cannot be parsed automatically.
+                  </p>
+                </div>
+              </label>
+            </div>
+          ) : (
+            <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+              <OcrUploaderWrapper onExtract={setOcrText} />
+              {ocrText && (
+                <div className="mt-4">
+                  <Button variant="primary" onClick={() => handleParseText(ocrText)}>
+                    Use Extracted Text
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
