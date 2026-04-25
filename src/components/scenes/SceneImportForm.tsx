@@ -16,6 +16,13 @@ interface SceneImportFormProps {
   onSuccess?: () => void;
 }
 
+type CharacterCategory = "individual" | "group" | "non-character";
+
+interface CastReviewEntry {
+  name: string;
+  category: CharacterCategory;
+}
+
 interface ScenePreview {
   title: string;
   contentPreview: string;
@@ -29,8 +36,8 @@ export function SceneImportForm({
   projectId,
   onSuccess,
 }: SceneImportFormProps) {
-  const { createScenes } = useScenes();
-  const { importCastCharacters, getProjectCharacters } = useVoice();
+  const { createScenes, deleteScenes, getProjectScenes } = useScenes();
+  const { importCastCharacters, getProjectCharacters, deleteCharacter } = useVoice();
   const [selectedTab, setSelectedTab] = useState<"paste" | "upload">("paste");
   const [uploadMode, setUploadMode] = useState<"text" | "image">("text");
   const [ocrText, setOcrText] = useState("");
@@ -50,12 +57,21 @@ export function SceneImportForm({
   const [detectedSceneCount, setDetectedSceneCount] = useState<number>(0);
   const [castNames, setCastNames] = useState<string[]>([]);
   const [tocData, setTocData] = useState<ParsedToc | null>(null);
+  const [castReview, setCastReview] = useState<CastReviewEntry[]>([]);
+  const [castImportMode, setCastImportMode] = useState<"add" | "replace">("add");
+  const [sceneImportMode, setSceneImportMode] = useState<"add" | "replace">("add");
+  const [pendingParse, setPendingParse] = useState<{
+    toc: ParsedToc | null;
+    scenes: Array<{ title: string; content: string }>;
+  } | null>(null);
 
   const handleParseText = (text: string) => {
     setError(null);
     if (!text.trim()) {
       setError("Please enter some text");
       setPreview([]);
+      setCastReview([]);
+      setPendingParse(null);
       setDetectedSceneCount(0);
       return;
     }
@@ -74,33 +90,42 @@ export function SceneImportForm({
 
       // Extract known cast from the full text (if a cast page exists),
       // falling back to the project's existing cast page characters.
-      let cast = extractCastNames(text);
-      if (cast.length === 0) {
-        cast = getProjectCharacters(projectId).map((c) => c.characterName);
+      let knownCast = extractCastNames(text);
+      if (knownCast.length === 0) {
+        knownCast = getProjectCharacters(projectId).map((c) => c.characterName);
       }
-      setCastNames(cast);
+      setCastNames(knownCast);
 
       const scenes = createScenesFromInput(projectId, sceneText, inputMode);
-      
+
       if (scenes.length === 0) {
         setError("No content to parse");
         setPreview([]);
         return;
       }
 
-      // Prepare previews with editable titles and TOC song data
-      setPreview(
-        scenes.map((scene) => ({
-          title: scene.title,
-          contentPreview: scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
-          fullContent: scene.content,
-          characters: extractSceneCharacters(scene.content, cast),
-          songs: toc ? findSongsForScene(toc, scene.title) : [],
-          deleted: false,
-        }))
+      // Collect every character detected across all scenes with no cast
+      // filter — maximum recall so the user can review false positives.
+      const allChars = new Set<string>();
+      for (const scene of scenes) {
+        extractSceneCharacters(scene.content).forEach((c) => allChars.add(c));
+      }
+      // Seed with any names from the cast page / existing project cast
+      knownCast.forEach((name) => allChars.add(name.toUpperCase()));
+
+      setCastReview(
+        Array.from(allChars)
+          .sort()
+          .map((name) => ({ name, category: "individual" as CharacterCategory }))
       );
-      
-      // Clear editing state
+
+      setPendingParse({
+        toc,
+        scenes: scenes.map((s) => ({ title: s.title, content: s.content })),
+      });
+
+      // Clear any stale editing state
+      setPreview([]);
       setEditingIndices(new Set());
       setEditingTitles(new Map());
       setExpandedIndex(null);
@@ -111,8 +136,34 @@ export function SceneImportForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to parse text");
       setPreview([]);
+      setCastReview([]);
+      setPendingParse(null);
       setDetectedSceneCount(0);
     }
+  };
+
+  const handleConfirmCast = () => {
+    if (!pendingParse) return;
+    const { toc, scenes } = pendingParse;
+
+    // Only keep characters the user didn't mark as non-character
+    const confirmedCast = castReview
+      .filter((e) => e.category !== "non-character")
+      .map((e) => e.name);
+
+    setPreview(
+      scenes.map((scene) => ({
+        title: scene.title,
+        contentPreview: scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
+        fullContent: scene.content,
+        characters: extractSceneCharacters(scene.content, confirmedCast),
+        songs: toc ? findSongsForScene(toc, scene.title) : [],
+        deleted: false,
+      }))
+    );
+
+    setCastReview([]);
+    setPendingParse(null);
   };
 
   const handlePasteInput = () => {
@@ -300,6 +351,13 @@ export function SceneImportForm({
         };
       });
 
+      if (sceneImportMode === "replace") {
+        const existing = getProjectScenes(projectId);
+        if (existing.length > 0) {
+          deleteScenes(existing.map((s) => s.id));
+        }
+      }
+
       createScenes(projectId, finalScenes);
 
       // Auto-populate cast page: collect all unique characters across scenes
@@ -313,6 +371,11 @@ export function SceneImportForm({
       for (const name of castNames) allCharacters.add(name);
 
       if (allCharacters.size > 0) {
+        if (castImportMode === "replace") {
+          for (const existing of getProjectCharacters(projectId)) {
+            deleteCharacter(existing.id);
+          }
+        }
         importCastCharacters(projectId, Array.from(allCharacters));
       }
 
@@ -339,6 +402,8 @@ export function SceneImportForm({
   const handleClear = () => {
     setPastedText("");
     setPreview([]);
+    setCastReview([]);
+    setPendingParse(null);
     setError(null);
     setDetectedSceneCount(0);
     setTocData(null);
@@ -358,7 +423,8 @@ export function SceneImportForm({
     <div className="card space-y-6">
       <h2 className="text-2xl font-bold text-light">Import Scenes</h2>
 
-      {/* Tab Switch */}
+      {/* Tab Switch — hidden once cast review or scene preview is active */}
+      {castReview.length === 0 && preview.length === 0 && (
       <div className="flex gap-2 border-b border-border">
         <button
           onClick={() => {
@@ -387,6 +453,7 @@ export function SceneImportForm({
           Upload File
         </button>
       </div>
+      )}
 
       {/* Error Message */}
       {error && (
@@ -395,8 +462,8 @@ export function SceneImportForm({
         </div>
       )}
 
-      {/* Input Mode Selector (visible when no preview) */}
-      {preview.length === 0 && (
+      {/* Input Mode Selector (visible when no preview and no cast review) */}
+      {castReview.length === 0 && preview.length === 0 && (
         <div className="space-y-3">
           <label className="block text-light font-semibold">Input Mode</label>
           <div className="grid grid-cols-3 gap-3">
@@ -423,7 +490,7 @@ export function SceneImportForm({
       )}
 
       {/* Paste Tab */}
-      {selectedTab === "paste" && (
+      {selectedTab === "paste" && castReview.length === 0 && preview.length === 0 && (
         <div className="space-y-4">
           <div>
             <label className="block text-light font-semibold mb-2">
@@ -453,7 +520,7 @@ export function SceneImportForm({
       )}
 
       {/* Upload Tab */}
-      {selectedTab === "upload" && (
+      {selectedTab === "upload" && castReview.length === 0 && preview.length === 0 && (
         <div className="space-y-4">
           <div className="flex gap-4 mb-4">
             <button
@@ -510,10 +577,112 @@ export function SceneImportForm({
       )}
 
       {/* Scene Info */}
-      {detectedSceneCount > 1 && preview.length === 0 && (
+      {detectedSceneCount > 1 && castReview.length === 0 && preview.length === 0 && (
         <div className="p-3 bg-accent-cyan/10 border border-accent-cyan rounded text-accent-cyan text-sm">
           <strong>Detected {detectedSceneCount} scenes</strong> in the input text.
           {inputMode === "single" && " (Single mode selected: will be treated as one scene)"}
+        </div>
+      )}
+
+      {/* Cast Review Section */}
+      {castReview.length > 0 && preview.length === 0 && (
+        <div className="space-y-4 border-t border-border pt-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-light font-semibold">
+              Review Characters ({castReview.length})
+            </h3>
+            <button
+              onClick={handleClear}
+              className="text-muted text-xs hover:text-light transition-colors"
+            >
+              ← Back
+            </button>
+          </div>
+          <p className="text-muted text-sm">
+            Categorize each detected name before building scene previews. Mark
+            anything that isn&apos;t a real character as <em>Non-character</em> to
+            filter it out.
+          </p>
+
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            {castReview.map((entry, i) => (
+              <div
+                key={entry.name}
+                className="flex items-center gap-3 px-3 py-2 rounded border border-border bg-background"
+              >
+                <span className="flex-1 text-light text-sm font-mono">
+                  {entry.name}
+                </span>
+                <select
+                  value={entry.category}
+                  onChange={(e) => {
+                    const updated = [...castReview];
+                    updated[i] = {
+                      ...entry,
+                      category: e.target.value as CharacterCategory,
+                    };
+                    setCastReview(updated);
+                  }}
+                  className={`bg-background border rounded px-2 py-1 text-sm focus:outline-none focus:border-accent-cyan transition-colors ${
+                    entry.category === "non-character"
+                      ? "border-red-500/50 text-red-400"
+                      : entry.category === "group"
+                      ? "border-yellow-500/50 text-yellow-400"
+                      : "border-border text-light"
+                  }`}
+                >
+                  <option value="individual">Individual</option>
+                  <option value="group">Group</option>
+                  <option value="non-character">Non-character</option>
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3 pt-2 border-t border-border">
+            <div>
+              <label className="block text-light font-semibold text-sm mb-2">
+                Cast page import mode
+              </label>
+              <div className="flex gap-3">
+                {(["add", "replace"] as const).map((mode) => (
+                  <label
+                    key={mode}
+                    className={`flex items-center gap-2 px-3 py-2 rounded border cursor-pointer transition-colors ${
+                      castImportMode === mode
+                        ? "border-accent-cyan bg-accent-cyan/10 text-accent-cyan"
+                        : "border-border text-muted hover:text-light"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="castImportMode"
+                      value={mode}
+                      checked={castImportMode === mode}
+                      onChange={() => setCastImportMode(mode)}
+                      className="accent-accent-cyan"
+                    />
+                    <span className="text-sm font-semibold capitalize">
+                      {mode === "add" ? "Add new only" : "Replace all"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-muted text-xs mt-2">
+                {castImportMode === "add"
+                  ? "Only characters not already on the cast page will be added."
+                  : "All existing cast members will be removed and replaced with this confirmed cast."}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={handleClear}>
+                Back
+              </Button>
+              <Button variant="primary" onClick={handleConfirmCast}>
+                Confirm Cast &amp; Preview Scenes
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -830,23 +999,59 @@ export function SceneImportForm({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex gap-3 pt-4 border-t border-border">
-            <Button
-              variant="secondary"
-              onClick={handleClear}
-              disabled={isCreating}
-            >
-              Clear
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleCreateScenes}
-              disabled={isCreating || activeScenesCount === 0}
-            >
-              {isCreating
-                ? "Creating..."
-                : `Create ${activeScenesCount} Scene${activeScenesCount !== 1 ? "s" : ""}`}
-            </Button>
+          <div className="space-y-3 pt-4 border-t border-border">
+            <div>
+              <label className="block text-light font-semibold text-sm mb-2">
+                Scene import mode
+              </label>
+              <div className="flex gap-3">
+                {(["add", "replace"] as const).map((mode) => (
+                  <label
+                    key={mode}
+                    className={`flex items-center gap-2 px-3 py-2 rounded border cursor-pointer transition-colors ${
+                      sceneImportMode === mode
+                        ? "border-accent-cyan bg-accent-cyan/10 text-accent-cyan"
+                        : "border-border text-muted hover:text-light"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="sceneImportMode"
+                      value={mode}
+                      checked={sceneImportMode === mode}
+                      onChange={() => setSceneImportMode(mode)}
+                      className="accent-accent-cyan"
+                    />
+                    <span className="text-sm font-semibold">
+                      {mode === "add" ? "Add new only" : "Replace all"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-muted text-xs mt-2">
+                {sceneImportMode === "add"
+                  ? "Existing scenes are kept. Only these new scenes will be added."
+                  : "All existing scenes in this project will be deleted before importing."}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                onClick={handleClear}
+                disabled={isCreating}
+              >
+                Clear
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateScenes}
+                disabled={isCreating || activeScenesCount === 0}
+              >
+                {isCreating
+                  ? "Creating..."
+                  : `Create ${activeScenesCount} Scene${activeScenesCount !== 1 ? "s" : ""}`}
+              </Button>
+            </div>
           </div>
         </div>
       )}
