@@ -49,20 +49,28 @@ export function extractSceneCharacters(
   // ── Build cast lookup tables (if cast list provided) ────────────
   let castUpper: Set<string> | null = null;
   let firstNameMap: Map<string, string> | null = null;
+  // lastNameMap resolves abbreviated labels like "HANNIGAN" → "MISS HANNIGAN"
+  let lastNameMap: Map<string, string> | null = null;
 
   if (knownCast && knownCast.length > 0) {
     castUpper = new Set(knownCast.map((n) => n.toUpperCase()));
     firstNameMap = new Map<string, string>();
+    lastNameMap = new Map<string, string>();
     for (const name of knownCast) {
       const parts = name.trim().split(/\s+/);
       if (parts.length > 1) {
         const first = parts[0].toUpperCase();
-        // Only store first-name mapping if unambiguous (no other cast
-        // member shares the same first name)
+        // Only store mapping if unambiguous (no other cast member shares it)
         if (firstNameMap.has(first)) {
           firstNameMap.set(first, ""); // ambiguous → disable
         } else {
           firstNameMap.set(first, name.toUpperCase());
+        }
+        const last = parts[parts.length - 1].toUpperCase();
+        if (lastNameMap.has(last)) {
+          lastNameMap.set(last, ""); // ambiguous → disable
+        } else {
+          lastNameMap.set(last, name.toUpperCase());
         }
       }
     }
@@ -94,17 +102,17 @@ export function extractSceneCharacters(
 
       // Always keep characters detected by the dialogue parser.
       // When we have a cast list, resolve to the canonical cast name
-      // (e.g. "PHIL" → "PHIL CONNORS") to avoid duplicates.
+      // (e.g. "PHIL" → "PHIL CONNORS", "HANNIGAN" → "MISS HANNIGAN").
       // Non-cast names are SKIPPED when a cast list is provided — the
       // "mixed" parser picks up too many false positives from song lyrics.
-      if (castUpper && firstNameMap) {
+      if (castUpper && firstNameMap && lastNameMap) {
         if (castUpper.has(upper)) {
           characters.add(upper);
         } else {
-          const fullName = firstNameMap.get(upper);
-          if (fullName) {
-            characters.add(fullName);
-          }
+          const byFirst = firstNameMap.get(upper);
+          const byLast = lastNameMap.get(upper);
+          if (byFirst) characters.add(byFirst);
+          else if (byLast) characters.add(byLast);
           // Non-cast names are intentionally dropped here.
         }
       } else {
@@ -117,7 +125,7 @@ export function extractSceneCharacters(
   // Scan every raw line of the scene for known character names that the
   // dialogue parser classified as lyrics / narrative.  This catches
   // group speaker labels mid-song like "NANCY, DEPUTY, RALPH, GUS".
-  if (castUpper && firstNameMap) {
+  if (castUpper && firstNameMap && lastNameMap) {
     for (const rawLine of content.split("\n")) {
       const trimmed = rawLine.trim();
       if (!trimmed) continue;
@@ -134,17 +142,47 @@ export function extractSceneCharacters(
         if (castUpper.has(upper)) {
           characters.add(upper);
         } else {
-          // Check first-name match (e.g. "PHIL" → "PHIL CONNORS")
-          const fullName = firstNameMap.get(upper);
-          if (fullName) {
-            characters.add(fullName);
-          }
+          const fullName =
+            firstNameMap.get(upper) || lastNameMap.get(upper);
+          if (fullName) characters.add(fullName);
         }
       }
     }
   }
 
-  return Array.from(characters).sort();
+  const allNames = Array.from(characters);
+
+  // ── Alias merge (no-cast-list fallback) ────────────────────────
+  // When no cast list is available, merge partial name aliases: if a
+  // detected name is an exact word-suffix of a longer detected name
+  // (e.g. "HANNIGAN" is the last word of "MISS HANNIGAN"), keep only
+  // the longer form.  Only merge when the match is unambiguous.
+  if (!castUpper) {
+    const merged = new Set<string>(allNames);
+    for (const shortName of allNames) {
+      if (!merged.has(shortName)) continue;
+      const shortWords = shortName.split(/\s+/);
+      let mergedInto: string | null = null;
+      for (const fullName of allNames) {
+        if (fullName === shortName) continue;
+        const fullWords = fullName.split(/\s+/);
+        if (shortWords.length < fullWords.length) {
+          const suffix = fullWords.slice(-shortWords.length).join(" ");
+          if (suffix === shortName) {
+            if (mergedInto !== null) {
+              mergedInto = null; // ambiguous — don't merge
+              break;
+            }
+            mergedInto = fullName;
+          }
+        }
+      }
+      if (mergedInto !== null) merged.delete(shortName);
+    }
+    return Array.from(merged).sort();
+  }
+
+  return allNames.sort();
 }
 
 // ── Cast list parser ────────────────────────────────────────────────────────
@@ -434,10 +472,57 @@ export function diagnoseSceneMarkers(
 }
 
 /**
+ * Strip known front-matter sections (Musical Numbers, Songs By Character, etc.)
+ * that appear before the actual script content in theatrical librettos.
+ * The section boundary is detected by page-break markers like "— iii —".
+ */
+function stripFrontMatterSections(text: string): string {
+  const SECTION_START_RE = [
+    /^musica[l]?\s+numbers?/i,
+    /^songs?\s+(?:by|for)\s+(?:the\s+)?characters?/i,
+  ];
+  // Page-break markers like "— iii —", "— iv —", "- ii -", "— 3 —"
+  // Also catches OCR variants like "= if =" (garbled "— iii —")
+  const PAGE_BREAK_RE =
+    /^[-—–=]{1,3}\s*(?:[ivxlc]{1,6}|\d+)\s*[-—–=]{1,3}\s*$/i;
+
+  const lines = text.split(/\r?\n/);
+  const result: string[] = [];
+  let inSection = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+
+    if (!inSection && SECTION_START_RE.some((re) => re.test(trimmed))) {
+      inSection = true;
+      continue;
+    }
+
+    if (inSection) {
+      if (PAGE_BREAK_RE.test(trimmed)) {
+        inSection = false;
+        // Drop the page-break marker itself
+      }
+      // Skip front-matter content
+      continue;
+    }
+
+    result.push(lines[i]);
+  }
+
+  return result.join("\n");
+}
+
+/**
  * Remove PDF artifacts and page markers from text
  * Removes patterns like "-- 99 of 101 --" or "Page 1 of 10"
  */
 export function cleanPdfArtifacts(text: string): string {
+  // Strip known theatrical front-matter sections (Musical Numbers, Songs By
+  // Character) before anything else so their Act/Scene labels don't create
+  // false scene breaks.
+  text = stripFrontMatterSections(text);
+
   const lines = text.split("\n");
   let cleaned = lines;
 
@@ -487,6 +572,10 @@ export function cleanPdfArtifacts(text: string): string {
   text = text.replace(/^\s*Page\s+\d+\s+of\s+\d+\s*$/gm, "");
   // Remove lines that are just page numbers
   text = text.replace(/^\s*\d+\s*$/gm, "");
+  // Remove libretto running headers: "SHOW TITLE Page N" or "Page N SHOW TITLE"
+  // e.g. "ANNIE Page 1" or "Page 2 ANNIE"
+  text = text.replace(/^[A-Z][A-Z\s]*\s+Page\s+\d+\s*$/gm, "");
+  text = text.replace(/^\s*Page\s+\d+\s+[A-Z][A-Z\s]*\s*$/gm, "");
 
   return text;
 }
