@@ -45,6 +45,7 @@ export interface TTSSettings {
   kokoroVoice: string;
   kokoroSpeed: number;
   kokoroDevice: "wasm" | "webgpu";
+  kokoroPreGenEnabled?: boolean; // Option to enable/disable pre-generation
 }
 
 export interface VoiceContextType {
