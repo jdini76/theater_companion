@@ -13,6 +13,14 @@ import {
   ApiVoice,
   characterNamesMatch,
 } from "@/lib/voice";
+import {
+  KOKORO_VOICES,
+  speakTextViaKokoro,
+  stopKokoroAudio,
+  getKokoroLoadState,
+  loadKokoro,
+  pregenerateText,
+} from "@/lib/kokoro-tts";
 import { useVoice } from "@/contexts/VoiceContext";
 
 const CURRENT_PROJECT_KEY = "theater_current_project_id";
@@ -99,8 +107,9 @@ export default function UnifiedRehearsalPage() {
   // Rehearsal mode
   const [rehearsalMode, setRehearsalMode] = useState<"full" | "cue-only">("full");
 
-  // TTS provider: browser speech synthesis vs external API
-  const [ttsProvider, setTtsProvider] = useState<"browser" | "api">("browser");
+  // TTS provider
+  const [ttsProvider, setTtsProvider] = useState<"browser" | "api" | "kokoro">("browser");
+  const [kokoroStatus, setKokoroStatus] = useState<string | null>(null);
   const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
   const [apiVoicesLoading, setApiVoicesLoading] = useState(false);
   const [apiVoicesError, setApiVoicesError] = useState<string | null>(null);
@@ -170,7 +179,7 @@ export default function UnifiedRehearsalPage() {
     if (saved.pauseMode) setPauseMode(saved.pauseMode as "manual" | "countdown");
     if (saved.countdownSeconds) setCountdownSeconds(saved.countdownSeconds as number);
     if (typeof saved.narratorVoiceIndex === "number") setNarratorVoiceIndex(saved.narratorVoiceIndex);
-    if (saved.ttsProvider) setTtsProvider(saved.ttsProvider as "browser" | "api");
+    if (saved.ttsProvider) setTtsProvider(saved.ttsProvider as "browser" | "api" | "kokoro");
     if (saved.apiVoiceAssignments) setApiVoiceAssignments(saved.apiVoiceAssignments as Record<string, string>);
     if (typeof saved.selectedSceneIndex === "number") setSelectedSceneIndex(saved.selectedSceneIndex as number);
 
@@ -436,28 +445,27 @@ MOM: See? You were ready.`
   // Preview a character's voice using the preview text from Settings
   const handlePreviewVoice = useCallback(async (char: string) => {
     if (previewingChar === char) {
-      // Stop current preview
-      if (ttsProvider === "api") {
-        stopApiAudio();
-      } else {
-        window.speechSynthesis.cancel();
-      }
+      if (ttsProvider === "api") stopApiAudio();
+      else if (ttsProvider === "kokoro") stopKokoroAudio();
+      else window.speechSynthesis.cancel();
       setPreviewingChar(null);
       return;
     }
 
     const ttsSettings = getTTSSettings();
     const text = ttsSettings.previewText || "Hello, this is a voice test.";
+    const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
 
     setPreviewingChar(char);
     try {
-      if (ttsProvider === "api") {
+      if (ttsProvider === "kokoro") {
+        const voice = apiVoiceAssignments[char] || ttsSettings.kokoroVoice || "am_puck";
+        await speakTextViaKokoro(text, { voice, speed: cfg.rate });
+      } else if (ttsProvider === "api") {
         const apiVoiceId = apiVoiceAssignments[char] || ttsSettings.defaultVoiceId;
-        const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
         await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate });
       } else {
         window.speechSynthesis.cancel();
-        const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = cfg.rate;
         utterance.pitch = cfg.pitch;
@@ -590,6 +598,25 @@ MOM: See? You were ready.`
     (line: { speaker: string; text: string }, onDone: () => void) => {
       // For combined speakers like "MOM + JOEY", use the first individual's voice
       const primarySpeaker = splitSpeaker(line.speaker)[0] || line.speaker;
+
+      // ── Kokoro TTS path ──────────────────────────────────────────────
+      if (ttsProvider === "kokoro") {
+        const ttsSettings = getTTSSettings();
+        const voice = apiVoiceAssignments[primarySpeaker] || ttsSettings.kokoroVoice || "am_puck";
+        const cfg = voiceAssignments[primarySpeaker] || { rate: 1, pitch: 1, voiceIndex: 0 };
+
+        if (speakNames) {
+          const nameUtter = new SpeechSynthesisUtterance(`${line.speaker}.`);
+          nameUtter.rate = 1;
+          if (availableVoices[narratorVoiceIndex]) nameUtter.voice = availableVoices[narratorVoiceIndex];
+          nameUtter.onend = () => speakTextViaKokoro(line.text, { voice, speed: cfg.rate }).then(onDone).catch(onDone);
+          nameUtter.onerror = () => speakTextViaKokoro(line.text, { voice, speed: cfg.rate }).then(onDone).catch(onDone);
+          window.speechSynthesis.speak(nameUtter);
+        } else {
+          speakTextViaKokoro(line.text, { voice, speed: cfg.rate }).then(onDone).catch(onDone);
+        }
+        return;
+      }
 
       // ── API TTS path ──────────────────────────────────────────────────
       if (ttsProvider === "api") {
@@ -742,6 +769,25 @@ MOM: See? You were ready.`
     setCurrentPrompt(isMine ? "Read-through mode" : "Listening...");
     setRehearsalStatus(`Speaking: ${line.speaker}`);
 
+    // Pre-generate the next non-user Kokoro line in the background
+    if (ttsProvider === "kokoro") {
+      for (let i = rehearsal.index + 1; i < rehearsal.lines.length; i++) {
+        const upcoming = rehearsal.lines[i];
+        const upcomingIsMine = splitSpeaker(upcoming.speaker).some((n) =>
+          characterNamesMatch(n, selectedCharacter),
+        );
+        if (!upcomingIsMine && upcoming.text.trim()) {
+          const primary = splitSpeaker(upcoming.speaker)[0] || upcoming.speaker;
+          const ttsSettings = getTTSSettings();
+          pregenerateText(upcoming.text, {
+            voice: apiVoiceAssignments[primary] || ttsSettings.kokoroVoice || "am_puck",
+            speed: (voiceAssignments[primary] || { rate: 1 }).rate,
+          });
+          break;
+        }
+      }
+    }
+
     speakLine(line, () => {
       if (rehearsal.isPlaying && !rehearsal.isPaused) {
         const timeout = setTimeout(
@@ -761,6 +807,9 @@ MOM: See? You were ready.`
     pauseMode,
     countdownSeconds,
     speakLine,
+    ttsProvider,
+    apiVoiceAssignments,
+    voiceAssignments,
   ]);
 
   // Trigger rehearsal advancement
@@ -802,6 +851,7 @@ MOM: See? You were ready.`
     if (!rehearsal.isPlaying) return;
     window.speechSynthesis.pause();
     stopApiAudio();
+    stopKokoroAudio();
     setRehearsal((prev) => ({ ...prev, isPaused: true }));
     setRehearsalStatus("Paused.");
 
@@ -831,6 +881,7 @@ MOM: See? You were ready.`
   const handleReset = () => {
     window.speechSynthesis.cancel();
     stopApiAudio();
+    stopKokoroAudio();
     if (countdownInterval) clearInterval(countdownInterval);
     if (nextLineTimeout) clearTimeout(nextLineTimeout);
     setRehearsal({ lines: [], index: 0, isPlaying: false, isPaused: false });
@@ -1197,62 +1248,72 @@ JOEY: I know them until I have to say them out loud..."
           <section style={{ ...styles.card, gridColumn: "span 8" }}>
             <h2 style={styles.h2}>Character Voices</h2>
 
-            {/* TTS Provider Toggle */}
-            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
-              <button
-                onClick={() => setTtsProvider("browser")}
-                style={{
-                  ...styles.buttonSecondary,
-                  ...(ttsProvider === "browser" ? { borderColor: "#00d4ff", color: "#00d4ff", backgroundColor: "rgba(0,212,255,0.1)" } : {}),
-                }}
-              >
-                Browser TTS
-              </button>
-              <button
-                onClick={() => {
-                  const ttsSettings = getTTSSettings();
-                  if (!ttsSettings.apiUrl) {
-                    alert("Configure your TTS API in Settings first.");
-                    return;
-                  }
-                  setTtsProvider("api");
-                  if (apiVoices.length === 0) {
-                    setApiVoicesLoading(true);
-                    setApiVoicesError(null);
-                    fetchApiVoices(ttsSettings)
-                      .then((voices) => {
-                        setApiVoices(voices);
-                        if (voices.length === 0) setApiVoicesError("No voices returned.");
-                      })
-                      .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
-                      .finally(() => setApiVoicesLoading(false));
-                  }
-                }}
-                style={{
-                  ...styles.buttonSecondary,
-                  ...(ttsProvider === "api" ? { borderColor: "#00d4ff", color: "#00d4ff", backgroundColor: "rgba(0,212,255,0.1)" } : {}),
-                }}
-              >
-                API TTS
-              </button>
+            {/* TTS Provider Selector */}
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "12px", flexWrap: "wrap" }}>
+              <div style={styles.fieldGroup}>
+                <label style={styles.miniLabel}>TTS Provider</label>
+                <select
+                  value={ttsProvider}
+                  onChange={async (e) => {
+                    const provider = e.target.value as "browser" | "api" | "kokoro";
+                    if (provider === "api") {
+                      const ttsSettings = getTTSSettings();
+                      if (!ttsSettings.apiUrl) {
+                        alert("Configure your TTS API URL in Settings first.");
+                        return;
+                      }
+                      setTtsProvider("api");
+                      if (apiVoices.length === 0) {
+                        setApiVoicesLoading(true);
+                        setApiVoicesError(null);
+                        fetchApiVoices(ttsSettings)
+                          .then((v) => { setApiVoices(v); if (v.length === 0) setApiVoicesError("No voices returned."); })
+                          .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+                          .finally(() => setApiVoicesLoading(false));
+                      }
+                    } else if (provider === "kokoro") {
+                      setTtsProvider("kokoro");
+                      if (getKokoroLoadState() === "idle") {
+                        setKokoroStatus("Loading model…");
+                        try {
+                          await loadKokoro({ device: getTTSSettings().kokoroDevice ?? "wasm" });
+                          setKokoroStatus(null);
+                        } catch (err) {
+                          setKokoroStatus(err instanceof Error ? err.message : "Load failed");
+                        }
+                      }
+                    } else {
+                      setTtsProvider("browser");
+                    }
+                  }}
+                  style={{ ...styles.input, width: "auto", minWidth: "180px" }}
+                >
+                  <option value="browser">Browser TTS</option>
+                  <option value="api">API TTS</option>
+                  <option value="kokoro">Kokoro AI (Local)</option>
+                </select>
+              </div>
               {ttsProvider === "api" && (
                 <button
                   onClick={() => {
                     setApiVoicesLoading(true);
                     setApiVoicesError(null);
                     fetchApiVoices(getTTSSettings())
-                      .then((voices) => {
-                        setApiVoices(voices);
-                        if (voices.length === 0) setApiVoicesError("No voices returned.");
-                      })
+                      .then((v) => { setApiVoices(v); if (v.length === 0) setApiVoicesError("No voices returned."); })
                       .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
                       .finally(() => setApiVoicesLoading(false));
                   }}
                   disabled={apiVoicesLoading}
-                  style={styles.buttonSecondary}
+                  style={{ ...styles.buttonSecondary, flex: "0 0 auto" }}
                 >
-                  {apiVoicesLoading ? "Loading..." : "↻ Refresh Voices"}
+                  {apiVoicesLoading ? "Loading…" : "↻ Refresh Voices"}
                 </button>
+              )}
+              {ttsProvider === "kokoro" && kokoroStatus && (
+                <div style={{ fontSize: "12px", color: "#9fb0d0" }}>{kokoroStatus}</div>
+              )}
+              {ttsProvider === "kokoro" && getKokoroLoadState() === "ready" && !kokoroStatus && (
+                <div style={{ fontSize: "12px", color: "#86efac" }}>Model ready</div>
               )}
             </div>
             {apiVoicesError && ttsProvider === "api" && (
@@ -1291,6 +1352,50 @@ JOEY: I know them until I have to say them out loud..."
             <div style={styles.voiceTable}>
               {characters.map((char) => {
                 const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
+
+                if (ttsProvider === "kokoro") {
+                  const kokoroVoiceId = apiVoiceAssignments[char] || "";
+                  return (
+                    <div key={char} style={styles.voiceRow}>
+                      <div><strong>{char}</strong></div>
+                      <select
+                        value={kokoroVoiceId}
+                        onChange={(e) => setApiVoiceAssignments((prev) => ({ ...prev, [char]: e.target.value }))}
+                        style={styles.input}
+                      >
+                        <option value="">Default ({getTTSSettings().kokoroVoice || "am_puck"})</option>
+                        {KOKORO_VOICES.map((v) => (
+                          <option key={v.id} value={v.id}>{v.name}</option>
+                        ))}
+                      </select>
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.miniLabel}>Speed</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.5"
+                          max="2"
+                          value={cfg.rate}
+                          onChange={(e) => setVoiceAssignments((prev) => ({ ...prev, [char]: { ...cfg, rate: parseFloat(e.target.value) || 1 } }))}
+                          style={styles.input}
+                        />
+                      </div>
+                      <button
+                        onClick={() => handlePreviewVoice(char)}
+                        style={{ ...styles.buttonSecondary, padding: "4px 10px", fontSize: "13px", minWidth: "auto", ...(previewingChar === char ? { borderColor: "#ff6b6b", color: "#ff6b6b" } : {}) }}
+                      >
+                        {previewingChar === char ? "⏹ Stop" : "▶ Preview"}
+                      </button>
+                      <button
+                        onClick={() => handleSaveVoiceToCast(char)}
+                        style={{ ...styles.buttonSecondary, padding: "4px 10px", fontSize: "13px", minWidth: "auto" }}
+                        title="Save voice settings to cast page"
+                      >
+                        💾 Save
+                      </button>
+                    </div>
+                  );
+                }
 
                 if (ttsProvider === "api") {
                   // API TTS: voice dropdown + speed control

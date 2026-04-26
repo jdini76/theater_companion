@@ -4,14 +4,13 @@ import React, { useState, useEffect } from "react";
 import { useVoice } from "@/contexts/VoiceContext";
 import {
   getAvailableVoices,
-  speakText,
-  stopSpeaking,
   getTTSSettings,
   fetchApiVoices,
-  speakTextViaApi,
-  stopApiAudio,
+  speakLine,
+  stopLine,
   ApiVoice,
 } from "@/lib/voice";
+import { KOKORO_VOICES } from "@/lib/kokoro-tts";
 import { TTSSettings } from "@/types/voice";
 import { Button } from "@/components/ui/Button";
 
@@ -52,6 +51,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   }, []);
 
   const isApiMode = ttsSettings?.provider === "api" && !!ttsSettings.apiUrl;
+  const isKokoroMode = ttsSettings?.provider === "kokoro";
 
   useEffect(() => {
     // Reload browser voices when component mounts
@@ -132,15 +132,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
 
     try {
       setIsSpeaking(true);
-      if (isApiMode) {
-        await speakTextViaApi(testText, {
-          voice: voiceConfig.apiVoiceId || ttsSettings?.defaultVoiceId,
-          speed: voiceConfig.rate,
-          volume: voiceConfig.volume,
-        });
-      } else {
-        await speakText(testText, voiceConfig);
-      }
+      await speakLine(testText, voiceConfig);
     } catch (error) {
       alert(
         `Error speaking: ${error instanceof Error ? error.message : "Unknown error"}`
@@ -151,11 +143,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   };
 
   const handleStopSpeech = () => {
-    if (isApiMode) {
-      stopApiAudio();
-    } else {
-      stopSpeaking();
-    }
+    stopLine();
     setIsSpeaking(false);
   };
 
@@ -169,13 +157,40 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
           Character: <span className="text-accent-cyan font-semibold">{character.characterName}</span>
         </p>
         <p className="text-xs text-muted mt-1">
-          TTS Provider: <span className="text-accent-cyan">{isApiMode ? "API TTS" : "Browser TTS"}</span>
-          {isApiMode && <span className="text-muted"> — change in Settings</span>}
+          TTS Provider:{" "}
+          <span className="text-accent-cyan">
+            {isKokoroMode ? "Kokoro AI" : isApiMode ? "API TTS" : "Browser TTS"}
+          </span>
+          {(isApiMode || isKokoroMode) && (
+            <span className="text-muted"> — change in Settings</span>
+          )}
         </p>
       </div>
 
-      {/* Voice Selection — API mode */}
-      {isApiMode ? (
+      {/* Voice Selection — Kokoro mode */}
+      {isKokoroMode ? (
+        <div>
+          <label className="block text-light font-semibold mb-2">
+            🎙️ Kokoro Voice
+          </label>
+          <select
+            value={voiceConfig.apiVoiceId || ""}
+            onChange={(e) => handleApiVoiceChange(e.target.value)}
+            disabled={voiceConfig.muted}
+            className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
+          >
+            <option value="">Default ({ttsSettings?.kokoroVoice || "am_puck"})</option>
+            {KOKORO_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted text-xs mt-1">
+            Override the default Kokoro voice for this character.
+          </p>
+        </div>
+      ) : isApiMode ? (
         <div>
           <label className="block text-light font-semibold mb-2">
             🎙️ API Voice
@@ -252,7 +267,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
       <div>
         <div className="flex justify-between items-center mb-2">
           <label className="text-light font-semibold">
-            ⚡ {isApiMode ? "Speed" : "Speech Rate"}
+            ⚡ {isApiMode || isKokoroMode ? "Speed" : "Speech Rate"}
           </label>
           <span className="text-accent-cyan font-mono">
             {voiceConfig.rate.toFixed(1)}x
@@ -260,8 +275,8 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
         </div>
         <input
           type="range"
-          min={isApiMode ? "0.5" : "0.1"}
-          max={isApiMode ? "2" : "10"}
+          min={isApiMode || isKokoroMode ? "0.5" : "0.1"}
+          max={isApiMode || isKokoroMode ? "2" : "10"}
           step="0.1"
           value={voiceConfig.rate}
           onChange={(e) => handleRateChange(parseFloat(e.target.value))}
@@ -269,14 +284,14 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
           className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
         />
         <div className="flex justify-between text-xs text-muted mt-1">
-          <span>Slow ({isApiMode ? "0.5x" : "0.1x"})</span>
+          <span>Slow ({isApiMode || isKokoroMode ? "0.5x" : "0.1x"})</span>
           <span>Normal (1x)</span>
-          <span>Fast ({isApiMode ? "2x" : "10x"})</span>
+          <span>Fast ({isApiMode || isKokoroMode ? "2x" : "10x"})</span>
         </div>
       </div>
 
       {/* Pitch Control — browser TTS only */}
-      {!isApiMode && (
+      {!isApiMode && !isKokoroMode && (
       <div>
         <div className="flex justify-between items-center mb-2">
           <label className="text-light font-semibold">
