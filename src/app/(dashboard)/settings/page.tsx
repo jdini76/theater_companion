@@ -3,7 +3,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
-import { speakTextViaApi, stopApiAudio, buildTTSPayload, fetchApiVoices, ApiVoice } from "@/lib/voice";
+import {
+  speakTextViaApi,
+  stopApiAudio,
+  buildTTSPayload,
+  fetchApiVoices,
+  ApiVoice,
+} from "@/lib/voice";
 import {
   KOKORO_VOICES,
   loadKokoro,
@@ -33,6 +39,7 @@ const DEFAULT_TTS_SETTINGS: TTSSettings = {
   kokoroVoice: "am_puck",
   kokoroSpeed: 1,
   kokoroDevice: "wasm",
+  kokoroPreGenEnabled: true,
 };
 
 function loadTTSSettings(): TTSSettings {
@@ -54,8 +61,13 @@ function saveTTSSettings(settings: TTSSettings): void {
 
 function DataManagementPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [summary, setSummary] = useState<ReturnType<typeof getStorageSummary> | null>(null);
-  const [importStatus, setImportStatus] = useState<{ message: string; error: boolean } | null>(null);
+  const [summary, setSummary] = useState<ReturnType<
+    typeof getStorageSummary
+  > | null>(null);
+  const [importStatus, setImportStatus] = useState<{
+    message: string;
+    error: boolean;
+  } | null>(null);
 
   useEffect(() => {
     setSummary(getStorageSummary());
@@ -93,7 +105,10 @@ function DataManagementPanel() {
             { label: "Characters", value: summary.characterCount },
             { label: "Size", value: `${summary.totalSizeKB} KB` },
           ].map((item) => (
-            <div key={item.label} className="bg-dark-panel rounded p-3 text-center">
+            <div
+              key={item.label}
+              className="bg-dark-panel rounded p-3 text-center"
+            >
               <div className="text-2xl font-bold text-light">{item.value}</div>
               <div className="text-muted text-xs">{item.label}</div>
             </div>
@@ -105,7 +120,10 @@ function DataManagementPanel() {
         <Button variant="primary" onClick={exportData}>
           Export Backup
         </Button>
-        <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
+        <Button
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+        >
           Import Backup
         </Button>
         <input
@@ -118,7 +136,9 @@ function DataManagementPanel() {
       </div>
 
       {importStatus && (
-        <p className={`text-sm ${importStatus.error ? "text-red-400" : "text-green-400"}`}>
+        <p
+          className={`text-sm ${importStatus.error ? "text-red-400" : "text-green-400"}`}
+        >
           {importStatus.message}
         </p>
       )}
@@ -141,14 +161,16 @@ export default function SettingsPage() {
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [extraPayloadJson, setExtraPayloadJson] = useState("{}");
-  const [extraPayloadError, setExtraPayloadError] = useState<string | null>(null);
+  const [extraPayloadError, setExtraPayloadError] = useState<string | null>(
+    null,
+  );
   const [testText, setTestText] = useState("Hello, this is a voice test.");
   const [testPlaying, setTestPlaying] = useState(false);
   const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesError, setVoicesError] = useState<string | null>(null);
   const [kokoroLoadState, setKokoroLoadState] = useState<KokoroLoadState>(() =>
-    typeof window !== "undefined" ? getKokoroLoadState() : "idle"
+    typeof window !== "undefined" ? getKokoroLoadState() : "idle",
   );
   const [kokoroLoadMsg, setKokoroLoadMsg] = useState<string | null>(null);
   const [kokoroTestPlaying, setKokoroTestPlaying] = useState(false);
@@ -209,7 +231,9 @@ export default function SettingsPage() {
         setTestStatus(`Connection successful (${response.status})`);
       } else {
         const errorText = await response.text().catch(() => "");
-        setTestStatus(`Server responded with status ${response.status}: ${errorText || response.statusText}`);
+        setTestStatus(
+          `Server responded with status ${response.status}: ${errorText || response.statusText}`,
+        );
       }
     } catch (err) {
       if (err instanceof TypeError && err.message.includes("URL")) {
@@ -251,509 +275,634 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-xl font-bold text-light">Voice TTS Service</h2>
             <p className="text-muted text-sm mt-1">
-              Configure an external text-to-speech API for higher quality voice output.
-              When set to &quot;API&quot;, the app will call your TTS service instead of the browser&apos;s built-in speech synthesis.
+              Configure an external text-to-speech API for higher quality voice
+              output. When set to &quot;API&quot;, the app will call your TTS
+              service instead of the browser&apos;s built-in speech synthesis.
             </p>
           </div>
 
-        {/* Provider Toggle */}
-        <div className="space-y-2">
-          <label className="block text-light font-semibold">TTS Provider</label>
-          <div className="grid grid-cols-3 gap-3">
-            {(["browser", "kokoro", "api"] as const).map((provider) => (
-              <button
-                key={provider}
-                onClick={() => setSettings({ ...settings, provider })}
-                className={`p-3 rounded border transition-all ${
-                  settings.provider === provider
-                    ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
-                    : "border-border text-muted hover:border-accent-cyan hover:text-light"
-                }`}
-              >
-                <div className="font-semibold">
-                  {provider === "browser" ? "Browser" : provider === "kokoro" ? "Kokoro AI" : "External API"}
-                </div>
-                <div className="text-xs mt-1">
-                  {provider === "browser"
-                    ? "Built-in Web Speech API"
-                    : provider === "kokoro"
-                    ? "Local AI, no API needed"
-                    : "Custom TTS service endpoint"}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Kokoro Settings */}
-        {settings.provider === "kokoro" && (
-          <div className="space-y-4 border-t border-border pt-4">
-            <div className="space-y-1">
-              <p className="text-muted text-sm">
-                Kokoro runs an AI voice model directly in your browser — no account or API key needed.
-                The model is downloaded once from HuggingFace and cached locally.
-              </p>
-            </div>
-
-            {/* Device selector */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold">Compute Device</label>
-              <div className="grid grid-cols-2 gap-3 max-w-sm">
-                {(["wasm", "webgpu"] as const).map((device) => {
-                  const unavailable = device === "webgpu" && !isWebGPUSupported();
-                  const active = (settings.kokoroDevice ?? "wasm") === device;
-                  return (
-                    <button
-                      key={device}
-                      disabled={unavailable}
-                      onClick={() => {
-                        if (active) return;
-                        // Reset so the model reloads with the new device
-                        resetKokoro();
-                        setKokoroLoadState("idle");
-                        setKokoroLoadMsg(null);
-                        setSettings({ ...settings, kokoroDevice: device });
-                      }}
-                      className={`p-3 rounded border text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                        active
-                          ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
-                          : "border-border text-muted hover:border-accent-cyan hover:text-light"
-                      }`}
-                    >
-                      <div className="font-semibold text-sm">
-                        {device === "wasm" ? "CPU (WASM)" : "GPU (WebGPU)"}
-                      </div>
-                      <div className="text-xs mt-0.5">
-                        {device === "wasm"
-                          ? "~80 MB · works everywhere"
-                          : unavailable
-                          ? "requires Chrome 113+"
-                          : "~300 MB · 5–10× faster"}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-              {(settings.kokoroDevice ?? "wasm") === "webgpu" && isWebGPUSupported() && (
-                <p className="text-muted text-xs">
-                  WebGPU uses your GPU for generation. Larger first download (~164 MB) but significantly faster.
-                </p>
-              )}
-            </div>
-
-            {/* Model load status + button */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={async () => {
-                  setKokoroLoadMsg(null);
-                  try {
-                    await loadKokoro({
-                      device: settings.kokoroDevice ?? "wasm",
-                      onProgress: (msg) => setKokoroLoadMsg(msg),
-                    });
-                    setKokoroLoadMsg(null);
-                  } catch (err) {
-                    setKokoroLoadMsg(err instanceof Error ? err.message : "Load failed");
-                  }
-                }}
-                disabled={kokoroLoadState === "loading" || kokoroLoadState === "ready"}
-                className={`px-4 py-2 rounded font-semibold text-sm transition-all ${
-                  kokoroLoadState === "ready"
-                    ? "bg-green-700 text-green-100 cursor-default"
-                    : kokoroLoadState === "loading"
-                    ? "bg-dark-panel text-muted cursor-wait"
-                    : "bg-accent-cyan text-dark-base hover:bg-accent-cyan/80"
-                }`}
-              >
-                {kokoroLoadState === "ready"
-                  ? `Model Ready (${getKokoroLoadedDevice() ?? "wasm"})`
-                  : kokoroLoadState === "loading"
-                  ? "Loading…"
-                  : kokoroLoadState === "error"
-                  ? "Retry Load"
-                  : "Load Model"}
-              </button>
-              {kokoroLoadMsg && (
-                <span className="text-muted text-xs">{kokoroLoadMsg}</span>
-              )}
-              {kokoroLoadState === "error" && !kokoroLoadMsg && (
-                <span className="text-red-400 text-xs">Load failed — check console</span>
-              )}
-            </div>
-
-            {/* Default Voice */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold">Default Voice</label>
-              <select
-                value={settings.kokoroVoice || "am_puck"}
-                onChange={(e) => setSettings({ ...settings, kokoroVoice: e.target.value })}
-                className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan max-w-xs"
-              >
-                {KOKORO_VOICES.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-muted text-xs">
-                Used for any character that doesn&apos;t have its own voice assigned.
-              </p>
-            </div>
-
-            {/* Speed */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="block text-light font-semibold">Default Speed</label>
-                <span className="text-accent-cyan font-mono text-sm">
-                  {(settings.kokoroSpeed ?? 1).toFixed(1)}x
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="2"
-                step="0.1"
-                value={settings.kokoroSpeed ?? 1}
-                onChange={(e) => setSettings({ ...settings, kokoroSpeed: parseFloat(e.target.value) })}
-                className="w-full h-2 bg-background border border-border rounded cursor-pointer max-w-xs"
-              />
-              <div className="flex justify-between text-xs text-muted max-w-xs">
-                <span>Slow (0.5x)</span>
-                <span>Normal (1x)</span>
-                <span>Fast (2x)</span>
-              </div>
-            </div>
-
-            {/* Test */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <label className="block text-light font-semibold">Test Voice</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={testText}
-                  onChange={(e) => setTestText(e.target.value)}
-                  placeholder="Enter test text…"
-                  className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
-                />
+          {/* Provider Toggle */}
+          <div className="space-y-2">
+            <label className="block text-light font-semibold">
+              TTS Provider
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {(["browser", "kokoro", "api"] as const).map((provider) => (
                 <button
-                  onClick={async () => {
-                    if (kokoroTestPlaying) {
-                      stopKokoroAudio();
-                      setKokoroTestPlaying(false);
-                      return;
-                    }
-                    if (kokoroLoadState !== "ready") {
-                      setKokoroLoadMsg("Load the model first.");
-                      return;
-                    }
-                    setKokoroTestPlaying(true);
-                    try {
-                      saveTTSSettings({ ...settings, previewText: testText });
-                      await speakTextViaKokoro(testText, {
-                        voice: settings.kokoroVoice || "am_puck",
-                        speed: settings.kokoroSpeed ?? 1,
-                      });
-                    } catch (err) {
-                      setKokoroLoadMsg(err instanceof Error ? err.message : "Playback failed");
-                    } finally {
-                      setKokoroTestPlaying(false);
-                    }
-                  }}
-                  disabled={!testText.trim()}
-                  className="px-4 py-2 rounded font-semibold text-sm bg-accent-cyan text-dark-base hover:bg-accent-cyan/80 disabled:opacity-50"
-                >
-                  {kokoroTestPlaying ? "Stop" : "Play"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* API Settings (shown when API provider selected) */}
-        {settings.provider === "api" && (
-          <div className="space-y-4 border-t border-border pt-4">
-            {/* API Base URL */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold" htmlFor="apiUrl">
-                API Base URL
-              </label>
-              <input
-                id="apiUrl"
-                type="url"
-                value={settings.apiUrl}
-                onChange={(e) => setSettings({ ...settings, apiUrl: e.target.value })}
-                placeholder="http://localhost:8880"
-                className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-              />
-              <p className="text-muted text-xs">
-                The base URL of your TTS service (without the path).
-              </p>
-            </div>
-
-            {/* API Path */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold" htmlFor="apiPath">
-                API Path
-              </label>
-              <input
-                id="apiPath"
-                type="text"
-                value={settings.apiPath}
-                onChange={(e) => setSettings({ ...settings, apiPath: e.target.value })}
-                placeholder="/v1/audio/speech"
-                className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-              />
-              <p className="text-muted text-xs">
-                The endpoint path appended to the base URL. The app will POST to this path.
-              </p>
-            </div>
-
-            {/* API Key */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold" htmlFor="apiKey">
-                API Key <span className="text-muted font-normal">(optional)</span>
-              </label>
-              <input
-                id="apiKey"
-                type="password"
-                value={settings.apiKey}
-                onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })}
-                placeholder="sk-..."
-                className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-                autoComplete="off"
-              />
-              <p className="text-muted text-xs">
-                Sent as a Bearer token in the Authorization header. Stored locally in your browser only.
-              </p>
-            </div>
-
-            {/* Default Voice ID */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold" htmlFor="defaultVoiceId">
-                Default Voice
-              </label>
-              <div className="flex gap-2">
-                {apiVoices.length > 0 ? (
-                  <select
-                    id="defaultVoiceId"
-                    value={settings.defaultVoiceId}
-                    onChange={(e) => setSettings({ ...settings, defaultVoiceId: e.target.value })}
-                    className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
-                  >
-                    <option value="">Select a voice...</option>
-                    {apiVoices.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name ? `${v.name} (${v.id})` : v.id}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    id="defaultVoiceId"
-                    type="text"
-                    value={settings.defaultVoiceId}
-                    onChange={(e) => setSettings({ ...settings, defaultVoiceId: e.target.value })}
-                    placeholder="e.g. am_puck, alloy, nova..."
-                    className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-                  />
-                )}
-                <Button
-                  variant="secondary"
-                  onClick={async () => {
-                    setVoicesLoading(true);
-                    setVoicesError(null);
-                    try {
-                      const voices = await fetchApiVoices(settings);
-                      setApiVoices(voices);
-                      if (voices.length === 0) {
-                        setVoicesError("No voices returned by the API.");
-                      }
-                    } catch (err) {
-                      setVoicesError(err instanceof Error ? err.message : "Failed to load voices");
-                    } finally {
-                      setVoicesLoading(false);
-                    }
-                  }}
-                  disabled={voicesLoading || !settings.apiUrl.trim()}
-                >
-                  {voicesLoading ? "Loading..." : "Load Voices"}
-                </Button>
-              </div>
-              {voicesError && (
-                <p className="text-red-400 text-xs">{voicesError}</p>
-              )}
-              {apiVoices.length > 0 && (
-                <p className="text-muted text-xs">
-                  {apiVoices.length} voice{apiVoices.length !== 1 ? "s" : ""} available.
-                </p>
-              )}
-              <p className="text-muted text-xs">
-                The voice sent in the payload when no character-specific voice is assigned.
-                Click &quot;Load Voices&quot; to fetch available voices from {settings.apiUrl || "your API"}.
-              </p>
-            </div>
-
-            {/* Response Format */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold" htmlFor="responseFormat">
-                Response Format
-              </label>
-              <input
-                id="responseFormat"
-                type="text"
-                value={settings.responseFormat}
-                onChange={(e) => setSettings({ ...settings, responseFormat: e.target.value })}
-                placeholder="mp3"
-                className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan max-w-xs"
-              />
-              <p className="text-muted text-xs">
-                Audio format for the response (e.g. mp3, wav, opus).
-              </p>
-            </div>
-
-            {/* Stream Toggle */}
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-light font-semibold cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.stream}
-                  onChange={(e) => setSettings({ ...settings, stream: e.target.checked })}
-                  className="accent-accent-cyan"
-                />
-                Stream response
-              </label>
-              <span className="text-muted text-xs">
-                Send stream: true in the request payload.
-              </span>
-            </div>
-
-            {/* Extra Payload */}
-            <div className="space-y-2">
-              <label className="block text-light font-semibold">
-                Extra Payload Fields <span className="text-muted font-normal">(JSON)</span>
-              </label>
-              <textarea
-                value={extraPayloadJson}
-                onChange={(e) => {
-                  setExtraPayloadJson(e.target.value);
-                  setExtraPayloadError(null);
-                  try {
-                    const parsed = JSON.parse(e.target.value);
-                    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-                      setSettings({ ...settings, extraPayload: parsed });
-                    } else {
-                      setExtraPayloadError("Must be a JSON object {}");
-                    }
-                  } catch {
-                    setExtraPayloadError("Invalid JSON");
-                  }
-                }}
-                rows={4}
-                placeholder={'{\n  "download_format": "mp3",\n  "return_download_link": true\n}'}
-                className={`w-full bg-background border rounded px-3 py-2 text-light placeholder-muted focus:outline-none font-mono text-sm resize-vertical ${
-                  extraPayloadError ? "border-red-500" : "border-border focus:border-accent-cyan"
-                }`}
-              />
-              {extraPayloadError && (
-                <p className="text-red-400 text-xs">{extraPayloadError}</p>
-              )}
-              <p className="text-muted text-xs">
-                Additional fields merged into every TTS request. The <code className="text-accent-cyan">input</code>, <code className="text-accent-cyan">voice</code>, <code className="text-accent-cyan">speed</code>, <code className="text-accent-cyan">response_format</code>, and <code className="text-accent-cyan">stream</code> fields are set automatically.
-              </p>
-            </div>
-
-            {/* Payload Preview */}
-            <div className="space-y-2">
-              <label className="block text-muted font-semibold text-sm">Payload Preview</label>
-              <pre className="bg-background border border-border rounded p-3 text-xs text-muted overflow-x-auto font-mono">
-                {JSON.stringify(
-                  {
-                    ...settings.extraPayload,
-                    input: "(your text here)",
-                    voice: settings.defaultVoiceId || "(voice id)",
-                    response_format: settings.responseFormat || "mp3",
-                    speed: 1,
-                    stream: settings.stream,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </div>
-
-            {/* Test Connection */}
-            <div className="space-y-3 border-t border-border pt-4">
-              <label className="block text-light font-semibold">Test Voice</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={testText}
-                  onChange={(e) => setTestText(e.target.value)}
-                  placeholder="Enter test text..."
-                  className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
-                />
-                <Button
-                  variant="secondary"
-                  onClick={handleTestConnection}
-                  disabled={testLoading || !settings.apiUrl.trim()}
-                >
-                  {testLoading ? "Testing..." : "Test Connection"}
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={async () => {
-                    if (testPlaying) {
-                      stopApiAudio();
-                      setTestPlaying(false);
-                      return;
-                    }
-                    setTestPlaying(true);
-                    setTestStatus(null);
-                    try {
-                      // Save current settings first so speakTextViaApi reads them
-                      saveTTSSettings(settings);
-                      await speakTextViaApi(testText, {
-                        voice: settings.defaultVoiceId,
-                      });
-                      setTestStatus("Playback complete!");
-                    } catch (err) {
-                      setTestStatus(
-                        err instanceof Error ? err.message : "Playback failed",
-                      );
-                    } finally {
-                      setTestPlaying(false);
-                    }
-                  }}
-                  disabled={!settings.apiUrl.trim() || !testText.trim()}
-                >
-                  {testPlaying ? "⏹ Stop" : "▶ Play"}
-                </Button>
-              </div>
-              {testStatus && (
-                <span
-                  className={`text-sm block ${
-                    testStatus.startsWith("Connection successful") || testStatus === "Playback complete!"
-                      ? "text-green-400"
-                      : "text-red-400"
+                  key={provider}
+                  onClick={() => setSettings({ ...settings, provider })}
+                  className={`p-3 rounded border transition-all ${
+                    settings.provider === provider
+                      ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                      : "border-border text-muted hover:border-accent-cyan hover:text-light"
                   }`}
                 >
-                  {testStatus}
-                </span>
-              )}
+                  <div className="font-semibold">
+                    {provider === "browser"
+                      ? "Browser"
+                      : provider === "kokoro"
+                        ? "Kokoro AI"
+                        : "External API"}
+                  </div>
+                  <div className="text-xs mt-1">
+                    {provider === "browser"
+                      ? "Built-in Web Speech API"
+                      : provider === "kokoro"
+                        ? "Local AI, no API needed"
+                        : "Custom TTS service endpoint"}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
-        )}
 
-        {/* Save Button */}
-        <div className="flex items-center gap-3 border-t border-border pt-4">
-          <Button variant="primary" onClick={handleSave}>
-            Save Settings
-          </Button>
-          {saved && (
-            <span className="text-green-400 text-sm">Settings saved!</span>
+          {/* Kokoro Settings */}
+          {settings.provider === "kokoro" && (
+            <div className="space-y-4 border-t border-border pt-4">
+              <div className="space-y-1">
+                <p className="text-muted text-sm">
+                  Kokoro runs an AI voice model directly in your browser — no
+                  account or API key needed. The model is downloaded once from
+                  HuggingFace and cached locally.
+                </p>
+              </div>
+
+              {/* Pre-generation Toggle */}
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-light font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.kokoroPreGenEnabled ?? true}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        kokoroPreGenEnabled: e.target.checked,
+                      })
+                    }
+                    className="accent-accent-cyan"
+                  />
+                  Enable pre-generation (faster playback)
+                </label>
+                <span className="text-muted text-xs">
+                  When enabled, the next Kokoro line is generated in the
+                  background for smoother playback.
+                </span>
+              </div>
+
+              {/* Device selector */}
+              <div className="space-y-2">
+                <label className="block text-light font-semibold">
+                  Compute Device
+                </label>
+                <div className="grid grid-cols-2 gap-3 max-w-sm">
+                  {(["wasm", "webgpu"] as const).map((device) => {
+                    const unavailable =
+                      device === "webgpu" && !isWebGPUSupported();
+                    const active = (settings.kokoroDevice ?? "wasm") === device;
+                    return (
+                      <button
+                        key={device}
+                        disabled={unavailable}
+                        onClick={() => {
+                          if (active) return;
+                          // Reset so the model reloads with the new device
+                          resetKokoro();
+                          setKokoroLoadState("idle");
+                          setKokoroLoadMsg(null);
+                          setSettings({ ...settings, kokoroDevice: device });
+                        }}
+                        className={`p-3 rounded border text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                          active
+                            ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                            : "border-border text-muted hover:border-accent-cyan hover:text-light"
+                        }`}
+                      >
+                        <div className="font-semibold text-sm">
+                          {device === "wasm" ? "CPU (WASM)" : "GPU (WebGPU)"}
+                        </div>
+                        <div className="text-xs mt-0.5">
+                          {device === "wasm"
+                            ? "~80 MB · works everywhere"
+                            : unavailable
+                              ? "requires Chrome 113+"
+                              : "~300 MB · 5–10× faster"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(settings.kokoroDevice ?? "wasm") === "webgpu" &&
+                  isWebGPUSupported() && (
+                    <p className="text-muted text-xs">
+                      WebGPU uses your GPU for generation. Larger first download
+                      (~164 MB) but significantly faster.
+                    </p>
+                  )}
+              </div>
+
+              {/* Model load status + button */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={async () => {
+                    setKokoroLoadMsg(null);
+                    try {
+                      await loadKokoro({
+                        device: settings.kokoroDevice ?? "wasm",
+                        onProgress: (msg) => setKokoroLoadMsg(msg),
+                      });
+                      setKokoroLoadMsg(null);
+                    } catch (err) {
+                      setKokoroLoadMsg(
+                        err instanceof Error ? err.message : "Load failed",
+                      );
+                    }
+                  }}
+                  disabled={
+                    kokoroLoadState === "loading" || kokoroLoadState === "ready"
+                  }
+                  className={`px-4 py-2 rounded font-semibold text-sm transition-all ${
+                    kokoroLoadState === "ready"
+                      ? "bg-green-700 text-green-100 cursor-default"
+                      : kokoroLoadState === "loading"
+                        ? "bg-dark-panel text-muted cursor-wait"
+                        : "bg-accent-cyan text-dark-base hover:bg-accent-cyan/80"
+                  }`}
+                >
+                  {kokoroLoadState === "ready"
+                    ? `Model Ready (${getKokoroLoadedDevice() ?? "wasm"})`
+                    : kokoroLoadState === "loading"
+                      ? "Loading…"
+                      : kokoroLoadState === "error"
+                        ? "Retry Load"
+                        : "Load Model"}
+                </button>
+                {kokoroLoadMsg && (
+                  <span className="text-muted text-xs">{kokoroLoadMsg}</span>
+                )}
+                {kokoroLoadState === "error" && !kokoroLoadMsg && (
+                  <span className="text-red-400 text-xs">
+                    Load failed — check console
+                  </span>
+                )}
+              </div>
+
+              {/* Default Voice */}
+              <div className="space-y-2">
+                <label className="block text-light font-semibold">
+                  Default Voice
+                </label>
+                <select
+                  value={settings.kokoroVoice || "am_puck"}
+                  onChange={(e) =>
+                    setSettings({ ...settings, kokoroVoice: e.target.value })
+                  }
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan max-w-xs"
+                >
+                  {KOKORO_VOICES.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-muted text-xs">
+                  Used for any character that doesn&apos;t have its own voice
+                  assigned.
+                </p>
+              </div>
+
+              {/* Speed */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="block text-light font-semibold">
+                    Default Speed
+                  </label>
+                  <span className="text-accent-cyan font-mono text-sm">
+                    {(settings.kokoroSpeed ?? 1).toFixed(1)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.1"
+                  value={settings.kokoroSpeed ?? 1}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      kokoroSpeed: parseFloat(e.target.value),
+                    })
+                  }
+                  className="w-full h-2 bg-background border border-border rounded cursor-pointer max-w-xs"
+                />
+                <div className="flex justify-between text-xs text-muted max-w-xs">
+                  <span>Slow (0.5x)</span>
+                  <span>Normal (1x)</span>
+                  <span>Fast (2x)</span>
+                </div>
+              </div>
+
+              {/* Test */}
+              <div className="space-y-3 border-t border-border pt-4">
+                <label className="block text-light font-semibold">
+                  Test Voice
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={testText}
+                    onChange={(e) => setTestText(e.target.value)}
+                    placeholder="Enter test text…"
+                    className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (kokoroTestPlaying) {
+                        stopKokoroAudio();
+                        setKokoroTestPlaying(false);
+                        return;
+                      }
+                      if (kokoroLoadState !== "ready") {
+                        setKokoroLoadMsg("Load the model first.");
+                        return;
+                      }
+                      setKokoroTestPlaying(true);
+                      try {
+                        saveTTSSettings({ ...settings, previewText: testText });
+                        await speakTextViaKokoro(testText, {
+                          voice: settings.kokoroVoice || "am_puck",
+                          speed: settings.kokoroSpeed ?? 1,
+                        });
+                      } catch (err) {
+                        setKokoroLoadMsg(
+                          err instanceof Error
+                            ? err.message
+                            : "Playback failed",
+                        );
+                      } finally {
+                        setKokoroTestPlaying(false);
+                      }
+                    }}
+                    disabled={!testText.trim()}
+                    className="px-4 py-2 rounded font-semibold text-sm bg-accent-cyan text-dark-base hover:bg-accent-cyan/80 disabled:opacity-50"
+                  >
+                    {kokoroTestPlaying ? "Stop" : "Play"}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
-        </div>
-      </section>
+
+          {/* API Settings (shown when API provider selected) */}
+          {settings.provider === "api" && (
+            <div className="space-y-4 border-t border-border pt-4">
+              {/* API Base URL */}
+              <div className="space-y-2">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="apiUrl"
+                >
+                  API Base URL
+                </label>
+                <input
+                  id="apiUrl"
+                  type="url"
+                  value={settings.apiUrl}
+                  onChange={(e) =>
+                    setSettings({ ...settings, apiUrl: e.target.value })
+                  }
+                  placeholder="http://localhost:8880"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                />
+                <p className="text-muted text-xs">
+                  The base URL of your TTS service (without the path).
+                </p>
+              </div>
+
+              {/* API Path */}
+              <div className="space-y-2">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="apiPath"
+                >
+                  API Path
+                </label>
+                <input
+                  id="apiPath"
+                  type="text"
+                  value={settings.apiPath}
+                  onChange={(e) =>
+                    setSettings({ ...settings, apiPath: e.target.value })
+                  }
+                  placeholder="/v1/audio/speech"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                />
+                <p className="text-muted text-xs">
+                  The endpoint path appended to the base URL. The app will POST
+                  to this path.
+                </p>
+              </div>
+
+              {/* API Key */}
+              <div className="space-y-2">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="apiKey"
+                >
+                  API Key{" "}
+                  <span className="text-muted font-normal">(optional)</span>
+                </label>
+                <input
+                  id="apiKey"
+                  type="password"
+                  value={settings.apiKey}
+                  onChange={(e) =>
+                    setSettings({ ...settings, apiKey: e.target.value })
+                  }
+                  placeholder="sk-..."
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                  autoComplete="off"
+                />
+                <p className="text-muted text-xs">
+                  Sent as a Bearer token in the Authorization header. Stored
+                  locally in your browser only.
+                </p>
+              </div>
+
+              {/* Default Voice ID */}
+              <div className="space-y-2">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="defaultVoiceId"
+                >
+                  Default Voice
+                </label>
+                <div className="flex gap-2">
+                  {apiVoices.length > 0 ? (
+                    <select
+                      id="defaultVoiceId"
+                      value={settings.defaultVoiceId}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          defaultVoiceId: e.target.value,
+                        })
+                      }
+                      className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                    >
+                      <option value="">Select a voice...</option>
+                      {apiVoices.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name ? `${v.name} (${v.id})` : v.id}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="defaultVoiceId"
+                      type="text"
+                      value={settings.defaultVoiceId}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          defaultVoiceId: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. am_puck, alloy, nova..."
+                      className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                    />
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      setVoicesLoading(true);
+                      setVoicesError(null);
+                      try {
+                        const voices = await fetchApiVoices(settings);
+                        setApiVoices(voices);
+                        if (voices.length === 0) {
+                          setVoicesError("No voices returned by the API.");
+                        }
+                      } catch (err) {
+                        setVoicesError(
+                          err instanceof Error
+                            ? err.message
+                            : "Failed to load voices",
+                        );
+                      } finally {
+                        setVoicesLoading(false);
+                      }
+                    }}
+                    disabled={voicesLoading || !settings.apiUrl.trim()}
+                  >
+                    {voicesLoading ? "Loading..." : "Load Voices"}
+                  </Button>
+                </div>
+                {voicesError && (
+                  <p className="text-red-400 text-xs">{voicesError}</p>
+                )}
+                {apiVoices.length > 0 && (
+                  <p className="text-muted text-xs">
+                    {apiVoices.length} voice{apiVoices.length !== 1 ? "s" : ""}{" "}
+                    available.
+                  </p>
+                )}
+                <p className="text-muted text-xs">
+                  The voice sent in the payload when no character-specific voice
+                  is assigned. Click &quot;Load Voices&quot; to fetch available
+                  voices from {settings.apiUrl || "your API"}.
+                </p>
+              </div>
+
+              {/* Response Format */}
+              <div className="space-y-2">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="responseFormat"
+                >
+                  Response Format
+                </label>
+                <input
+                  id="responseFormat"
+                  type="text"
+                  value={settings.responseFormat}
+                  onChange={(e) =>
+                    setSettings({ ...settings, responseFormat: e.target.value })
+                  }
+                  placeholder="mp3"
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan max-w-xs"
+                />
+                <p className="text-muted text-xs">
+                  Audio format for the response (e.g. mp3, wav, opus).
+                </p>
+              </div>
+
+              {/* Stream Toggle */}
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-light font-semibold cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.stream}
+                    onChange={(e) =>
+                      setSettings({ ...settings, stream: e.target.checked })
+                    }
+                    className="accent-accent-cyan"
+                  />
+                  Stream response
+                </label>
+                <span className="text-muted text-xs">
+                  Send stream: true in the request payload.
+                </span>
+              </div>
+
+              {/* Extra Payload */}
+              <div className="space-y-2">
+                <label className="block text-light font-semibold">
+                  Extra Payload Fields{" "}
+                  <span className="text-muted font-normal">(JSON)</span>
+                </label>
+                <textarea
+                  value={extraPayloadJson}
+                  onChange={(e) => {
+                    setExtraPayloadJson(e.target.value);
+                    setExtraPayloadError(null);
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      if (
+                        typeof parsed === "object" &&
+                        parsed !== null &&
+                        !Array.isArray(parsed)
+                      ) {
+                        setSettings({ ...settings, extraPayload: parsed });
+                      } else {
+                        setExtraPayloadError("Must be a JSON object {}");
+                      }
+                    } catch {
+                      setExtraPayloadError("Invalid JSON");
+                    }
+                  }}
+                  rows={4}
+                  placeholder={
+                    '{\n  "download_format": "mp3",\n  "return_download_link": true\n}'
+                  }
+                  className={`w-full bg-background border rounded px-3 py-2 text-light placeholder-muted focus:outline-none font-mono text-sm resize-vertical ${
+                    extraPayloadError
+                      ? "border-red-500"
+                      : "border-border focus:border-accent-cyan"
+                  }`}
+                />
+                {extraPayloadError && (
+                  <p className="text-red-400 text-xs">{extraPayloadError}</p>
+                )}
+                <p className="text-muted text-xs">
+                  Additional fields merged into every TTS request. The{" "}
+                  <code className="text-accent-cyan">input</code>,{" "}
+                  <code className="text-accent-cyan">voice</code>,{" "}
+                  <code className="text-accent-cyan">speed</code>,{" "}
+                  <code className="text-accent-cyan">response_format</code>, and{" "}
+                  <code className="text-accent-cyan">stream</code> fields are
+                  set automatically.
+                </p>
+              </div>
+
+              {/* Payload Preview */}
+              <div className="space-y-2">
+                <label className="block text-muted font-semibold text-sm">
+                  Payload Preview
+                </label>
+                <pre className="bg-background border border-border rounded p-3 text-xs text-muted overflow-x-auto font-mono">
+                  {JSON.stringify(
+                    {
+                      ...settings.extraPayload,
+                      input: "(your text here)",
+                      voice: settings.defaultVoiceId || "(voice id)",
+                      response_format: settings.responseFormat || "mp3",
+                      speed: 1,
+                      stream: settings.stream,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </div>
+
+              {/* Test Connection */}
+              <div className="space-y-3 border-t border-border pt-4">
+                <label className="block text-light font-semibold">
+                  Test Voice
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={testText}
+                    onChange={(e) => setTestText(e.target.value)}
+                    placeholder="Enter test text..."
+                    className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={handleTestConnection}
+                    disabled={testLoading || !settings.apiUrl.trim()}
+                  >
+                    {testLoading ? "Testing..." : "Test Connection"}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      if (testPlaying) {
+                        stopApiAudio();
+                        setTestPlaying(false);
+                        return;
+                      }
+                      setTestPlaying(true);
+                      setTestStatus(null);
+                      try {
+                        // Save current settings first so speakTextViaApi reads them
+                        saveTTSSettings(settings);
+                        await speakTextViaApi(testText, {
+                          voice: settings.defaultVoiceId,
+                        });
+                        setTestStatus("Playback complete!");
+                      } catch (err) {
+                        setTestStatus(
+                          err instanceof Error
+                            ? err.message
+                            : "Playback failed",
+                        );
+                      } finally {
+                        setTestPlaying(false);
+                      }
+                    }}
+                    disabled={!settings.apiUrl.trim() || !testText.trim()}
+                  >
+                    {testPlaying ? "⏹ Stop" : "▶ Play"}
+                  </Button>
+                </div>
+                {testStatus && (
+                  <span
+                    className={`text-sm block ${
+                      testStatus.startsWith("Connection successful") ||
+                      testStatus === "Playback complete!"
+                        ? "text-green-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {testStatus}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Save Button */}
+          <div className="flex items-center gap-3 border-t border-border pt-4">
+            <Button variant="primary" onClick={handleSave}>
+              Save Settings
+            </Button>
+            {saved && (
+              <span className="text-green-400 text-sm">Settings saved!</span>
+            )}
+          </div>
+        </section>
       )}
 
       {/* Data Management Tab */}
@@ -762,8 +911,8 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-xl font-bold text-light">Data Management</h2>
             <p className="text-muted text-sm mt-1">
-              Export your data as a JSON backup file, or import a previous backup to restore.
-              All data is stored locally in your browser.
+              Export your data as a JSON backup file, or import a previous
+              backup to restore. All data is stored locally in your browser.
             </p>
           </div>
 
@@ -782,43 +931,103 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-light">Getting Started</h3>
+            <h3 className="text-lg font-semibold text-light">
+              Getting Started
+            </h3>
             <ol className="list-decimal list-inside space-y-2 text-muted text-sm">
-              <li><span className="text-light font-medium">Create a Project</span> — Go to the <span className="text-accent-cyan">Projects</span> page and create a new production. Each project keeps its scenes, cast, and rehearsal settings separate.</li>
-              <li><span className="text-light font-medium">Import Scenes</span> — In the <span className="text-accent-cyan">Rehearse</span> section, select the <span className="text-accent-cyan">Scenes</span> tab and paste or import your script text. The parser will split it into character lines and stage directions automatically.</li>
-              <li><span className="text-light font-medium">Set Up Cast</span> — In <span className="text-accent-cyan">Rehearse</span>, switch to the <span className="text-accent-cyan">Cast</span> tab to see your characters. You can assign voices to each character for text-to-speech playback.</li>
-              <li><span className="text-light font-medium">Configure Voices</span> — In <span className="text-accent-cyan">Settings</span> &rarr; <span className="text-accent-cyan">Voice Settings</span>, choose between the built-in browser speech or connect an external TTS API for higher quality voices.</li>
-              <li><span className="text-light font-medium">Run Lines</span> — In <span className="text-accent-cyan">Rehearse</span>, open the <span className="text-accent-cyan">Run Lines</span> tab, select your scene and the character you&apos;re playing. The app will read the other characters&apos; lines aloud and pause for yours.</li>
+              <li>
+                <span className="text-light font-medium">Create a Project</span>{" "}
+                — Go to the <span className="text-accent-cyan">Projects</span>{" "}
+                page and create a new production. Each project keeps its scenes,
+                cast, and rehearsal settings separate.
+              </li>
+              <li>
+                <span className="text-light font-medium">Import Scenes</span> —
+                In the <span className="text-accent-cyan">Rehearse</span>{" "}
+                section, select the{" "}
+                <span className="text-accent-cyan">Scenes</span> tab and paste
+                or import your script text. The parser will split it into
+                character lines and stage directions automatically.
+              </li>
+              <li>
+                <span className="text-light font-medium">Set Up Cast</span> — In{" "}
+                <span className="text-accent-cyan">Rehearse</span>, switch to
+                the <span className="text-accent-cyan">Cast</span> tab to see
+                your characters. You can assign voices to each character for
+                text-to-speech playback.
+              </li>
+              <li>
+                <span className="text-light font-medium">Configure Voices</span>{" "}
+                — In <span className="text-accent-cyan">Settings</span> &rarr;{" "}
+                <span className="text-accent-cyan">Voice Settings</span>, choose
+                between the built-in browser speech or connect an external TTS
+                API for higher quality voices.
+              </li>
+              <li>
+                <span className="text-light font-medium">Run Lines</span> — In{" "}
+                <span className="text-accent-cyan">Rehearse</span>, open the{" "}
+                <span className="text-accent-cyan">Run Lines</span> tab, select
+                your scene and the character you&apos;re playing. The app will
+                read the other characters&apos; lines aloud and pause for yours.
+              </li>
             </ol>
           </div>
 
           <div className="space-y-3">
             <h3 className="text-lg font-semibold text-light">Tips</h3>
             <ul className="list-disc list-inside space-y-2 text-muted text-sm">
-              <li>Use the <span className="text-accent-cyan">Data Management</span> tab to export backups of your work regularly.</li>
-              <li>Voice settings saved on the Cast page carry over to rehearsals automatically.</li>
-              <li>You can assign different API voices per character for a more realistic rehearsal experience.</li>
-              <li>Scene import supports standard script formats — character names in UPPERCASE followed by their dialogue.</li>
+              <li>
+                Use the{" "}
+                <span className="text-accent-cyan">Data Management</span> tab to
+                export backups of your work regularly.
+              </li>
+              <li>
+                Voice settings saved on the Cast page carry over to rehearsals
+                automatically.
+              </li>
+              <li>
+                You can assign different API voices per character for a more
+                realistic rehearsal experience.
+              </li>
+              <li>
+                Scene import supports standard script formats — character names
+                in UPPERCASE followed by their dialogue.
+              </li>
             </ul>
           </div>
 
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-light">Contact & Feedback</h3>
+            <h3 className="text-lg font-semibold text-light">
+              Contact & Feedback
+            </h3>
             <div className="space-y-3 text-muted text-sm">
               <p>
-                Have suggestions, found a bug, or need help? I&apos;d love to hear from you:
+                Have suggestions, found a bug, or need help? I&apos;d love to
+                hear from you:
               </p>
-              
+
               <div className="bg-dark-panel rounded p-4">
                 <div className="flex items-center gap-3">
-                  <svg className="w-5 h-5 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  <svg
+                    className="w-5 h-5 text-accent-cyan"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
                   </svg>
                   <div>
                     <div className="text-light font-medium">Email</div>
-                    <p className="text-xs">General feedback, questions, or collaboration</p>
-                    <a 
-                      href="mailto:joe@dinicola.com?subject=Theater%20Companion%20Feedback" 
+                    <p className="text-xs">
+                      General feedback, questions, or collaboration
+                    </p>
+                    <a
+                      href="mailto:joe@dinicola.com?subject=Theater%20Companion%20Feedback"
                       className="text-accent-cyan hover:underline text-xs"
                     >
                       joe@joedinicola.com
@@ -831,7 +1040,9 @@ export default function SettingsPage() {
 
           <div className="border-t border-border pt-4">
             <p className="text-muted text-xs">
-              All data is stored locally in your browser. Nothing is sent to any server except the TTS endpoint you configure. API keys never leave your machine.
+              All data is stored locally in your browser. Nothing is sent to any
+              server except the TTS endpoint you configure. API keys never leave
+              your machine.
             </p>
           </div>
         </section>
