@@ -3,7 +3,16 @@
 import React, { useState } from "react";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
-import { createScenesFromInput, detectSceneCount, extractSceneCharacters, extractCastNames, parseTOC, findSongsForScene, stripTocSection, SceneInputMode } from "@/lib/scenes";
+import {
+  createScenesFromInput,
+  detectSceneCount,
+  extractSceneCharacters,
+  extractCastNames,
+  parseTOC,
+  findSongsForScene,
+  stripTocSection,
+  SceneInputMode,
+} from "@/lib/scenes";
 import type { ParsedToc } from "@/types/scene";
 import { extractTextFromPdf } from "@/lib/pdf-client";
 
@@ -37,7 +46,8 @@ export function SceneImportForm({
   onSuccess,
 }: SceneImportFormProps) {
   const { createScenes, deleteScenes, getProjectScenes } = useScenes();
-  const { importCastCharacters, getProjectCharacters, deleteCharacter } = useVoice();
+  const { importCastCharacters, getProjectCharacters, deleteCharacter } =
+    useVoice();
   const [selectedTab, setSelectedTab] = useState<"paste" | "upload">("paste");
   const [uploadMode, setUploadMode] = useState<"text" | "image">("text");
   const [ocrText, setOcrText] = useState("");
@@ -45,12 +55,20 @@ export function SceneImportForm({
   const [inputMode, setInputMode] = useState<SceneInputMode>("auto");
   const [preview, setPreview] = useState<ScenePreview[]>([]);
   const [editingIndices, setEditingIndices] = useState<Set<number>>(new Set());
-  const [editingTitles, setEditingTitles] = useState<Map<number, string>>(new Map());
+  const [editingTitles, setEditingTitles] = useState<Map<number, string>>(
+    new Map(),
+  );
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
-  const [editingContent, setEditingContent] = useState<Map<number, string>>(new Map());
-  const [editingCharacters, setEditingCharacters] = useState<Map<number, string[]>>(new Map());
+  const [editingContent, setEditingContent] = useState<Map<number, string>>(
+    new Map(),
+  );
+  const [editingCharacters, setEditingCharacters] = useState<
+    Map<number, string[]>
+  >(new Map());
   const [newCharInput, setNewCharInput] = useState<string>("");
-  const [selectedForDelete, setSelectedForDelete] = useState<Set<number>>(new Set());
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<number>>(
+    new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -58,8 +76,12 @@ export function SceneImportForm({
   const [castNames, setCastNames] = useState<string[]>([]);
   const [tocData, setTocData] = useState<ParsedToc | null>(null);
   const [castReview, setCastReview] = useState<CastReviewEntry[]>([]);
-  const [castImportMode, setCastImportMode] = useState<"add" | "replace">("add");
-  const [sceneImportMode, setSceneImportMode] = useState<"add" | "replace">("add");
+  const [castImportMode, setCastImportMode] = useState<"add" | "replace">(
+    "add",
+  );
+  const [sceneImportMode, setSceneImportMode] = useState<"add" | "replace">(
+    "add",
+  );
   const [pendingParse, setPendingParse] = useState<{
     toc: ParsedToc | null;
     scenes: Array<{ title: string; content: string }>;
@@ -116,7 +138,10 @@ export function SceneImportForm({
       setCastReview(
         Array.from(allChars)
           .sort()
-          .map((name) => ({ name, category: "individual" as CharacterCategory }))
+          .map((name) => ({
+            name,
+            category: "individual" as CharacterCategory,
+          })),
       );
 
       setPendingParse({
@@ -154,12 +179,13 @@ export function SceneImportForm({
     setPreview(
       scenes.map((scene) => ({
         title: scene.title,
-        contentPreview: scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
+        contentPreview:
+          scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
         fullContent: scene.content,
         characters: extractSceneCharacters(scene.content, confirmedCast),
         songs: toc ? findSongsForScene(toc, scene.title) : [],
         deleted: false,
-      }))
+      })),
     );
 
     setCastReview([]);
@@ -209,7 +235,7 @@ export function SceneImportForm({
     const newEditing = new Set(editingIndices);
     newEditing.add(index);
     setEditingIndices(newEditing);
-    
+
     // Initialize with current title if not already editing
     if (!editingTitles.has(index)) {
       const newTitles = new Map(editingTitles);
@@ -315,8 +341,11 @@ export function SceneImportForm({
 
     const newPreview = [...preview];
     newPreview[index].fullContent = newContent;
-    newPreview[index].contentPreview = newContent.substring(0, 200).replace(/\n/g, " ") + "...";
-    newPreview[index].characters = editingCharacters.get(index) ?? extractSceneCharacters(newContent, castNames);
+    newPreview[index].contentPreview =
+      newContent.substring(0, 200).replace(/\n/g, " ") + "...";
+    newPreview[index].characters =
+      editingCharacters.get(index) ??
+      extractSceneCharacters(newContent, castNames);
     setPreview(newPreview);
     setExpandedIndex(null);
     setNewCharInput("");
@@ -332,7 +361,7 @@ export function SceneImportForm({
     setIsCreating(true);
 
     try {
-      const scenesToCreate = preview.filter(scene => !scene.deleted);
+      const scenesToCreate = preview.filter((scene) => !scene.deleted);
       if (scenesToCreate.length === 0) {
         throw new Error("No scenes to create (all scenes were deleted)");
       }
@@ -417,7 +446,7 @@ export function SceneImportForm({
     setCastNames([]);
   };
 
-  const activeScenesCount = preview.filter(s => !s.deleted).length;
+  const activeScenesCount = preview.filter((s) => !s.deleted).length;
 
   return (
     <div className="card space-y-6">
@@ -425,34 +454,34 @@ export function SceneImportForm({
 
       {/* Tab Switch — hidden once cast review or scene preview is active */}
       {castReview.length === 0 && preview.length === 0 && (
-      <div className="flex gap-2 border-b border-border">
-        <button
-          onClick={() => {
-            setSelectedTab("paste");
-            handleClear();
-          }}
-          className={`px-4 py-2 font-semibold transition-colors ${
-            selectedTab === "paste"
-              ? "text-accent-cyan border-b-2 border-accent-cyan"
-              : "text-muted hover:text-light"
-          }`}
-        >
-          Paste Text
-        </button>
-        <button
-          onClick={() => {
-            setSelectedTab("upload");
-            handleClear();
-          }}
-          className={`px-4 py-2 font-semibold transition-colors ${
-            selectedTab === "upload"
-              ? "text-accent-cyan border-b-2 border-accent-cyan"
-              : "text-muted hover:text-light"
-          }`}
-        >
-          Upload File
-        </button>
-      </div>
+        <div className="flex gap-2 border-b border-border">
+          <button
+            onClick={() => {
+              setSelectedTab("paste");
+              handleClear();
+            }}
+            className={`px-4 py-2 font-semibold transition-colors ${
+              selectedTab === "paste"
+                ? "text-accent-cyan border-b-2 border-accent-cyan"
+                : "text-muted hover:text-light"
+            }`}
+          >
+            Paste Text
+          </button>
+          <button
+            onClick={() => {
+              setSelectedTab("upload");
+              handleClear();
+            }}
+            className={`px-4 py-2 font-semibold transition-colors ${
+              selectedTab === "upload"
+                ? "text-accent-cyan border-b-2 border-accent-cyan"
+                : "text-muted hover:text-light"
+            }`}
+          >
+            Upload File
+          </button>
+        </div>
       )}
 
       {/* Error Message */}
@@ -490,99 +519,110 @@ export function SceneImportForm({
       )}
 
       {/* Paste Tab */}
-      {selectedTab === "paste" && castReview.length === 0 && preview.length === 0 && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-light font-semibold mb-2">
-              Paste your scene(s)
-            </label>
-            <textarea
-              value={pastedText}
-              onChange={(e) => setPastedText(e.target.value)}
-              placeholder={`Paste your scene text here. Supports:
+      {selectedTab === "paste" &&
+        castReview.length === 0 &&
+        preview.length === 0 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-light font-semibold mb-2">
+                Paste your scene(s)
+              </label>
+              <textarea
+                value={pastedText}
+                onChange={(e) => setPastedText(e.target.value)}
+                placeholder={`Paste your scene text here. Supports:
 • Single scene: Just paste the text
 • Multiple scenes: Use format like "SCENE 1:", "Scene 2:", "ACT 1 SCENE 1", or "---" separators
 • Multiline dialogue: Indent continuation lines`}
-              rows={10}
-              className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan font-mono text-sm resize-vertical"
-            />
+                rows={10}
+                className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan font-mono text-sm resize-vertical"
+              />
+            </div>
+            {!preview.length && (
+              <Button
+                variant="primary"
+                onClick={handlePasteInput}
+                disabled={!pastedText.trim()}
+              >
+                Parse Text
+              </Button>
+            )}
           </div>
-          {!preview.length && (
-            <Button
-              variant="primary"
-              onClick={handlePasteInput}
-              disabled={!pastedText.trim()}
-            >
-              Parse Text
-            </Button>
-          )}
-        </div>
-      )}
+        )}
 
       {/* Upload Tab */}
-      {selectedTab === "upload" && castReview.length === 0 && preview.length === 0 && (
-        <div className="space-y-4">
-          <div className="flex gap-4 mb-4">
-            <button
-              className={`px-4 py-2 rounded font-semibold border transition-colors ${uploadMode === "text" ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan" : "bg-background border-border text-muted hover:text-light"}`}
-              onClick={() => setUploadMode("text")}
-            >
-              Upload Text/PDF
-            </button>
-            <button
-              className={`px-4 py-2 rounded font-semibold border transition-colors ${uploadMode === "image" ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan" : "bg-background border-border text-muted hover:text-light"}`}
-              onClick={() => setUploadMode("image")}
-            >
-              Upload Image (OCR)
-            </button>
+      {selectedTab === "upload" &&
+        castReview.length === 0 &&
+        preview.length === 0 && (
+          <div className="space-y-4">
+            <div className="flex gap-4 mb-4">
+              <button
+                className={`px-4 py-2 rounded font-semibold border transition-colors ${uploadMode === "text" ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan" : "bg-background border-border text-muted hover:text-light"}`}
+                onClick={() => setUploadMode("text")}
+              >
+                Upload Text/PDF
+              </button>
+              <button
+                className={`px-4 py-2 rounded font-semibold border transition-colors ${uploadMode === "image" ? "bg-accent-cyan/20 border-accent-cyan text-accent-cyan" : "bg-background border-border text-muted hover:text-light"}`}
+                onClick={() => setUploadMode("image")}
+              >
+                Upload Image (OCR)
+              </button>
+            </div>
+            {uploadMode === "text" ? (
+              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+                <label className="cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".txt,.pdf"
+                    onChange={handleFileUpload}
+                    disabled={isLoading}
+                    className="hidden"
+                  />
+                  <div className="space-y-2">
+                    <div className="text-4xl">📄</div>
+                    <p className="text-light font-semibold">
+                      {isLoading ? "Parsing…" : "Click to upload a script file"}
+                    </p>
+                    <p className="text-muted text-sm">
+                      Supports <strong>.pdf</strong> and <strong>.txt</strong>
+                    </p>
+                    <p className="text-muted text-xs">
+                      Note: PDFs must have a selectable text layer. Image-based
+                      or print-locked PDFs cannot be parsed automatically.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+                <OcrUploaderWrapper onExtract={setOcrText} />
+                {ocrText && (
+                  <div className="mt-4">
+                    <Button
+                      variant="primary"
+                      onClick={() => handleParseText(ocrText)}
+                    >
+                      Use Extracted Text
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {uploadMode === "text" ? (
-            <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-              <label className="cursor-pointer">
-                <input
-                  type="file"
-                  accept=".txt,.pdf"
-                  onChange={handleFileUpload}
-                  disabled={isLoading}
-                  className="hidden"
-                />
-                <div className="space-y-2">
-                  <div className="text-4xl">📄</div>
-                  <p className="text-light font-semibold">
-                    {isLoading ? "Parsing…" : "Click to upload a script file"}
-                  </p>
-                  <p className="text-muted text-sm">
-                    Supports <strong>.pdf</strong> and <strong>.txt</strong>
-                  </p>
-                  <p className="text-muted text-xs">
-                    Note: PDFs must have a selectable text layer. Image-based or
-                    print-locked PDFs cannot be parsed automatically.
-                  </p>
-                </div>
-              </label>
-            </div>
-          ) : (
-            <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-              <OcrUploaderWrapper onExtract={setOcrText} />
-              {ocrText && (
-                <div className="mt-4">
-                  <Button variant="primary" onClick={() => handleParseText(ocrText)}>
-                    Use Extracted Text
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+        )}
 
       {/* Scene Info */}
-      {detectedSceneCount > 1 && castReview.length === 0 && preview.length === 0 && (
-        <div className="p-3 bg-accent-cyan/10 border border-accent-cyan rounded text-accent-cyan text-sm">
-          <strong>Detected {detectedSceneCount} scenes</strong> in the input text.
-          {inputMode === "single" && " (Single mode selected: will be treated as one scene)"}
-        </div>
-      )}
+      {detectedSceneCount > 1 &&
+        castReview.length === 0 &&
+        preview.length === 0 && (
+          <div className="p-3 bg-accent-cyan/10 border border-accent-cyan rounded text-accent-cyan text-sm">
+            <strong>Detected {detectedSceneCount} scenes</strong> in the input
+            text.
+            {inputMode === "single" &&
+              " (Single mode selected: will be treated as one scene)"}
+          </div>
+        )}
 
       {/* Cast Review Section */}
       {castReview.length > 0 && preview.length === 0 && (
@@ -600,8 +640,8 @@ export function SceneImportForm({
           </div>
           <p className="text-muted text-sm">
             Categorize each detected name before building scene previews. Mark
-            anything that isn&apos;t a real character as <em>Non-character</em> to
-            filter it out.
+            anything that isn&apos;t a real character as <em>Non-character</em>{" "}
+            to filter it out.
           </p>
 
           <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
@@ -627,8 +667,8 @@ export function SceneImportForm({
                     entry.category === "non-character"
                       ? "border-red-500/50 text-red-400"
                       : entry.category === "group"
-                      ? "border-yellow-500/50 text-yellow-400"
-                      : "border-border text-light"
+                        ? "border-yellow-500/50 text-yellow-400"
+                        : "border-border text-light"
                   }`}
                 >
                   <option value="individual">Individual</option>
@@ -681,6 +721,33 @@ export function SceneImportForm({
               <Button variant="primary" onClick={handleConfirmCast}>
                 Confirm Cast &amp; Preview Scenes
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  // Skip cast confirmation: go to scene preview with original cast
+                  if (!pendingParse) return;
+                  const { toc, scenes } = pendingParse;
+                  setPreview(
+                    scenes.map((scene) => ({
+                      title: scene.title,
+                      contentPreview:
+                        scene.content.substring(0, 200).replace(/\n/g, " ") +
+                        "...",
+                      fullContent: scene.content,
+                      characters: extractSceneCharacters(
+                        scene.content,
+                        castNames,
+                      ),
+                      songs: toc ? findSongsForScene(toc, scene.title) : [],
+                      deleted: false,
+                    })),
+                  );
+                  setCastReview([]);
+                  setPendingParse(null);
+                }}
+              >
+                Skip
+              </Button>
             </div>
           </div>
         </div>
@@ -712,7 +779,9 @@ export function SceneImportForm({
                   type="checkbox"
                   checked={
                     preview.some((s) => !s.deleted) &&
-                    preview.every((s, i) => s.deleted || selectedForDelete.has(i))
+                    preview.every(
+                      (s, i) => s.deleted || selectedForDelete.has(i),
+                    )
                   }
                   onChange={handleSelectAllForDelete}
                   className="accent-accent-cyan"
@@ -729,10 +798,16 @@ export function SceneImportForm({
                 ♪ Scenes &amp; Songs detected
               </div>
               <p className="text-xs text-muted">
-                {tocData.entries.length} scene{tocData.entries.length !== 1 ? "s" : ""},{" "}
-                {tocData.entries.reduce((sum, e) => sum + e.songs.length, 0)} song
-                {tocData.entries.reduce((sum, e) => sum + e.songs.length, 0) !== 1 ? "s" : ""}{" "}
-                found in table of contents. Songs are shown on matching scene cards below.
+                {tocData.entries.length} scene
+                {tocData.entries.length !== 1 ? "s" : ""},{" "}
+                {tocData.entries.reduce((sum, e) => sum + e.songs.length, 0)}{" "}
+                song
+                {tocData.entries.reduce((sum, e) => sum + e.songs.length, 0) !==
+                1
+                  ? "s"
+                  : ""}{" "}
+                found in table of contents. Songs are shown on matching scene
+                cards below.
               </p>
             </div>
           )}
@@ -786,7 +861,9 @@ export function SceneImportForm({
                         )}
                         <p
                           className={`font-semibold ${
-                            scene.deleted ? "text-muted line-through" : "text-light"
+                            scene.deleted
+                              ? "text-muted line-through"
+                              : "text-light"
                           }`}
                         >
                           {scene.title}
@@ -820,16 +897,26 @@ export function SceneImportForm({
 
                     {/* Editable character list */}
                     {(() => {
-                      const chars = editingCharacters.get(index) ?? scene.characters;
+                      const chars =
+                        editingCharacters.get(index) ?? scene.characters;
                       return (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted">Characters:</span>
+                            <span className="text-xs text-muted">
+                              Characters:
+                            </span>
                             <button
                               onClick={() => {
-                                const currentContent = editingContent.get(index) ?? scene.fullContent;
-                                const autoChars = extractSceneCharacters(currentContent, castNames);
-                                const newEditingChars = new Map(editingCharacters);
+                                const currentContent =
+                                  editingContent.get(index) ??
+                                  scene.fullContent;
+                                const autoChars = extractSceneCharacters(
+                                  currentContent,
+                                  castNames,
+                                );
+                                const newEditingChars = new Map(
+                                  editingCharacters,
+                                );
                                 newEditingChars.set(index, autoChars);
                                 setEditingCharacters(newEditingChars);
                               }}
@@ -848,8 +935,12 @@ export function SceneImportForm({
                                 {char}
                                 <button
                                   onClick={() => {
-                                    const updated = chars.filter((c) => c !== char);
-                                    const newEditingChars = new Map(editingCharacters);
+                                    const updated = chars.filter(
+                                      (c) => c !== char,
+                                    );
+                                    const newEditingChars = new Map(
+                                      editingCharacters,
+                                    );
                                     newEditingChars.set(index, updated);
                                     setEditingCharacters(newEditingChars);
                                   }}
@@ -869,10 +960,17 @@ export function SceneImportForm({
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" && newCharInput.trim()) {
                                   e.preventDefault();
-                                  const name = newCharInput.trim().toUpperCase();
+                                  const name = newCharInput
+                                    .trim()
+                                    .toUpperCase();
                                   if (!chars.includes(name)) {
-                                    const newEditingChars = new Map(editingCharacters);
-                                    newEditingChars.set(index, [...chars, name].sort());
+                                    const newEditingChars = new Map(
+                                      editingCharacters,
+                                    );
+                                    newEditingChars.set(
+                                      index,
+                                      [...chars, name].sort(),
+                                    );
                                     setEditingCharacters(newEditingChars);
                                   }
                                   setNewCharInput("");
@@ -884,10 +982,17 @@ export function SceneImportForm({
                             <button
                               onClick={() => {
                                 if (newCharInput.trim()) {
-                                  const name = newCharInput.trim().toUpperCase();
+                                  const name = newCharInput
+                                    .trim()
+                                    .toUpperCase();
                                   if (!chars.includes(name)) {
-                                    const newEditingChars = new Map(editingCharacters);
-                                    newEditingChars.set(index, [...chars, name].sort());
+                                    const newEditingChars = new Map(
+                                      editingCharacters,
+                                    );
+                                    newEditingChars.set(
+                                      index,
+                                      [...chars, name].sort(),
+                                    );
                                     setEditingCharacters(newEditingChars);
                                   }
                                   setNewCharInput("");
