@@ -16,6 +16,14 @@ interface SceneImportFormProps {
   onSuccess?: () => void;
 }
 
+type CastCategory = "Individual" | "Group" | "Non-character" | "Merge Characters";
+
+interface ParsedSceneData {
+  title: string;
+  content: string;
+  songs: string[];
+}
+
 interface ScenePreview {
   title: string;
   contentPreview: string;
@@ -50,6 +58,10 @@ export function SceneImportForm({
   const [detectedSceneCount, setDetectedSceneCount] = useState<number>(0);
   const [castNames, setCastNames] = useState<string[]>([]);
   const [tocData, setTocData] = useState<ParsedToc | null>(null);
+  const [showCastReview, setShowCastReview] = useState(false);
+  const [castCategories, setCastCategories] = useState<Map<string, CastCategory>>(new Map());
+  const [parsedSceneData, setParsedSceneData] = useState<ParsedSceneData[]>([]);
+  const [mergeTargets, setMergeTargets] = useState<Map<string, string>>(new Map());
 
   const handleParseText = (text: string) => {
     setError(null);
@@ -72,34 +84,48 @@ export function SceneImportForm({
       const sceneCount = detectSceneCount(sceneText);
       setDetectedSceneCount(sceneCount);
 
-      // Extract known cast from the full text (if a cast page exists),
-      // falling back to the project's existing cast page characters.
-      let cast = extractCastNames(text);
-      if (cast.length === 0) {
-        cast = getProjectCharacters(projectId).map((c) => c.characterName);
-      }
-      setCastNames(cast);
-
       const scenes = createScenesFromInput(projectId, sceneText, inputMode);
-      
+
       if (scenes.length === 0) {
         setError("No content to parse");
         setPreview([]);
         return;
       }
 
-      // Prepare previews with editable titles and TOC song data
-      setPreview(
+      // Store raw scene data for use after cast review
+      setParsedSceneData(
         scenes.map((scene) => ({
           title: scene.title,
-          contentPreview: scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
-          fullContent: scene.content,
-          characters: extractSceneCharacters(scene.content, cast),
+          content: scene.content,
           songs: toc ? findSongsForScene(toc, scene.title) : [],
-          deleted: false,
         }))
       );
-      
+
+      // Build cast list: start with any formal cast page, then add every
+      // speaker name found in the scene dialogue so pasted scripts without
+      // a cast page still populate the cast review.
+      const castPageNames = extractCastNames(text);
+      const castSet = new Set<string>(castPageNames);
+      for (const scene of scenes) {
+        for (const char of extractSceneCharacters(scene.content)) {
+          castSet.add(char);
+        }
+      }
+      let cast = Array.from(castSet).sort();
+      if (cast.length === 0) {
+        cast = getProjectCharacters(projectId).map((c) => c.characterName);
+      }
+      setCastNames(cast);
+
+      // Initialize cast categories and show the cast review step
+      const categories = new Map<string, CastCategory>();
+      for (const name of cast) {
+        categories.set(name, "Individual");
+      }
+      setCastCategories(categories);
+      setShowCastReview(true);
+      setPreview([]);
+
       // Clear editing state
       setEditingIndices(new Set());
       setEditingTitles(new Map());
@@ -113,6 +139,41 @@ export function SceneImportForm({
       setPreview([]);
       setDetectedSceneCount(0);
     }
+  };
+
+  const handleMerge = (sourceName: string, targetName: string) => {
+    if (!targetName) return;
+    setCastNames((prev) => prev.filter((n) => n !== sourceName));
+    setCastCategories((prev) => {
+      const next = new Map(prev);
+      next.delete(sourceName);
+      return next;
+    });
+    setMergeTargets((prev) => {
+      const next = new Map(prev);
+      next.delete(sourceName);
+      return next;
+    });
+  };
+
+  const handleConfirmCast = () => {
+    const activeCast = castNames.filter(
+      (name) => castCategories.get(name) !== "Non-character"
+    );
+    setCastNames(activeCast);
+
+    setPreview(
+      parsedSceneData.map((scene) => ({
+        title: scene.title,
+        contentPreview: scene.content.substring(0, 200).replace(/\n/g, " ") + "...",
+        fullContent: scene.content,
+        characters: extractSceneCharacters(scene.content, activeCast),
+        songs: scene.songs,
+        deleted: false,
+      }))
+    );
+
+    setShowCastReview(false);
   };
 
   const handlePasteInput = () => {
@@ -309,8 +370,10 @@ export function SceneImportForm({
           for (const c of scene.characters) allCharacters.add(c);
         }
       }
-      // Also include any names from the cast page in the script
-      for (const name of castNames) allCharacters.add(name);
+      // Also include cast page names that aren't marked Non-character
+      for (const name of castNames) {
+        if (castCategories.get(name) !== "Non-character") allCharacters.add(name);
+      }
 
       if (allCharacters.size > 0) {
         importCastCharacters(projectId, Array.from(allCharacters));
@@ -328,6 +391,9 @@ export function SceneImportForm({
       setDetectedSceneCount(0);
       setCastNames([]);
       setTocData(null);
+      setShowCastReview(false);
+      setCastCategories(new Map());
+      setParsedSceneData([]);
       onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create scenes");
@@ -350,6 +416,10 @@ export function SceneImportForm({
     setNewCharInput("");
     setSelectedForDelete(new Set());
     setCastNames([]);
+    setShowCastReview(false);
+    setCastCategories(new Map());
+    setParsedSceneData([]);
+    setMergeTargets(new Map());
   };
 
   const activeScenesCount = preview.filter(s => !s.deleted).length;
@@ -395,8 +465,8 @@ export function SceneImportForm({
         </div>
       )}
 
-      {/* Input Mode Selector (visible when no preview) */}
-      {preview.length === 0 && (
+      {/* Input Mode Selector (visible when no preview and not in cast review) */}
+      {preview.length === 0 && !showCastReview && (
         <div className="space-y-3">
           <label className="block text-light font-semibold">Input Mode</label>
           <div className="grid grid-cols-3 gap-3">
@@ -423,7 +493,7 @@ export function SceneImportForm({
       )}
 
       {/* Paste Tab */}
-      {selectedTab === "paste" && (
+      {selectedTab === "paste" && !showCastReview && (
         <div className="space-y-4">
           <div>
             <label className="block text-light font-semibold mb-2">
@@ -453,7 +523,7 @@ export function SceneImportForm({
       )}
 
       {/* Upload Tab */}
-      {selectedTab === "upload" && (
+      {selectedTab === "upload" && !showCastReview && (
         <div className="space-y-4">
           <div className="flex gap-4 mb-4">
             <button
@@ -510,10 +580,118 @@ export function SceneImportForm({
       )}
 
       {/* Scene Info */}
-      {detectedSceneCount > 1 && preview.length === 0 && (
+      {detectedSceneCount > 1 && preview.length === 0 && !showCastReview && (
         <div className="p-3 bg-accent-cyan/10 border border-accent-cyan rounded text-accent-cyan text-sm">
           <strong>Detected {detectedSceneCount} scenes</strong> in the input text.
           {inputMode === "single" && " (Single mode selected: will be treated as one scene)"}
+        </div>
+      )}
+
+      {/* Cast Review Step */}
+      {showCastReview && (
+        <div className="space-y-4 border-t border-border pt-6">
+          <div>
+            <h3 className="text-light font-semibold text-lg">Review Identified Cast</h3>
+            <p className="text-muted text-sm mt-1">
+              Categorize each name before previewing scenes. Non-characters are excluded from the cast.
+            </p>
+          </div>
+
+          {castNames.length === 0 ? (
+            <p className="text-muted text-sm italic">No cast names were identified in the script.</p>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {castNames.map((name) => {
+                const category = castCategories.get(name) ?? "Individual";
+                const mergeTarget = mergeTargets.get(name) ?? "";
+                return (
+                  <div
+                    key={name}
+                    className={`px-3 py-2 rounded border transition-colors ${
+                      category === "Non-character"
+                        ? "bg-background border-border opacity-50"
+                        : "bg-background border-border"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={`text-sm font-mono ${
+                          category === "Non-character" ? "text-muted line-through" : "text-light"
+                        }`}
+                      >
+                        {name}
+                      </span>
+                      <select
+                        value={category}
+                        onChange={(e) => {
+                          const newCategories = new Map(castCategories);
+                          newCategories.set(name, e.target.value as CastCategory);
+                          setCastCategories(newCategories);
+                          if (e.target.value !== "Merge Characters") {
+                            const newTargets = new Map(mergeTargets);
+                            newTargets.delete(name);
+                            setMergeTargets(newTargets);
+                          }
+                        }}
+                        className={`text-xs rounded px-2 py-1 border focus:outline-none focus:border-accent-cyan bg-background transition-colors ${
+                          category === "Non-character"
+                            ? "border-border text-muted"
+                            : category === "Group"
+                            ? "border-yellow-500/50 text-yellow-400"
+                            : category === "Merge Characters"
+                            ? "border-purple-500/50 text-purple-400"
+                            : "border-accent-cyan/50 text-accent-cyan"
+                        }`}
+                      >
+                        <option value="Individual">Individual</option>
+                        <option value="Group">Group</option>
+                        <option value="Non-character">Non-character</option>
+                        <option value="Merge Characters">Merge Characters</option>
+                      </select>
+                    </div>
+
+                    {category === "Merge Characters" && (
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
+                        <span className="text-xs text-muted whitespace-nowrap">Merge into:</span>
+                        <select
+                          value={mergeTarget}
+                          onChange={(e) => {
+                            const newTargets = new Map(mergeTargets);
+                            newTargets.set(name, e.target.value);
+                            setMergeTargets(newTargets);
+                          }}
+                          className="flex-1 text-xs rounded px-2 py-1 border border-border bg-background text-light focus:outline-none focus:border-accent-cyan"
+                        >
+                          <option value="">Select character…</option>
+                          {castNames
+                            .filter((n) => n !== name && (castCategories.get(n) ?? "Individual") !== "Merge Characters")
+                            .map((n) => (
+                              <option key={n} value={n}>{n}</option>
+                            ))}
+                        </select>
+                        <button
+                          onClick={() => handleMerge(name, mergeTarget)}
+                          disabled={!mergeTarget}
+                          className="px-3 py-1 bg-purple-500/20 text-purple-400 text-xs rounded hover:bg-purple-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2 border-t border-border">
+            <Button variant="secondary" onClick={handleClear}>
+              Back
+            </Button>
+            <Button variant="primary" onClick={handleConfirmCast}>
+              Confirm Cast &amp; Preview Scenes
+            </Button>
+          </div>
         </div>
       )}
 
