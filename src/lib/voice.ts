@@ -17,6 +17,9 @@ const DEFAULT_TTS_SETTINGS: TTSSettings = {
   stream: true,
   extraPayload: {},
   previewText: "Hello, this is a voice test.",
+  kokoroVoice: "am_puck",
+  kokoroSpeed: 1,
+  kokoroDevice: "wasm",
 };
 
 /**
@@ -522,4 +525,62 @@ export function stopApiAudio(): void {
  */
 export function isApiAudioPlaying(): boolean {
   return currentAudio !== null && !currentAudio.paused;
+}
+
+// ── Unified speak / stop (routes to the active provider) ─────────────────────
+
+/**
+ * Speak a line using whichever TTS provider is configured in settings.
+ * This is the single call-site all playback should go through.
+ */
+export async function speakLine(
+  text: string,
+  voiceConfig: import("@/types/voice").VoiceConfig | null,
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (voiceConfig?.muted) return;
+
+  const settings = getTTSSettings();
+
+  if (settings.provider === "kokoro") {
+    const { speakTextViaKokoro } = await import("./kokoro-tts");
+    await speakTextViaKokoro(text, {
+      voice: voiceConfig?.apiVoiceId || settings.kokoroVoice || "am_puck",
+      speed: voiceConfig?.rate ?? settings.kokoroSpeed ?? 1,
+      volume: voiceConfig?.volume ?? 1,
+    });
+  } else if (settings.provider === "api") {
+    await speakTextViaApi(text, {
+      voice: voiceConfig?.apiVoiceId || settings.defaultVoiceId,
+      speed: voiceConfig?.rate ?? 1,
+      volume: voiceConfig?.volume ?? 1,
+    });
+  } else {
+    if (voiceConfig) {
+      await speakText(text, voiceConfig);
+    } else {
+      const utterance = new SpeechSynthesisUtterance(text);
+      await new Promise<void>((resolve, reject) => {
+        utterance.onend = () => resolve();
+        utterance.onerror = (e) => reject(new Error(e.error));
+        window.speechSynthesis.speak(utterance);
+      });
+    }
+  }
+}
+
+/**
+ * Stop whatever TTS provider is currently playing.
+ */
+export function stopLine(): void {
+  if (typeof window === "undefined") return;
+  const settings = getTTSSettings();
+
+  if (settings.provider === "kokoro") {
+    import("./kokoro-tts").then(({ stopKokoroAudio }) => stopKokoroAudio());
+  } else if (settings.provider === "api") {
+    stopApiAudio();
+  } else {
+    stopSpeaking();
+  }
 }

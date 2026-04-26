@@ -52,12 +52,16 @@ export function RehearsalPlayer({
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
   useEffect(() => {
     if (currentLine && !isUserLine) {
-      // Get voice config for the current speaking character by their name
       setVoiceConfig(getVoiceConfigByCharacter(currentLine.character));
     } else {
       setVoiceConfig(null);
     }
   }, [currentLine, isUserLine, getVoiceConfigByCharacter]);
+
+  // Voice config for the next line (used for pre-generation)
+  const nextVoiceConfig = nextLine && !nextLine.isStageDirection
+    ? getVoiceConfigByCharacter(nextLine.character)
+    : null;
 
   const handleStartRehearsalSession = (
     sceneId: string,
@@ -171,6 +175,8 @@ export function RehearsalPlayer({
                 isPlaying={currentSession.isPlaying}
                 isPaused={currentSession.isPaused}
                 voiceConfig={voiceConfig}
+                nextLine={nextLine}
+                nextVoiceConfig={nextVoiceConfig}
                 onPause={pauseRehearsalSession}
                 onResume={resumeRehearsalSession}
                 onNextLine={advanceToNextLine}

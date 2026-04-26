@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { DialogueLine } from "@/types/rehearsal";
 import { Button } from "@/components/ui/Button";
-import { speakText, stopSpeaking } from "@/lib/voice";
+import { speakLine, stopLine, getTTSSettings } from "@/lib/voice";
 import { VoiceConfig } from "@/types/voice";
+import { pregenerateText } from "@/lib/kokoro-tts";
 
 interface RehearsalControlsProps {
   currentLine: DialogueLine | null;
@@ -12,6 +13,8 @@ interface RehearsalControlsProps {
   isPlaying: boolean;
   isPaused: boolean;
   voiceConfig: VoiceConfig | null;
+  nextLine?: DialogueLine | null;
+  nextVoiceConfig?: VoiceConfig | null;
   onPause: () => void;
   onResume: () => void;
   onNextLine: () => void;
@@ -26,6 +29,8 @@ export function RehearsalControls({
   isPlaying,
   isPaused,
   voiceConfig,
+  nextLine,
+  nextVoiceConfig,
   onPause,
   onResume,
   onNextLine,
@@ -81,8 +86,17 @@ export function RehearsalControls({
     try {
       setIsSpeaking(true);
 
+      // Kick off background pre-generation for the next line while this one plays
+      if (nextLine && !nextLine.isStageDirection) {
+        const s = getTTSSettings();
+        pregenerateText(nextLine.dialogue, {
+          voice: nextVoiceConfig?.apiVoiceId || s.kokoroVoice || "am_puck",
+          speed: nextVoiceConfig?.rate ?? s.kokoroSpeed ?? 1,
+        });
+      }
+
       // Speak the line
-      await speakText(currentLine.dialogue, voiceConfig);
+      await speakLine(currentLine.dialogue, voiceConfig);
 
       // Small delay before auto-advancing
       setTimeout(() => {
@@ -96,7 +110,7 @@ export function RehearsalControls({
   };
 
   const stopPlayback = () => {
-    stopSpeaking();
+    stopLine();
     setIsSpeaking(false);
     onPause();
   };

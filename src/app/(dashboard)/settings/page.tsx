@@ -4,6 +4,18 @@ import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
 import { speakTextViaApi, stopApiAudio, buildTTSPayload, fetchApiVoices, ApiVoice } from "@/lib/voice";
+import {
+  KOKORO_VOICES,
+  loadKokoro,
+  stopKokoroAudio,
+  speakTextViaKokoro,
+  getKokoroLoadState,
+  getKokoroLoadedDevice,
+  onKokoroStateChange,
+  resetKokoro,
+  isWebGPUSupported,
+  KokoroLoadState,
+} from "@/lib/kokoro-tts";
 import { exportData, importData, getStorageSummary } from "@/lib/data-export";
 
 const TTS_SETTINGS_KEY = "theater_tts_settings";
@@ -18,6 +30,9 @@ const DEFAULT_TTS_SETTINGS: TTSSettings = {
   stream: true,
   extraPayload: {},
   previewText: "Hello, this is a voice test.",
+  kokoroVoice: "am_puck",
+  kokoroSpeed: 1,
+  kokoroDevice: "wasm",
 };
 
 function loadTTSSettings(): TTSSettings {
@@ -132,12 +147,20 @@ export default function SettingsPage() {
   const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesError, setVoicesError] = useState<string | null>(null);
+  const [kokoroLoadState, setKokoroLoadState] = useState<KokoroLoadState>(() =>
+    typeof window !== "undefined" ? getKokoroLoadState() : "idle"
+  );
+  const [kokoroLoadMsg, setKokoroLoadMsg] = useState<string | null>(null);
+  const [kokoroTestPlaying, setKokoroTestPlaying] = useState(false);
 
   useEffect(() => {
     const loaded = loadTTSSettings();
     setSettings(loaded);
     setExtraPayloadJson(JSON.stringify(loaded.extraPayload ?? {}, null, 2));
     if (loaded.previewText) setTestText(loaded.previewText);
+
+    const unsub = onKokoroStateChange(setKokoroLoadState);
+    return unsub;
   }, []);
 
   const handleSave = () => {
@@ -236,29 +259,215 @@ export default function SettingsPage() {
         {/* Provider Toggle */}
         <div className="space-y-2">
           <label className="block text-light font-semibold">TTS Provider</label>
-          <div className="grid grid-cols-2 gap-3 max-w-md">
-            {(["browser", "api"] as const).map((provider) => (
+          <div className="grid grid-cols-3 gap-3">
+            {(["browser", "kokoro", "api"] as const).map((provider) => (
               <button
                 key={provider}
                 onClick={() => setSettings({ ...settings, provider })}
-                className={`p-3 rounded border transition-all capitalize ${
+                className={`p-3 rounded border transition-all ${
                   settings.provider === provider
                     ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
                     : "border-border text-muted hover:border-accent-cyan hover:text-light"
                 }`}
               >
                 <div className="font-semibold">
-                  {provider === "browser" ? "Browser" : "External API"}
+                  {provider === "browser" ? "Browser" : provider === "kokoro" ? "Kokoro AI" : "External API"}
                 </div>
                 <div className="text-xs mt-1">
                   {provider === "browser"
                     ? "Built-in Web Speech API"
+                    : provider === "kokoro"
+                    ? "Local AI, no API needed"
                     : "Custom TTS service endpoint"}
                 </div>
               </button>
             ))}
           </div>
         </div>
+
+        {/* Kokoro Settings */}
+        {settings.provider === "kokoro" && (
+          <div className="space-y-4 border-t border-border pt-4">
+            <div className="space-y-1">
+              <p className="text-muted text-sm">
+                Kokoro runs an AI voice model directly in your browser — no account or API key needed.
+                The model is downloaded once from HuggingFace and cached locally.
+              </p>
+            </div>
+
+            {/* Device selector */}
+            <div className="space-y-2">
+              <label className="block text-light font-semibold">Compute Device</label>
+              <div className="grid grid-cols-2 gap-3 max-w-sm">
+                {(["wasm", "webgpu"] as const).map((device) => {
+                  const unavailable = device === "webgpu" && !isWebGPUSupported();
+                  const active = (settings.kokoroDevice ?? "wasm") === device;
+                  return (
+                    <button
+                      key={device}
+                      disabled={unavailable}
+                      onClick={() => {
+                        if (active) return;
+                        // Reset so the model reloads with the new device
+                        resetKokoro();
+                        setKokoroLoadState("idle");
+                        setKokoroLoadMsg(null);
+                        setSettings({ ...settings, kokoroDevice: device });
+                      }}
+                      className={`p-3 rounded border text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                        active
+                          ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                          : "border-border text-muted hover:border-accent-cyan hover:text-light"
+                      }`}
+                    >
+                      <div className="font-semibold text-sm">
+                        {device === "wasm" ? "CPU (WASM)" : "GPU (WebGPU)"}
+                      </div>
+                      <div className="text-xs mt-0.5">
+                        {device === "wasm"
+                          ? "~80 MB · works everywhere"
+                          : unavailable
+                          ? "requires Chrome 113+"
+                          : "~300 MB · 5–10× faster"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {(settings.kokoroDevice ?? "wasm") === "webgpu" && isWebGPUSupported() && (
+                <p className="text-muted text-xs">
+                  WebGPU uses your GPU for generation. Larger first download (~164 MB) but significantly faster.
+                </p>
+              )}
+            </div>
+
+            {/* Model load status + button */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={async () => {
+                  setKokoroLoadMsg(null);
+                  try {
+                    await loadKokoro({
+                      device: settings.kokoroDevice ?? "wasm",
+                      onProgress: (msg) => setKokoroLoadMsg(msg),
+                    });
+                    setKokoroLoadMsg(null);
+                  } catch (err) {
+                    setKokoroLoadMsg(err instanceof Error ? err.message : "Load failed");
+                  }
+                }}
+                disabled={kokoroLoadState === "loading" || kokoroLoadState === "ready"}
+                className={`px-4 py-2 rounded font-semibold text-sm transition-all ${
+                  kokoroLoadState === "ready"
+                    ? "bg-green-700 text-green-100 cursor-default"
+                    : kokoroLoadState === "loading"
+                    ? "bg-dark-panel text-muted cursor-wait"
+                    : "bg-accent-cyan text-dark-base hover:bg-accent-cyan/80"
+                }`}
+              >
+                {kokoroLoadState === "ready"
+                  ? `Model Ready (${getKokoroLoadedDevice() ?? "wasm"})`
+                  : kokoroLoadState === "loading"
+                  ? "Loading…"
+                  : kokoroLoadState === "error"
+                  ? "Retry Load"
+                  : "Load Model"}
+              </button>
+              {kokoroLoadMsg && (
+                <span className="text-muted text-xs">{kokoroLoadMsg}</span>
+              )}
+              {kokoroLoadState === "error" && !kokoroLoadMsg && (
+                <span className="text-red-400 text-xs">Load failed — check console</span>
+              )}
+            </div>
+
+            {/* Default Voice */}
+            <div className="space-y-2">
+              <label className="block text-light font-semibold">Default Voice</label>
+              <select
+                value={settings.kokoroVoice || "am_puck"}
+                onChange={(e) => setSettings({ ...settings, kokoroVoice: e.target.value })}
+                className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan max-w-xs"
+              >
+                {KOKORO_VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-muted text-xs">
+                Used for any character that doesn&apos;t have its own voice assigned.
+              </p>
+            </div>
+
+            {/* Speed */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <label className="block text-light font-semibold">Default Speed</label>
+                <span className="text-accent-cyan font-mono text-sm">
+                  {(settings.kokoroSpeed ?? 1).toFixed(1)}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.1"
+                value={settings.kokoroSpeed ?? 1}
+                onChange={(e) => setSettings({ ...settings, kokoroSpeed: parseFloat(e.target.value) })}
+                className="w-full h-2 bg-background border border-border rounded cursor-pointer max-w-xs"
+              />
+              <div className="flex justify-between text-xs text-muted max-w-xs">
+                <span>Slow (0.5x)</span>
+                <span>Normal (1x)</span>
+                <span>Fast (2x)</span>
+              </div>
+            </div>
+
+            {/* Test */}
+            <div className="space-y-3 border-t border-border pt-4">
+              <label className="block text-light font-semibold">Test Voice</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={testText}
+                  onChange={(e) => setTestText(e.target.value)}
+                  placeholder="Enter test text…"
+                  className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                />
+                <button
+                  onClick={async () => {
+                    if (kokoroTestPlaying) {
+                      stopKokoroAudio();
+                      setKokoroTestPlaying(false);
+                      return;
+                    }
+                    if (kokoroLoadState !== "ready") {
+                      setKokoroLoadMsg("Load the model first.");
+                      return;
+                    }
+                    setKokoroTestPlaying(true);
+                    try {
+                      saveTTSSettings({ ...settings, previewText: testText });
+                      await speakTextViaKokoro(testText, {
+                        voice: settings.kokoroVoice || "am_puck",
+                        speed: settings.kokoroSpeed ?? 1,
+                      });
+                    } catch (err) {
+                      setKokoroLoadMsg(err instanceof Error ? err.message : "Playback failed");
+                    } finally {
+                      setKokoroTestPlaying(false);
+                    }
+                  }}
+                  disabled={!testText.trim()}
+                  className="px-4 py-2 rounded font-semibold text-sm bg-accent-cyan text-dark-base hover:bg-accent-cyan/80 disabled:opacity-50"
+                >
+                  {kokoroTestPlaying ? "Stop" : "Play"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* API Settings (shown when API provider selected) */}
         {settings.provider === "api" && (

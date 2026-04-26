@@ -33,7 +33,7 @@ export interface VoiceOption {
 }
 
 export interface TTSSettings {
-  provider: "browser" | "api";
+  provider: "browser" | "api" | "kokoro";
   apiUrl: string;
   apiPath: string;
   apiKey: string;
@@ -42,6 +42,9 @@ export interface TTSSettings {
   stream: boolean;
   extraPayload: Record<string, unknown>;
   previewText: string;
+  kokoroVoice: string;
+  kokoroSpeed: number;
+  kokoroDevice: "wasm" | "webgpu";
 }
 
 export interface VoiceContextType {
