@@ -81,6 +81,7 @@ export interface VoiceContextType {
   deleteCharacter: (id: string) => void;
   getProjectCharacters: (projectId: string) => CharacterRole[];
   importCastCharacters: (projectId: string, names: string[]) => CharacterRole[];
+  replaceProjectCharacters: (projectId: string, names: string[]) => CharacterRole[];
   setCurrentCharacter: (characterId: string) => void;
   getCurrentCharacter: () => CharacterRole | null;
 }

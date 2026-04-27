@@ -142,6 +142,47 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       );
   };
 
+  const replaceProjectCharacters = (
+    projectId: string,
+    names: string[],
+  ): CharacterRole[] => {
+    const projectChars = characters.filter((c) => c.projectId === projectId);
+    const configIdsToRemove = new Set(
+      projectChars.map((c) => c.voiceConfigId).filter(Boolean) as string[],
+    );
+
+    const filteredConfigs = voiceConfigs.filter(
+      (vc) => !configIdsToRemove.has(vc.id),
+    );
+    const filteredChars = characters.filter((c) => c.projectId !== projectId);
+
+    const newCharacters: CharacterRole[] = [];
+    const newConfigs: VoiceConfig[] = [];
+    const seen = new Set<string>();
+
+    for (const name of names) {
+      const trimmed = name.trim();
+      if (!trimmed || seen.has(trimmed.toUpperCase())) continue;
+      seen.add(trimmed.toUpperCase());
+      const character = createCharacterUtil(projectId, trimmed);
+      const config = createVoiceConfigUtil(trimmed, "Default");
+      newCharacters.push({ ...character, voiceConfigId: config.id });
+      newConfigs.push(config);
+    }
+
+    setVoiceConfigs([...filteredConfigs, ...newConfigs]);
+    setCharacters([...filteredChars, ...newCharacters]);
+
+    if (
+      currentCharacterId &&
+      projectChars.some((c) => c.id === currentCharacterId)
+    ) {
+      setCurrentCharacterId(null);
+    }
+
+    return newCharacters;
+  };
+
   const importCastCharacters = (
     projectId: string,
     names: string[],
@@ -203,6 +244,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         deleteCharacter,
         getProjectCharacters,
         importCastCharacters,
+        replaceProjectCharacters,
         setCurrentCharacter: setCurrentCharacterById,
         getCurrentCharacter,
       }}
