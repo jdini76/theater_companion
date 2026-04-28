@@ -23,6 +23,7 @@ import {
   KokoroLoadState,
 } from "@/lib/kokoro-tts";
 import { exportData, importData, getStorageSummary } from "@/lib/data-export";
+import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
 
 const TTS_SETTINGS_KEY = "theater_tts_settings";
 
@@ -155,6 +156,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ];
 
 export default function SettingsPage() {
+  const { canUseKokoro } = useDeviceCapabilities();
   const [activeTab, setActiveTab] = useState<SettingsTab>("voice");
   const [settings, setSettings] = useState<TTSSettings>(DEFAULT_TTS_SETTINGS);
   const [saved, setSaved] = useState(false);
@@ -177,13 +179,15 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const loaded = loadTTSSettings();
-    setSettings(loaded);
+    const provider =
+      !canUseKokoro && loaded.provider === "kokoro" ? "browser" : loaded.provider;
+    setSettings({ ...loaded, provider });
     setExtraPayloadJson(JSON.stringify(loaded.extraPayload ?? {}, null, 2));
     if (loaded.previewText) setTestText(loaded.previewText);
 
     const unsub = onKokoroStateChange(setKokoroLoadState);
     return unsub;
-  }, []);
+  }, [canUseKokoro]);
 
   const handleSave = () => {
     saveTTSSettings({ ...settings, previewText: testText });
@@ -287,7 +291,7 @@ export default function SettingsPage() {
               TTS Provider
             </label>
             <div className="grid grid-cols-3 gap-3">
-              {(["browser", "kokoro", "api"] as const).map((provider) => (
+              {(["browser", "kokoro", "api"] as const).filter((p) => p !== "kokoro" || canUseKokoro).map((provider) => (
                 <button
                   key={provider}
                   onClick={() => setSettings({ ...settings, provider })}

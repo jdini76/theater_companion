@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
+import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
 import {
   createScenesFromInput,
   detectSceneCount,
@@ -62,6 +63,7 @@ export function SceneImportForm({
     replaceProjectCharacters,
     getProjectCharacters,
   } = useVoice();
+  const { canUploadAndParse } = useDeviceCapabilities();
   const [selectedTab, setSelectedTab] = useState<"paste" | "upload">("paste");
   const [uploadMode, setUploadMode] = useState<"text" | "image">("text");
   const [ocrText, setOcrText] = useState("");
@@ -238,22 +240,24 @@ export function SceneImportForm({
 
       {/* Tab Switch */}
       <div className="flex gap-2 border-b border-border">
-        {(["paste", "upload"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              setSelectedTab(tab);
-              handleClear();
-            }}
-            className={`px-4 py-2 font-semibold transition-colors ${
-              selectedTab === tab
-                ? "text-accent-cyan border-b-2 border-accent-cyan"
-                : "text-muted hover:text-light"
-            }`}
-          >
-            {tab === "paste" ? "Paste Text" : "Upload File"}
-          </button>
-        ))}
+        {(["paste", "upload"] as const)
+          .filter((tab) => tab !== "upload" || canUploadAndParse)
+          .map((tab) => (
+            <button
+              key={tab}
+              onClick={() => {
+                setSelectedTab(tab);
+                handleClear();
+              }}
+              className={`px-4 py-2 font-semibold transition-colors ${
+                selectedTab === tab
+                  ? "text-accent-cyan border-b-2 border-accent-cyan"
+                  : "text-muted hover:text-light"
+              }`}
+            >
+              {tab === "paste" ? "Paste Text" : "Upload File"}
+            </button>
+          ))}
       </div>
 
       {/* Error */}
