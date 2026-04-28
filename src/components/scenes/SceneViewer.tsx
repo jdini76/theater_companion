@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Scene } from "@/types/scene";
-import { Button } from "@/components/ui/Button";
+// import { Button } from "@/components/ui/Button";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
 import {
@@ -10,6 +10,7 @@ import {
   buildCharColorMap,
   HighlightedContent,
 } from "./SceneHighlight";
+import { MoreHorizontal } from "lucide-react";
 
 interface SceneViewerProps {
   scene: Scene;
@@ -63,6 +64,8 @@ function useLineOverrides(sceneId: string) {
 
 export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const [isCopied, setIsCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { getProjectCharacters } = useVoice();
   const { updateScene } = useScenes();
   const { overrides, assign } = useLineOverrides(scene.id);
@@ -83,9 +86,21 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   }
   const colorMap = buildCharColorMap(allNames);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
   const handleCopyContent = () => {
     navigator.clipboard.writeText(scene.content);
     setIsCopied(true);
+    setMenuOpen(false);
     setTimeout(() => setIsCopied(false), 2000);
   };
 
@@ -97,6 +112,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+    setMenuOpen(false);
   };
 
   const handleAssign = (
@@ -143,7 +159,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const songs = scene.songs ?? [];
 
   return (
-    <div className="card space-y-4">
+    <div className="card flex flex-col flex-1 space-y-4">
       {/* Header */}
       <div className="flex justify-between items-start gap-4">
         <div>
@@ -157,17 +173,42 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
             {" · "}edited {new Date(scene.updatedAt).toLocaleDateString()}
           </p>
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button size="sm" onClick={handleCopyContent}>
-            {isCopied ? "Copied!" : "Copy"}
-          </Button>
-          <Button size="sm" onClick={handleDownload}>
-            Download
-          </Button>
-          {onEdit && (
-            <Button size="sm" variant="primary" onClick={onEdit}>
-              Edit
-            </Button>
+
+        {/* Ellipsis menu */}
+        <div className="relative flex-shrink-0" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="p-1.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+            aria-label="Scene options"
+          >
+            <MoreHorizontal size={18} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1 w-40 bg-dark-card border border-white/10 rounded-lg shadow-lg z-20 overflow-hidden">
+              <button
+                onClick={handleCopyContent}
+                className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"
+              >
+                {isCopied ? "Copied!" : "Copy"}
+              </button>
+              <button
+                onClick={handleDownload}
+                className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"
+              >
+                Download
+              </button>
+              {onEdit && (
+                <button
+                  onClick={() => {
+                    onEdit();
+                    setMenuOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -209,15 +250,17 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
       )}
 
       {/* Highlighted content — fully interactive */}
-      <HighlightedContent
-        content={scene.content}
-        characters={allNames}
-        colorMap={colorMap}
-        overrides={overrides}
-        onAssign={handleAssign}
-        maxHeight="max-h-[calc(100vh-20rem)]"
-        assignPanelProps={assignPanelProps}
-      />
+      <div className="flex-1 min-h-0">
+        <HighlightedContent
+          content={scene.content}
+          characters={allNames}
+          colorMap={colorMap}
+          overrides={overrides}
+          onAssign={handleAssign}
+          maxHeight="max-h-[calc(160vh-20rem)]"
+          assignPanelProps={assignPanelProps}
+        />
+      </div>
     </div>
   );
 }

@@ -60,7 +60,7 @@ export function SceneManager({
       )}
 
       {/* Main layout: slim sidebar + wide detail panel */}
-      <div className="flex gap-4" style={{ minHeight: "calc(100vh - 14rem)" }}>
+      <div className="flex gap-4 items-stretch" style={{ minHeight: "calc(100vh - 14rem)" }}>
         {/* Sidebar */}
         <div className="w-72 flex-shrink-0 flex flex-col">
           <div className="card flex flex-col flex-1 p-4 overflow-hidden">
@@ -81,7 +81,7 @@ export function SceneManager({
         </div>
 
         {/* Detail panel */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
           {selectedScene && isEditingScene ? (
             <SceneEditor
               scene={selectedScene}
@@ -94,7 +94,7 @@ export function SceneManager({
               onEdit={() => setIsEditingScene(true)}
             />
           ) : (
-            <div className="card h-full flex flex-col items-center justify-center text-center py-16">
+            <div className="card flex-1 flex flex-col items-center justify-center text-center py-16">
               <p className="text-muted text-lg mb-2">Select a scene</p>
               <p className="text-muted/60 text-sm">
                 {scenes.length === 0
