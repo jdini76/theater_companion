@@ -58,10 +58,23 @@ export function splitAtColon(
   if (trimmedLine.toUpperCase().startsWith(colonPrefix)) {
     const rest = trimmedLine.slice(colonPrefix.length).trim();
     if (rest) {
-      return { header: trimmedLine.slice(0, colonPrefix.length), dialogue: rest };
+      return {
+        header: trimmedLine.slice(0, colonPrefix.length),
+        dialogue: rest,
+      };
     }
   }
   return { header: trimmedLine, dialogue: null };
+}
+
+interface LineAssignPanelProps {
+  characters: string[];
+  colorMap: Map<string, CharColor>;
+  currentAssignment: LineOverride | undefined;
+  onAssign: (override: LineOverride) => void;
+  onReset: () => void;
+  onClose: () => void;
+  allCharacters?: string[];
 }
 
 export function LineAssignPanel({
@@ -71,27 +84,46 @@ export function LineAssignPanel({
   onAssign,
   onReset,
   onClose,
-}: {
-  characters: string[];
-  colorMap: Map<string, CharColor>;
-  currentAssignment: LineOverride | undefined;
-  onAssign: (override: LineOverride) => void;
-  onReset: () => void;
-  onClose: () => void;
-}) {
+  allCharacters = [],
+}: LineAssignPanelProps) {
   const [mode, setMode] = useState<"dialogue" | "header">(
     currentAssignment?.kind === "header" ? "header" : "dialogue",
   );
   const [newCharInput, setNewCharInput] = useState("");
+  const [dropdownValue, setDropdownValue] = useState("");
   const isHeader = mode === "header";
 
   const commitNew = () => {
-    const name = newCharInput.trim().toUpperCase();
+    const name = (newCharInput || dropdownValue).trim().toUpperCase();
     if (!name) return;
-    onAssign(isHeader ? { kind: "header", char: name } : { kind: "dialogue", char: name });
+    onAssign(
+      isHeader
+        ? { kind: "header", char: name }
+        : { kind: "dialogue", char: name },
+    );
     setNewCharInput("");
+    setDropdownValue("");
   };
 
+  // Deduplicate and uppercase characters and allCharacters
+  const charSet = new Set<string>();
+  const dedupedChars: string[] = [];
+  for (const c of characters) {
+    const upper = c.toUpperCase();
+    if (!charSet.has(upper)) {
+      charSet.add(upper);
+      dedupedChars.push(upper);
+    }
+  }
+  const allCharSet = new Set<string>();
+  const dedupedAllChars: string[] = [];
+  for (const c of allCharacters) {
+    const upper = c.toUpperCase();
+    if (!allCharSet.has(upper)) {
+      allCharSet.add(upper);
+      dedupedAllChars.push(upper);
+    }
+  }
   return (
     <div className="my-1 p-2 rounded border border-border bg-background shadow space-y-2 text-xs">
       <div className="flex gap-1">
@@ -111,17 +143,23 @@ export function LineAssignPanel({
       <p className="text-muted">
         {isHeader ? "Mark as start of:" : "Assign as dialogue for:"}
       </p>
-      <div className="flex flex-wrap gap-1">
-        {characters.map((char) => {
+      <div className="flex flex-wrap gap-1 mb-2">
+        {dedupedChars.map((char) => {
           const color = colorMap.get(char.toUpperCase());
           const isSelected = isHeader
-            ? currentAssignment?.kind === "header" && currentAssignment.char === char
-            : currentAssignment?.kind === "dialogue" && currentAssignment.char === char;
+            ? currentAssignment?.kind === "header" &&
+              currentAssignment.char === char
+            : currentAssignment?.kind === "dialogue" &&
+              currentAssignment.char === char;
           return (
             <button
               key={char}
               onClick={() =>
-                onAssign(isHeader ? { kind: "header", char } : { kind: "dialogue", char })
+                onAssign(
+                  isHeader
+                    ? { kind: "header", char }
+                    : { kind: "dialogue", char },
+                )
               }
               style={{ color: color?.color, backgroundColor: color?.bgColor }}
               className={`px-2 py-0.5 rounded font-mono hover:opacity-80 transition-opacity border ${isSelected ? "border-current" : "border-transparent"}`}
@@ -131,18 +169,34 @@ export function LineAssignPanel({
           );
         })}
       </div>
-      <div className="flex gap-1">
+      <div className="flex gap-1 items-center">
         <input
           type="text"
           value={newCharInput}
           onChange={(e) => setNewCharInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") commitNew(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitNew();
+          }}
           placeholder="Add character name…"
           className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
         />
+        <select
+          value={dropdownValue}
+          onChange={(e) => setDropdownValue(e.target.value)}
+          className="bg-background border border-border rounded px-2 py-0.5 text-light"
+        >
+          <option value="">All project characters…</option>
+          {dedupedAllChars
+            .filter((c) => !charSet.has(c))
+            .map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+        </select>
         <button
           onClick={commitNew}
-          disabled={!newCharInput.trim()}
+          disabled={!newCharInput.trim() && !dropdownValue}
           className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Add
@@ -172,6 +226,19 @@ export function LineAssignPanel({
   );
 }
 
+interface HighlightedContentProps {
+  content: string;
+  characters: string[];
+  colorMap: Map<string, CharColor>;
+  overrides?: Map<number, LineOverride>;
+  onAssign?: (lineIdx: number, assignment: LineOverride | undefined) => void;
+  maxHeight?: string;
+  assignPanelProps?: {
+    sceneCharacters: string[];
+    allCharacters: string[];
+  };
+}
+
 export function HighlightedContent({
   content,
   characters,
@@ -179,14 +246,8 @@ export function HighlightedContent({
   overrides = new Map(),
   onAssign,
   maxHeight = "max-h-80",
-}: {
-  content: string;
-  characters: string[];
-  colorMap: Map<string, CharColor>;
-  overrides?: Map<number, LineOverride>;
-  onAssign?: (lineIdx: number, assignment: LineOverride | undefined) => void;
-  maxHeight?: string;
-}) {
+  assignPanelProps,
+}: HighlightedContentProps) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const charSet = new Set(characters.map((c) => c.toUpperCase()));
   const lines = content.split("\n");
@@ -214,17 +275,26 @@ export function HighlightedContent({
   const makePanel = (i: number, override: LineOverride | undefined) =>
     onAssign ? (
       <LineAssignPanel
-        characters={characters}
+        characters={assignPanelProps?.sceneCharacters ?? characters}
+        allCharacters={assignPanelProps?.allCharacters ?? []}
         colorMap={colorMap}
         currentAssignment={override}
-        onAssign={(ov) => { onAssign(i, ov); setActiveLine(null); }}
-        onReset={() => { onAssign(i, undefined); setActiveLine(null); }}
+        onAssign={(ov) => {
+          onAssign(i, ov);
+          setActiveLine(null);
+        }}
+        onReset={() => {
+          onAssign(i, undefined);
+          setActiveLine(null);
+        }}
         onClose={() => setActiveLine(null)}
       />
     ) : null;
 
   return (
-    <div className={`font-mono text-xs ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}>
+    <div
+      className={`font-mono text-xs ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}
+    >
       {lines.map((line, i) => {
         const trimmed = line.trim();
         if (!trimmed) {
@@ -246,7 +316,10 @@ export function HighlightedContent({
             return (
               <div key={i}>
                 <div
-                  style={{ color: color?.color, backgroundColor: color?.bgColor }}
+                  style={{
+                    color: color?.color,
+                    backgroundColor: color?.bgColor,
+                  }}
                   className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
                   onClick={toggle}
                 >
@@ -254,7 +327,12 @@ export function HighlightedContent({
                   {editIcon}
                 </div>
                 {dialogue && (
-                  <div style={{ color: color?.color, opacity: 0.8 }} className="pl-3">{dialogue}</div>
+                  <div
+                    style={{ color: color?.color, opacity: 0.8 }}
+                    className="pl-3"
+                  >
+                    {dialogue}
+                  </div>
                 )}
                 {isActive && makePanel(i, override)}
               </div>
@@ -322,7 +400,12 @@ export function HighlightedContent({
                 {editIcon}
               </div>
               {dialogue && (
-                <div style={{ color: color?.color, opacity: 0.8 }} className="pl-3">{dialogue}</div>
+                <div
+                  style={{ color: color?.color, opacity: 0.8 }}
+                  className="pl-3"
+                >
+                  {dialogue}
+                </div>
               )}
               {isActive && makePanel(i, undefined)}
             </div>

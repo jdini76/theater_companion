@@ -142,8 +142,7 @@ export function extractSceneCharacters(
         if (castUpper.has(upper)) {
           characters.add(upper);
         } else {
-          const fullName =
-            firstNameMap.get(upper) || lastNameMap.get(upper);
+          const fullName = firstNameMap.get(upper) || lastNameMap.get(upper);
           if (fullName) characters.add(fullName);
         }
       }
@@ -302,7 +301,7 @@ export function parseCastList(
     // Skip pure numbers (page numbers leaking from TOC)
     if (/^\d+$/.test(name)) continue;
 
-    entries.push({ text: name, indent, lineIdx: i });
+    entries.push({ text: name.toUpperCase(), indent, lineIdx: i });
   }
 
   if (entries.length === 0) return null;

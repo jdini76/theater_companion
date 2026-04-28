@@ -14,16 +14,22 @@ interface SceneManagerProps {
   projectName?: string;
 }
 
-export function SceneManager({ projectId, projectName = "Project" }: SceneManagerProps) {
+export function SceneManager({
+  projectId,
+  projectName = "Project",
+}: SceneManagerProps) {
   const { getProjectScenes } = useScenes();
-  const [selectedScene, setSelectedScene] = useState<Scene | null>(null);
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
 
   const scenes = getProjectScenes(projectId);
+  const selectedScene = selectedSceneId
+    ? (scenes.find((s) => s.id === selectedSceneId) ?? null)
+    : null;
 
   const handleSelectScene = (scene: Scene) => {
-    setSelectedScene(scene);
+    setSelectedSceneId(scene.id);
     setIsEditingScene(false);
   };
 
@@ -33,9 +39,7 @@ export function SceneManager({ projectId, projectName = "Project" }: SceneManage
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-light">Scenes</h1>
-          <p className="text-muted text-sm mt-1">
-            {projectName}
-          </p>
+          <p className="text-muted text-sm mt-1">{projectName}</p>
         </div>
         <Button
           variant="primary"
@@ -70,7 +74,7 @@ export function SceneManager({ projectId, projectName = "Project" }: SceneManage
             </div>
             <SceneList
               projectId={projectId}
-              selectedSceneId={selectedScene?.id ?? null}
+              selectedSceneId={selectedSceneId}
               onSelectScene={handleSelectScene}
             />
           </div>

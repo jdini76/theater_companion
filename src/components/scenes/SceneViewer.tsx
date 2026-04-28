@@ -32,7 +32,9 @@ function useLineOverrides(sceneId: string) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      setOverrides(raw ? new Map(JSON.parse(raw) as [number, LineOverride][]) : new Map());
+      setOverrides(
+        raw ? new Map(JSON.parse(raw) as [number, LineOverride][]) : new Map(),
+      );
     } catch {
       setOverrides(new Map());
     }
@@ -65,9 +67,20 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const { updateScene } = useScenes();
   const { overrides, assign } = useLineOverrides(scene.id);
 
-  const projectCast = getProjectCharacters(projectId).map((c) => c.characterName);
+  const projectCast = getProjectCharacters(projectId).map(
+    (c) => c.characterName,
+  );
   const sceneChars = scene.characters ?? [];
-  const allNames = [...new Set([...projectCast, ...sceneChars])];
+  // Deduplicate by uppercased name, always display as ALL CAPS
+  const nameSet = new Set<string>();
+  const allNames: string[] = [];
+  for (const name of [...projectCast, ...sceneChars]) {
+    const upper = name.toUpperCase();
+    if (!nameSet.has(upper)) {
+      nameSet.add(upper);
+      allNames.push(upper);
+    }
+  }
   const colorMap = buildCharColorMap(allNames);
 
   const handleCopyContent = () => {
@@ -86,7 +99,10 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
     document.body.removeChild(element);
   };
 
-  const handleAssign = (lineIdx: number, assignment: LineOverride | undefined) => {
+  const handleAssign = (
+    lineIdx: number,
+    assignment: LineOverride | undefined,
+  ) => {
     // If a new character name is introduced, add it to scene.characters
     if (assignment && "char" in assignment) {
       const newName = assignment.char.trim().toUpperCase();
@@ -97,6 +113,31 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
       }
     }
     assign(lineIdx, assignment);
+  };
+
+  // Fix: define assignPanelProps before return
+  // Deduplicate and uppercase for assignPanelProps
+  const sceneCharSet = new Set<string>();
+  const sceneCharacters: string[] = [];
+  for (const name of sceneChars) {
+    const upper = name.toUpperCase();
+    if (!sceneCharSet.has(upper)) {
+      sceneCharSet.add(upper);
+      sceneCharacters.push(upper);
+    }
+  }
+  const allCharSet = new Set<string>();
+  const allCharacters: string[] = [];
+  for (const name of projectCast) {
+    const upper = name.toUpperCase();
+    if (!allCharSet.has(upper)) {
+      allCharSet.add(upper);
+      allCharacters.push(upper);
+    }
+  }
+  const assignPanelProps = {
+    sceneCharacters,
+    allCharacters,
   };
 
   const songs = scene.songs ?? [];
@@ -132,10 +173,10 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
       </div>
 
       {/* Character tags */}
-      {sceneChars.length > 0 && (
+      {sceneCharacters.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {sceneChars.map((char) => {
-            const color = colorMap.get(char.toUpperCase());
+          {sceneCharacters.map((char) => {
+            const color = colorMap.get(char);
             return (
               <span
                 key={char}
@@ -175,6 +216,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
         overrides={overrides}
         onAssign={handleAssign}
         maxHeight="max-h-[calc(100vh-20rem)]"
+        assignPanelProps={assignPanelProps}
       />
     </div>
   );
