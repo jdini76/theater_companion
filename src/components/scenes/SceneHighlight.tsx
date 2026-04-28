@@ -7,7 +7,14 @@ export type CharColor = { color: string; bgColor: string };
 export type LineOverride =
   | { kind: "dialogue"; char: string }
   | { kind: "header"; char: string }
-  | { kind: "stage-direction" };
+  | { kind: "stage-direction" }
+  | { kind: "group" };
+
+// Distinct neutral color for group/ensemble lines — sits outside the hue-based palette.
+const GROUP_COLOR: CharColor = {
+  color: "hsl(45, 80%, 72%)",
+  bgColor: "hsla(45, 80%, 72%, 0.12)",
+};
 
 // 12 colors spaced ~30° apart on the hue wheel — one per major perceptual region,
 // tuned for readability on dark backgrounds. Wraps at 12 for larger casts.
@@ -216,6 +223,17 @@ export function LineAssignPanel({
       </div>
       <div className="flex gap-2 pt-1 border-t border-border">
         <button
+          onClick={() => onAssign({ kind: "group" })}
+          style={
+            currentAssignment?.kind === "group"
+              ? { color: GROUP_COLOR.color, backgroundColor: GROUP_COLOR.bgColor, borderColor: GROUP_COLOR.color }
+              : undefined
+          }
+          className={`px-2 py-0.5 rounded border transition-colors hover:text-light ${currentAssignment?.kind === "group" ? "border-current" : "border-border text-muted"}`}
+        >
+          Group
+        </button>
+        <button
           onClick={() => onAssign({ kind: "stage-direction" })}
           className={`px-2 py-0.5 rounded border transition-colors hover:text-light ${currentAssignment?.kind === "stage-direction" ? "border-current text-light" : "border-border text-muted"}`}
         >
@@ -264,6 +282,7 @@ export function HighlightedContent({
   const charSet = new Set(characters.map((c) => c.toUpperCase()));
   const lines = content.split("\n");
   let currentChar: string | null = null;
+  let currentIsGroup = false;
 
   const parenStageLines = new Set<number>();
   {
@@ -311,6 +330,7 @@ export function HighlightedContent({
         const trimmed = line.trim();
         if (!trimmed) {
           currentChar = null;
+          currentIsGroup = false;
           return <div key={i} className="h-2" />;
         }
 
@@ -321,7 +341,31 @@ export function HighlightedContent({
         const clickClass = onAssign ? "cursor-pointer" : "";
 
         if (hasOverride && override) {
+          if (override.kind === "group") {
+            currentChar = null;
+            currentIsGroup = true;
+            const { header, dialogue } = splitAtColon("", trimmed);
+            return (
+              <div key={i}>
+                <div
+                  style={{ color: GROUP_COLOR.color, backgroundColor: GROUP_COLOR.bgColor }}
+                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">{header}</span>
+                  {editIcon}
+                </div>
+                {dialogue && (
+                  <div style={{ color: GROUP_COLOR.color, opacity: 0.8 }} className="pl-3">
+                    {dialogue}
+                  </div>
+                )}
+                {isActive && makePanel(i, override)}
+              </div>
+            );
+          }
           if (override.kind === "header") {
+            currentIsGroup = false;
             currentChar = override.char.toUpperCase();
             const color = colorMap.get(override.char.toUpperCase());
             const { header, dialogue } = splitAtColon(override.char, trimmed);
@@ -398,6 +442,7 @@ export function HighlightedContent({
         const matchResult = matchCharInLine(line, charSet);
         if (matchResult) {
           const { char: matched, prefix } = matchResult;
+          currentIsGroup = false;
           currentChar = matched;
           const color = colorMap.get(matched);
           const { header, dialogue } = splitAtColon(prefix, trimmed);
@@ -419,6 +464,22 @@ export function HighlightedContent({
                   {dialogue}
                 </div>
               )}
+              {isActive && makePanel(i, undefined)}
+            </div>
+          );
+        }
+
+        if (currentIsGroup) {
+          return (
+            <div key={i}>
+              <div
+                style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                className={`pl-3 flex items-center gap-1 group ${clickClass}`}
+                onClick={toggle}
+              >
+                <span className="flex-1">{line}</span>
+                {editIcon}
+              </div>
               {isActive && makePanel(i, undefined)}
             </div>
           );
