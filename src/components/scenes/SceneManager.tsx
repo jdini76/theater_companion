@@ -8,6 +8,7 @@ import { SceneList } from "./SceneList";
 import { SceneViewer } from "./SceneViewer";
 import { SceneEditor } from "./SceneEditor";
 import { Button } from "@/components/ui/Button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface SceneManagerProps {
   projectId: string;
@@ -22,6 +23,7 @@ export function SceneManager({
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   const scenes = getProjectScenes(projectId);
   const selectedScene = selectedSceneId
@@ -31,6 +33,14 @@ export function SceneManager({
   const handleSelectScene = (scene: Scene) => {
     setSelectedSceneId(scene.id);
     setIsEditingScene(false);
+    setSidebarCollapsed(true);
+  };
+
+  const handleToggleSidebar = () => {
+    setSidebarCollapsed((v) => {
+      if (v) setSelectedSceneId(null); // expanding → clear scene
+      return !v;
+    });
   };
 
   return (
@@ -62,21 +72,34 @@ export function SceneManager({
       {/* Main layout: slim sidebar + wide detail panel */}
       <div className="flex gap-4 items-stretch" style={{ minHeight: "calc(100vh - 14rem)" }}>
         {/* Sidebar */}
-        <div className="w-72 flex-shrink-0 flex flex-col">
-          <div className="card flex flex-col flex-1 p-4 overflow-hidden">
-            <div className="flex items-center justify-between mb-3 flex-shrink-0">
-              <span className="text-xs font-semibold text-muted uppercase tracking-widest">
-                Scenes
-              </span>
-              <span className="text-xs text-muted tabular-nums">
-                {scenes.length}
-              </span>
-            </div>
-            <SceneList
-              projectId={projectId}
-              selectedSceneId={selectedSceneId}
-              onSelectScene={handleSelectScene}
-            />
+        <div className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-72"}`}>
+          <div className="card flex flex-col flex-1 overflow-hidden relative">
+            {/* Collapse toggle */}
+            <button
+              onClick={handleToggleSidebar}
+              className="absolute top-3 right-2 z-10 p-0.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+              aria-label={sidebarCollapsed ? "Expand scene list" : "Collapse scene list"}
+            >
+              {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+
+            {!sidebarCollapsed && (
+              <div className="flex flex-col flex-1 p-2 overflow-hidden">
+                <div className="flex items-center justify-between mb-2 flex-shrink-0 pr-5">
+                  <span className="text-xs font-semibold text-muted uppercase tracking-widest">
+                    Scenes
+                  </span>
+                  <span className="text-xs text-muted tabular-nums">
+                    {scenes.length}
+                  </span>
+                </div>
+                <SceneList
+                  projectId={projectId}
+                  selectedSceneId={selectedSceneId}
+                  onSelectScene={handleSelectScene}
+                />
+              </div>
+            )}
           </div>
         </div>
 
