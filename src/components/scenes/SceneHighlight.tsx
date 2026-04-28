@@ -9,15 +9,27 @@ export type LineOverride =
   | { kind: "header"; char: string }
   | { kind: "stage-direction" };
 
+// 12 colors spaced ~30° apart on the hue wheel — one per major perceptual region,
+// tuned for readability on dark backgrounds. Wraps at 12 for larger casts.
+const CHAR_PALETTE: CharColor[] = [
+  { color: "hsl(4,   82%, 65%)", bgColor: "hsla(4,   82%, 65%, 0.12)" }, // red
+  { color: "hsl(28,  88%, 62%)", bgColor: "hsla(28,  88%, 62%, 0.12)" }, // orange
+  { color: "hsl(52,  80%, 58%)", bgColor: "hsla(52,  80%, 58%, 0.12)" }, // yellow
+  { color: "hsl(85,  55%, 58%)", bgColor: "hsla(85,  55%, 58%, 0.12)" }, // lime
+  { color: "hsl(142, 56%, 58%)", bgColor: "hsla(142, 56%, 58%, 0.12)" }, // green
+  { color: "hsl(175, 62%, 56%)", bgColor: "hsla(175, 62%, 56%, 0.12)" }, // teal
+  { color: "hsl(200, 78%, 64%)", bgColor: "hsla(200, 78%, 64%, 0.12)" }, // sky blue
+  { color: "hsl(228, 68%, 70%)", bgColor: "hsla(228, 68%, 70%, 0.12)" }, // indigo
+  { color: "hsl(268, 64%, 68%)", bgColor: "hsla(268, 64%, 68%, 0.12)" }, // purple
+  { color: "hsl(305, 62%, 68%)", bgColor: "hsla(305, 62%, 68%, 0.12)" }, // magenta
+  { color: "hsl(335, 72%, 66%)", bgColor: "hsla(335, 72%, 66%, 0.12)" }, // rose
+  { color: "hsl(168, 58%, 56%)", bgColor: "hsla(168, 58%, 56%, 0.12)" }, // seafoam
+];
+
 export function buildCharColorMap(names: string[]): Map<string, CharColor> {
   const map = new Map<string, CharColor>();
-  const goldenAngle = 137.508;
   [...names].sort().forEach((name, i) => {
-    const hue = Math.round((i * goldenAngle) % 360);
-    map.set(name.toUpperCase(), {
-      color: `hsl(${hue}, 70%, 65%)`,
-      bgColor: `hsla(${hue}, 70%, 65%, 0.12)`,
-    });
+    map.set(name.toUpperCase(), CHAR_PALETTE[i % CHAR_PALETTE.length]);
   });
   return map;
 }
