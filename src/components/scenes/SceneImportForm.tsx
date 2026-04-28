@@ -19,12 +19,12 @@ import { extractTextFromPdf } from "@/lib/pdf-client";
 // import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/Button";
 import { OcrUploaderWrapper } from "../common/OcrUploaderWrapper";
-import {
-  type CharColor,
-  type LineOverride,
-  buildCharColorMap,
-  HighlightedContent,
-} from "./SceneHighlight";
+// import {
+//   type CharColor,
+//   type LineOverride,
+//   buildCharColorMap,
+//   HighlightedContent,
+// } from "./SceneHighlight";
 
 interface SceneImportFormProps {
   projectId: string;
@@ -43,22 +43,25 @@ interface ParsedSceneData {
   songs: string[];
 }
 
-interface ScenePreview {
-  title: string;
-  contentPreview: string;
-  fullContent: string;
-  characters: string[];
-  songs: string[];
-  deleted?: boolean;
-}
-
+// interface ScenePreview {
+//   title: string;
+//   contentPreview: string;
+//   fullContent: string;
+//   characters: string[];
+//   songs: string[];
+//   deleted?: boolean;
+// }
 
 export function SceneImportForm({
   projectId,
   onSuccess,
 }: SceneImportFormProps) {
   const { createScenes } = useScenes();
-  const { importCastCharacters, replaceProjectCharacters, getProjectCharacters } = useVoice();
+  const {
+    importCastCharacters,
+    replaceProjectCharacters,
+    getProjectCharacters,
+  } = useVoice();
   const [selectedTab, setSelectedTab] = useState<"paste" | "upload">("paste");
   const [uploadMode, setUploadMode] = useState<"text" | "image">("text");
   const [ocrText, setOcrText] = useState("");
@@ -68,12 +71,18 @@ export function SceneImportForm({
   const [isLoading, setIsLoading] = useState(false);
   const [detectedSceneCount, setDetectedSceneCount] = useState<number>(0);
   const [castNames, setCastNames] = useState<string[]>([]);
-  const [tocData, setTocData] = useState<ParsedToc | null>(null);
+  const [_tocData, setTocData] = useState<ParsedToc | null>(null);
   const [showCastReview, setShowCastReview] = useState(false);
-  const [castCategories, setCastCategories] = useState<Map<string, CastCategory>>(new Map());
+  const [castCategories, setCastCategories] = useState<
+    Map<string, CastCategory>
+  >(new Map());
   const [parsedSceneData, setParsedSceneData] = useState<ParsedSceneData[]>([]);
-  const [mergeTargets, setMergeTargets] = useState<Map<string, string>>(new Map());
-  const [castImportMode, setCastImportMode] = useState<"add" | "replace" | "skip">("add");
+  const [mergeTargets, setMergeTargets] = useState<Map<string, string>>(
+    new Map(),
+  );
+  const [castImportMode, setCastImportMode] = useState<
+    "add" | "replace" | "skip"
+  >("add");
 
   const handleParseText = (text: string) => {
     setError(null);
@@ -106,7 +115,8 @@ export function SceneImportForm({
       const castPageNames = extractCastNames(text);
       const castSet = new Set<string>(castPageNames);
       for (const scene of scenes) {
-        for (const char of extractSceneCharacters(scene.content)) castSet.add(char);
+        for (const char of extractSceneCharacters(scene.content))
+          castSet.add(char);
       }
       let cast = Array.from(castSet).sort();
       if (cast.length === 0) {
@@ -190,8 +200,14 @@ export function SceneImportForm({
     setIsLoading(true);
     try {
       const name = file.name.toLowerCase();
-      if (name.endsWith(".txt")) { handleParseText(await file.text()); return; }
-      if (name.endsWith(".pdf")) { handleParseText(await extractTextFromPdf(file)); return; }
+      if (name.endsWith(".txt")) {
+        handleParseText(await file.text());
+        return;
+      }
+      if (name.endsWith(".pdf")) {
+        handleParseText(await extractTextFromPdf(file));
+        return;
+      }
       throw new Error("Only .txt and .pdf files are supported in Text mode");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file");
@@ -225,7 +241,10 @@ export function SceneImportForm({
         {(["paste", "upload"] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => { setSelectedTab(tab); handleClear(); }}
+            onClick={() => {
+              setSelectedTab(tab);
+              handleClear();
+            }}
             className={`px-4 py-2 font-semibold transition-colors ${
               selectedTab === tab
                 ? "text-accent-cyan border-b-2 border-accent-cyan"
@@ -275,7 +294,9 @@ export function SceneImportForm({
           {selectedTab === "paste" && (
             <div className="space-y-4">
               <div>
-                <label className="block text-light font-semibold mb-2">Paste your scene(s)</label>
+                <label className="block text-light font-semibold mb-2">
+                  Paste your scene(s)
+                </label>
                 <textarea
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
@@ -284,7 +305,11 @@ export function SceneImportForm({
                   className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan font-mono text-sm resize-vertical"
                 />
               </div>
-              <Button variant="primary" onClick={handlePasteInput} disabled={!pastedText.trim()}>
+              <Button
+                variant="primary"
+                onClick={handlePasteInput}
+                disabled={!pastedText.trim()}
+              >
                 Parse Text
               </Button>
             </div>
@@ -321,7 +346,9 @@ export function SceneImportForm({
                     <div className="space-y-2">
                       <div className="text-4xl">ðŸ“„</div>
                       <p className="text-light font-semibold">
-                        {isLoading ? "Parsingâ€¦" : "Click to upload a script file"}
+                        {isLoading
+                          ? "Parsingâ€¦"
+                          : "Click to upload a script file"}
                       </p>
                       <p className="text-muted text-sm">
                         Supports <strong>.pdf</strong> and <strong>.txt</strong>
@@ -337,7 +364,10 @@ export function SceneImportForm({
                   <OcrUploaderWrapper onExtract={setOcrText} />
                   {ocrText && (
                     <div className="mt-4">
-                      <Button variant="primary" onClick={() => handleParseText(ocrText)}>
+                      <Button
+                        variant="primary"
+                        onClick={() => handleParseText(ocrText)}
+                      >
                         Use Extracted Text
                       </Button>
                     </div>
@@ -350,8 +380,10 @@ export function SceneImportForm({
           {/* Scene count info */}
           {detectedSceneCount > 1 && (
             <div className="p-3 bg-accent-cyan/10 border border-accent-cyan rounded text-accent-cyan text-sm">
-              <strong>Detected {detectedSceneCount} scenes</strong> in the input text.
-              {inputMode === "single" && " (Single mode: will be treated as one scene)"}
+              <strong>Detected {detectedSceneCount} scenes</strong> in the input
+              text.
+              {inputMode === "single" &&
+                " (Single mode: will be treated as one scene)"}
             </div>
           )}
         </>
@@ -361,7 +393,9 @@ export function SceneImportForm({
       {showCastReview && (
         <div className="space-y-4 border-t border-border pt-6">
           <div>
-            <h3 className="text-light font-semibold text-lg">Review Identified Cast</h3>
+            <h3 className="text-light font-semibold text-lg">
+              Review Identified Cast
+            </h3>
             <p className="text-muted text-sm mt-1">
               Categorize each name. Non-characters are excluded from the cast.
             </p>
@@ -370,17 +404,34 @@ export function SceneImportForm({
           {getProjectCharacters(projectId).length > 0 && (
             <div className="p-3 rounded border border-border bg-background/50 space-y-2">
               <p className="text-sm font-medium text-light">
-                This project already has {getProjectCharacters(projectId).length} character
-                {getProjectCharacters(projectId).length !== 1 ? "s" : ""}. How should the cast list be updated?
+                This project already has{" "}
+                {getProjectCharacters(projectId).length} character
+                {getProjectCharacters(projectId).length !== 1 ? "s" : ""}. How
+                should the cast list be updated?
               </p>
               {(
                 [
-                  { value: "add" as const, label: "Add new characters", desc: "Keep existing and add any new ones." },
-                  { value: "replace" as const, label: "Replace all", desc: "Remove existing characters and replace with this cast. Voice settings will be lost." },
-                  { value: "skip" as const, label: "Skip", desc: "Keep the cast list as is." },
+                  {
+                    value: "add" as const,
+                    label: "Add new characters",
+                    desc: "Keep existing and add any new ones.",
+                  },
+                  {
+                    value: "replace" as const,
+                    label: "Replace all",
+                    desc: "Remove existing characters and replace with this cast. Voice settings will be lost.",
+                  },
+                  {
+                    value: "skip" as const,
+                    label: "Skip",
+                    desc: "Keep the cast list as is.",
+                  },
                 ] as const
               ).map(({ value, label, desc }) => (
-                <label key={value} className="flex items-start gap-2 cursor-pointer">
+                <label
+                  key={value}
+                  className="flex items-start gap-2 cursor-pointer"
+                >
                   <input
                     type="radio"
                     name="castImportMode"
@@ -390,7 +441,9 @@ export function SceneImportForm({
                     className="mt-0.5 accent-accent-cyan"
                   />
                   <div>
-                    <span className={`text-sm font-medium ${castImportMode === value ? "text-accent-cyan" : "text-light"}`}>
+                    <span
+                      className={`text-sm font-medium ${castImportMode === value ? "text-accent-cyan" : "text-light"}`}
+                    >
                       {label}
                     </span>
                     <p className="text-xs text-muted">{desc}</p>
@@ -401,7 +454,9 @@ export function SceneImportForm({
           )}
 
           {castNames.length === 0 ? (
-            <p className="text-muted text-sm italic">No cast names identified.</p>
+            <p className="text-muted text-sm italic">
+              No cast names identified.
+            </p>
           ) : (
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {castNames.map((name) => {
@@ -417,14 +472,19 @@ export function SceneImportForm({
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm font-mono ${category === "Non-character" ? "text-muted line-through" : "text-light"}`}>
+                      <span
+                        className={`text-sm font-mono ${category === "Non-character" ? "text-muted line-through" : "text-light"}`}
+                      >
                         {name}
                       </span>
                       <select
                         value={category}
                         onChange={(e) => {
                           const newCategories = new Map(castCategories);
-                          newCategories.set(name, e.target.value as CastCategory);
+                          newCategories.set(
+                            name,
+                            e.target.value as CastCategory,
+                          );
                           setCastCategories(newCategories);
                           if (e.target.value !== "Merge Characters") {
                             const newTargets = new Map(mergeTargets);
@@ -445,13 +505,17 @@ export function SceneImportForm({
                         <option value="Individual">Individual</option>
                         <option value="Group">Group</option>
                         <option value="Non-character">Non-character</option>
-                        <option value="Merge Characters">Merge Characters</option>
+                        <option value="Merge Characters">
+                          Merge Characters
+                        </option>
                       </select>
                     </div>
 
                     {category === "Merge Characters" && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
-                        <span className="text-xs text-muted whitespace-nowrap">Merge into:</span>
+                        <span className="text-xs text-muted whitespace-nowrap">
+                          Merge into:
+                        </span>
                         <select
                           value={mergeTarget}
                           onChange={(e) => {
@@ -463,12 +527,16 @@ export function SceneImportForm({
                         >
                           <option value="">Select characterâ€¦</option>
                           {castNames
-                            .filter((n) =>
-                              n !== name &&
-                              (castCategories.get(n) ?? "Individual") !== "Merge Characters",
+                            .filter(
+                              (n) =>
+                                n !== name &&
+                                (castCategories.get(n) ?? "Individual") !==
+                                  "Merge Characters",
                             )
                             .map((n) => (
-                              <option key={n} value={n}>{n}</option>
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
                             ))}
                         </select>
                         <button
@@ -487,9 +555,12 @@ export function SceneImportForm({
           )}
 
           <div className="flex gap-3 pt-2 border-t border-border">
-            <Button variant="secondary" onClick={handleClear}>Back</Button>
+            <Button variant="secondary" onClick={handleClear}>
+              Back
+            </Button>
             <Button variant="primary" onClick={handleCreateScenes}>
-              Create {parsedSceneData.length} Scene{parsedSceneData.length !== 1 ? "s" : ""}
+              Create {parsedSceneData.length} Scene
+              {parsedSceneData.length !== 1 ? "s" : ""}
             </Button>
           </div>
         </div>
