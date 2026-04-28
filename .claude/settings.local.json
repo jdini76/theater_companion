@@ -5,7 +5,8 @@
       "Bash(node -e \"console.log\\(require\\('c:/tools/Projects/Theater_Comp/node_modules/tesseract.js-core/package.json'\\).version\\)\")",
       "Bash(npx vitest *)",
       "Bash(npx tsc *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

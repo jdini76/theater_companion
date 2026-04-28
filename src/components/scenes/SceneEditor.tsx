@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { extractSceneCharacters } from "@/lib/scenes";
 import { Scene } from "@/types/scene";
 import { useScenes } from "@/contexts/SceneContext";
 import { Button } from "@/components/ui/Button";
@@ -30,10 +31,14 @@ export function SceneEditor({ scene, onClose }: SceneEditorProps) {
         throw new Error("Scene content cannot be empty");
       }
 
+      // Automatically reparse characters from the updated content
+      const characters = extractSceneCharacters(content.trim());
+
       updateScene(scene.id, {
         title: title.trim(),
         content: content.trim(),
         description: description.trim() || undefined,
+        characters,
       });
 
       onClose?.();
@@ -101,19 +106,11 @@ export function SceneEditor({ scene, onClose }: SceneEditorProps) {
 
       <div className="flex gap-3 justify-end">
         {onClose && (
-          <Button
-            variant="secondary"
-            onClick={onClose}
-            disabled={isSaving}
-          >
+          <Button variant="secondary" onClick={onClose} disabled={isSaving}>
             Cancel
           </Button>
         )}
-        <Button
-          variant="primary"
-          onClick={handleSave}
-          disabled={isSaving}
-        >
+        <Button variant="primary" onClick={handleSave} disabled={isSaving}>
           {isSaving ? "Saving..." : "Save"}
         </Button>
       </div>

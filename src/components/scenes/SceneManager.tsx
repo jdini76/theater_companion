@@ -19,60 +19,69 @@ export function SceneManager({
   projectName = "Project",
 }: SceneManagerProps) {
   const { getProjectScenes } = useScenes();
-  const [selectedScene, setSelectedScene] = useState<Scene | null>(null);
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
 
   const scenes = getProjectScenes(projectId);
+  const selectedScene = selectedSceneId
+    ? (scenes.find((s) => s.id === selectedSceneId) ?? null)
+    : null;
+
+  const handleSelectScene = (scene: Scene) => {
+    setSelectedSceneId(scene.id);
+    setIsEditingScene(false);
+  };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-4xl font-bold text-light mb-2">Scenes</h1>
-            <p className="text-muted">
-              Manage scenes for <span className="text-accent-cyan">{projectName}</span>
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={() => setShowImportForm(!showImportForm)}
-          >
-            {showImportForm ? "Hide Form" : "+ Import Scenes"}
-          </Button>
+    <div className="max-w-7xl mx-auto px-4">
+      {/* Page header */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-light">Scenes</h1>
+          <p className="text-muted text-sm mt-1">{projectName}</p>
         </div>
-
-        {showImportForm && (
-          <div className="mb-8">
-            <SceneImportForm
-              projectId={projectId}
-              onSuccess={() => setShowImportForm(false)}
-            />
-          </div>
-        )}
+        <Button
+          variant="primary"
+          onClick={() => setShowImportForm(!showImportForm)}
+        >
+          {showImportForm ? "Hide Form" : "+ Import Scenes"}
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Scenes List */}
-        <div className="lg:col-span-1">
-          <div className="card">
-            <h2 className="text-2xl font-semibold text-light mb-6">
-              Scenes ({scenes.length})
-            </h2>
+      {/* Import form — drops in below the header */}
+      {showImportForm && (
+        <div className="mb-6">
+          <SceneImportForm
+            projectId={projectId}
+            onSuccess={() => setShowImportForm(false)}
+          />
+        </div>
+      )}
+
+      {/* Main layout: slim sidebar + wide detail panel */}
+      <div className="flex gap-4" style={{ minHeight: "calc(100vh - 14rem)" }}>
+        {/* Sidebar */}
+        <div className="w-72 flex-shrink-0 flex flex-col">
+          <div className="card flex flex-col flex-1 p-4 overflow-hidden">
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+              <span className="text-xs font-semibold text-muted uppercase tracking-widest">
+                Scenes
+              </span>
+              <span className="text-xs text-muted tabular-nums">
+                {scenes.length}
+              </span>
+            </div>
             <SceneList
               projectId={projectId}
-              onSelectScene={(scene) => {
-                setSelectedScene(scene);
-                setIsEditingScene(false);
-              }}
+              selectedSceneId={selectedSceneId}
+              onSelectScene={handleSelectScene}
             />
           </div>
         </div>
 
-        {/* Scene View/Edit */}
-        <div className="lg:col-span-2">
+        {/* Detail panel */}
+        <div className="flex-1 min-w-0">
           {selectedScene && isEditingScene ? (
             <SceneEditor
               scene={selectedScene}
@@ -81,11 +90,17 @@ export function SceneManager({
           ) : selectedScene ? (
             <SceneViewer
               scene={selectedScene}
+              projectId={projectId}
               onEdit={() => setIsEditingScene(true)}
             />
           ) : (
-            <div className="card text-center py-12">
-              <p className="text-muted text-lg">Select a scene to view</p>
+            <div className="card h-full flex flex-col items-center justify-center text-center py-16">
+              <p className="text-muted text-lg mb-2">Select a scene</p>
+              <p className="text-muted/60 text-sm">
+                {scenes.length === 0
+                  ? "Import scenes to get started"
+                  : "Choose a scene from the sidebar to view its content"}
+              </p>
             </div>
           )}
         </div>
