@@ -37,6 +37,14 @@ interface PdfPage {
 
 let pdfjsPromise: Promise<PdfjsLib> | null = null;
 
+function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iPhone|iPod|iPad/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+  );
+}
+
 function loadPdfjs(): Promise<PdfjsLib> {
   if (pdfjsPromise) return pdfjsPromise;
 
@@ -44,7 +52,9 @@ function loadPdfjs(): Promise<PdfjsLib> {
     /* webpackIgnore: true */
     PDFJS_CDN_URL
   ).then((mod: PdfjsLib) => {
-    mod.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN_URL;
+    // iOS Safari blocks cross-origin module workers — disable the worker so
+    // pdf.js falls back to running on the main thread.
+    mod.GlobalWorkerOptions.workerSrc = isIOS() ? "" : PDFJS_WORKER_CDN_URL;
     return mod;
   });
 
