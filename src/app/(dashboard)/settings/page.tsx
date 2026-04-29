@@ -22,7 +22,15 @@ import {
   isWebGPUSupported,
   KokoroLoadState,
 } from "@/lib/kokoro-tts";
-import { exportData, importData, getStorageSummary } from "@/lib/data-export";
+import {
+  getAllStoredProjects,
+  exportSelectedProjects,
+  parseImportFile,
+  executeImport,
+  restoreLegacyBackup,
+  getStorageSummary,
+  type ImportedProject,
+} from "@/lib/data-export";
 
 const TTS_SETTINGS_KEY = "theater_tts_settings";
 
@@ -59,44 +67,96 @@ function saveTTSSettings(settings: TTSSettings): void {
   localStorage.setItem(TTS_SETTINGS_KEY, JSON.stringify(settings));
 }
 
+type PanelPhase =
+  | { kind: "idle" }
+  | { kind: "resolving"; projects: ImportedProject[]; names: Map<string, string>; selected: Set<string> }
+  | { kind: "done"; count: number };
+
 function DataManagementPanel() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [summary, setSummary] = useState<ReturnType<
-    typeof getStorageSummary
-  > | null>(null);
-  const [importStatus, setImportStatus] = useState<{
-    message: string;
-    error: boolean;
-  } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const legacyFileRef = useRef<HTMLInputElement>(null);
+
+  const [summary, setSummary] = useState<ReturnType<typeof getStorageSummary> | null>(null);
+  const [allProjects, setAllProjects] = useState<{ id: string; name: string }[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [phase, setPhase] = useState<PanelPhase>({ kind: "idle" });
+  const [error, setError] = useState<string | null>(null);
+  const [legacyStatus, setLegacyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     setSummary(getStorageSummary());
+    const projects = getAllStoredProjects() as { id: string; name: string }[];
+    setAllProjects(projects);
+    setSelectedIds(new Set(projects.map((p) => p.id)));
   }, []);
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const toggleProject = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === allProjects.length
+        ? new Set()
+        : new Set(allProjects.map((p) => p.id)),
+    );
+  };
+
+  const handleExport = () => {
+    if (selectedIds.size === 0) return;
+    exportSelectedProjects(Array.from(selectedIds));
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    setImportStatus(null);
+    if (importFileRef.current) importFileRef.current.value = "";
+    setError(null);
     try {
-      const result = await importData(file);
-      setImportStatus({
-        message: `Restored ${result.keysRestored} items from backup (${result.exportedAt.slice(0, 10)}). Reload the page to see changes.`,
-        error: false,
-      });
+      const projects = await parseImportFile(file);
+      const names = new Map(projects.map((p) => [p.bundle.project.id as string, p.name]));
+      const selected = new Set(projects.map((p) => p.bundle.project.id as string));
+      setPhase({ kind: "resolving", projects, names, selected });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to read file.");
+    }
+  };
+
+  const handleConfirmImport = () => {
+    if (phase.kind !== "resolving") return;
+    const resolved = phase.projects
+      .filter((p) => phase.selected.has(p.bundle.project.id as string))
+      .map((p) => ({
+        ...p,
+        name: phase.names.get(p.bundle.project.id as string) ?? p.name,
+      }));
+    const count = executeImport(resolved);
+    setPhase({ kind: "done", count });
+  };
+
+  const handleLegacyRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (legacyFileRef.current) legacyFileRef.current.value = "";
+    setLegacyStatus(null);
+    try {
+      const result = await restoreLegacyBackup(file);
+      setLegacyStatus(
+        `Restored ${result.keysRestored} items from ${result.exportedAt.slice(0, 10)}. Reload the page to see changes.`,
+      );
       setSummary(getStorageSummary());
     } catch (err) {
-      setImportStatus({
-        message: err instanceof Error ? err.message : "Import failed.",
-        error: true,
-      });
+      setLegacyStatus(err instanceof Error ? err.message : "Restore failed.");
     }
-    // Reset input so the same file can be re-selected
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Storage summary */}
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
@@ -105,10 +165,7 @@ function DataManagementPanel() {
             { label: "Characters", value: summary.characterCount },
             { label: "Size", value: `${summary.totalSizeKB} KB` },
           ].map((item) => (
-            <div
-              key={item.label}
-              className="bg-dark-panel rounded p-3 text-center"
-            >
+            <div key={item.label} className="bg-dark-panel rounded p-3 text-center">
               <div className="text-2xl font-bold text-light">{item.value}</div>
               <div className="text-muted text-xs">{item.label}</div>
             </div>
@@ -116,32 +173,162 @@ function DataManagementPanel() {
         </div>
       )}
 
-      <div className="flex gap-3">
-        <Button variant="primary" onClick={exportData}>
-          Export Backup
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          Import Backup
-        </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json"
-          onChange={handleImport}
-          className="hidden"
-        />
+      {/* ── Export ── */}
+      <div className="space-y-3">
+        <h3 className="text-light font-semibold">Export Projects</h3>
+        {allProjects.length === 0 ? (
+          <p className="text-muted text-sm">No projects to export.</p>
+        ) : (
+          <>
+            <div className="border border-border rounded-lg overflow-hidden">
+              {/* Select all row */}
+              <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel cursor-pointer border-b border-border hover:bg-white/5 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === allProjects.length && allProjects.length > 0}
+                  onChange={toggleAll}
+                  className="accent-accent-cyan"
+                />
+                <span className="text-xs font-semibold text-muted uppercase tracking-widest">
+                  All Projects
+                </span>
+                <span className="ml-auto text-xs text-muted">
+                  {selectedIds.size} / {allProjects.length}
+                </span>
+              </label>
+              {allProjects.map((project) => (
+                <label
+                  key={project.id}
+                  className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/5 transition-colors border-b border-border last:border-b-0"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(project.id)}
+                    onChange={() => toggleProject(project.id)}
+                    className="accent-accent-cyan"
+                  />
+                  <span className="text-sm text-light">{project.name}</span>
+                </label>
+              ))}
+            </div>
+            <Button
+              variant="primary"
+              onClick={handleExport}
+              disabled={selectedIds.size === 0}
+            >
+              Export {selectedIds.size > 0 ? `${selectedIds.size} ` : ""}Project{selectedIds.size !== 1 ? "s" : ""}
+            </Button>
+          </>
+        )}
       </div>
 
-      {importStatus && (
-        <p
-          className={`text-sm ${importStatus.error ? "text-red-400" : "text-green-400"}`}
-        >
-          {importStatus.message}
+      {/* ── Import ── */}
+      <div className="space-y-3 border-t border-border pt-6">
+        <h3 className="text-light font-semibold">Import Projects</h3>
+
+        {error && (
+          <p className="text-sm text-red-400">{error}</p>
+        )}
+
+        {phase.kind === "idle" && (
+          <>
+            <p className="text-muted text-sm">
+              Importing will never overwrite existing projects. If a name conflicts you can rename it before importing.
+            </p>
+            <Button variant="secondary" onClick={() => importFileRef.current?.click()}>
+              Choose File to Import
+            </Button>
+            <input ref={importFileRef} type="file" accept=".json" onChange={handleImportFile} className="hidden" />
+          </>
+        )}
+
+        {phase.kind === "resolving" && (
+          <div className="space-y-4">
+            <p className="text-muted text-sm">
+              Review the projects below. Rename any that conflict with an existing project name.
+            </p>
+            <div className="space-y-2">
+              {phase.projects.map((p) => {
+                const id = p.bundle.project.id as string;
+                const currentName = phase.names.get(id) ?? p.name;
+                return (
+                  <div key={id} className={`flex items-center gap-3 p-3 rounded-lg border bg-background/50 transition-opacity ${phase.selected.has(id) ? "border-border" : "border-border opacity-40"}`}>
+                    <input
+                      type="checkbox"
+                      checked={phase.selected.has(id)}
+                      onChange={() => {
+                        const next = new Set(phase.selected);
+                        next.has(id) ? next.delete(id) : next.add(id);
+                        setPhase({ ...phase, selected: next });
+                      }}
+                      className="accent-accent-cyan flex-shrink-0"
+                    />
+                    {p.hasConflict ? (
+                      <span className="text-xs text-yellow-400 font-semibold w-16 flex-shrink-0">Conflict</span>
+                    ) : (
+                      <span className="text-xs text-green-400 font-semibold w-16 flex-shrink-0">Ready</span>
+                    )}
+                    <input
+                      type="text"
+                      value={currentName}
+                      onChange={(e) => {
+                        const next = new Map(phase.names);
+                        next.set(id, e.target.value);
+                        setPhase({ ...phase, names: next });
+                      }}
+                      className="flex-1 bg-background border border-border rounded px-2 py-1 text-sm text-light focus:outline-none focus:border-accent-cyan"
+                    />
+                    <span className="text-xs text-muted flex-shrink-0">
+                      {(p.bundle.scenes as unknown[]).length} scene{(p.bundle.scenes as unknown[]).length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex gap-3">
+              <Button variant="primary" onClick={handleConfirmImport} disabled={phase.selected.size === 0}>
+                Import {phase.selected.size} Project{phase.selected.size !== 1 ? "s" : ""}
+              </Button>
+              <Button variant="secondary" onClick={() => { setPhase({ kind: "idle" }); setError(null); }}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {phase.kind === "done" && (
+          <div className="space-y-3">
+            <p className="text-green-400 text-sm">
+              Imported {phase.count} project{phase.count !== 1 ? "s" : ""} successfully.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="primary" onClick={() => window.location.reload()}>
+                Reload to See Projects
+              </Button>
+              <Button variant="secondary" onClick={() => setPhase({ kind: "idle" })}>
+                Import More
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Legacy restore ── */}
+      <div className="border-t border-border pt-4 space-y-2">
+        <p className="text-muted text-xs">
+          Have an older full backup (v1)?{" "}
+          <button
+            onClick={() => legacyFileRef.current?.click()}
+            className="text-accent-cyan hover:underline"
+          >
+            Restore legacy backup
+          </button>
         </p>
-      )}
+        <input ref={legacyFileRef} type="file" accept=".json" onChange={handleLegacyRestore} className="hidden" />
+        {legacyStatus && (
+          <p className="text-xs text-muted">{legacyStatus}</p>
+        )}
+      </div>
     </div>
   );
 }

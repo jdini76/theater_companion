@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, ReactNode } from "react";
-import { VoiceConfig, CharacterRole, VoiceContextType } from "@/types/voice";
+import { VoiceConfig, CharacterRole, VoiceContextType, CharacterImportData } from "@/types/voice";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
   createVoiceConfig as createVoiceConfigUtil,
@@ -35,7 +35,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     options?: { rate?: number; pitch?: number; volume?: number }
   ): VoiceConfig => {
     const newConfig = createVoiceConfigUtil(characterName, voiceName, options);
-    setVoiceConfigs([...voiceConfigs, newConfig]);
+    setVoiceConfigs((prev) => [...prev, newConfig]);
     return newConfig;
   };
 
@@ -54,12 +54,11 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     }
 
     const updated = updateVoiceConfigUtil(config, updates);
-    setVoiceConfigs(voiceConfigs.map((c) => (c.id === id ? updated : c)));
+    setVoiceConfigs((prev) => prev.map((c) => (c.id === id ? updated : c)));
   };
 
   const deleteVoiceConfig = (id: string): void => {
-    const filtered = voiceConfigs.filter((c) => c.id !== id);
-    setVoiceConfigs(filtered);
+    setVoiceConfigs((prev) => prev.filter((c) => c.id !== id));
   };
 
   const getVoiceConfig = (id: string): VoiceConfig | null => {
@@ -97,7 +96,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     const voiceConfig = createVoiceConfig(characterName, "Default");
     const characterWithVoice = { ...newCharacter, voiceConfigId: voiceConfig.id };
 
-    setCharacters([...characters, characterWithVoice]);
+    setCharacters((prev) => [...prev, characterWithVoice]);
     return characterWithVoice;
   };
 
@@ -111,7 +110,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     }
 
     const updated = updateCharacterUtil(character, updates);
-    setCharacters(characters.map((c) => (c.id === id ? updated : c)));
+    setCharacters((prev) => prev.map((c) => (c.id === id ? updated : c)));
   };
 
   const deleteCharacter = (id: string): void => {
@@ -120,15 +119,12 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       throw new Error(`Character with id ${id} not found`);
     }
 
-    // Delete associated voice config
     if (character.voiceConfigId) {
       deleteVoiceConfig(character.voiceConfigId);
     }
 
-    const filtered = characters.filter((c) => c.id !== id);
-    setCharacters(filtered);
+    setCharacters((prev) => prev.filter((c) => c.id !== id));
 
-    // Clear current character if deleted
     if (currentCharacterId === id) {
       setCurrentCharacterId(null);
     }
@@ -144,7 +140,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
   const replaceProjectCharacters = (
     projectId: string,
-    names: string[],
+    data: CharacterImportData[],
   ): CharacterRole[] => {
     const projectChars = characters.filter((c) => c.projectId === projectId);
     const configIdsToRemove = new Set(
@@ -160,13 +156,18 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     const newConfigs: VoiceConfig[] = [];
     const seen = new Set<string>();
 
-    for (const name of names) {
-      const trimmed = name.trim();
+    for (const entry of data) {
+      const trimmed = entry.name.trim();
       if (!trimmed || seen.has(trimmed.toUpperCase())) continue;
       seen.add(trimmed.toUpperCase());
       const character = createCharacterUtil(projectId, trimmed);
       const config = createVoiceConfigUtil(trimmed, "Default");
-      newCharacters.push({ ...character, voiceConfigId: config.id });
+      newCharacters.push({
+        ...character,
+        voiceConfigId: config.id,
+        category: entry.category,
+        aliases: entry.aliases,
+      });
       newConfigs.push(config);
     }
 
@@ -185,7 +186,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
   const importCastCharacters = (
     projectId: string,
-    names: string[],
+    data: CharacterImportData[],
   ): CharacterRole[] => {
     const existing = new Set(
       characters
@@ -196,14 +197,19 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     const newCharacters: CharacterRole[] = [];
     const newConfigs: VoiceConfig[] = [];
 
-    for (const name of names) {
-      const trimmed = name.trim();
+    for (const entry of data) {
+      const trimmed = entry.name.trim();
       if (!trimmed || existing.has(trimmed.toUpperCase())) continue;
       existing.add(trimmed.toUpperCase());
 
       const character = createCharacterUtil(projectId, trimmed);
       const config = createVoiceConfigUtil(trimmed, "Default");
-      newCharacters.push({ ...character, voiceConfigId: config.id });
+      newCharacters.push({
+        ...character,
+        voiceConfigId: config.id,
+        category: entry.category,
+        aliases: entry.aliases,
+      });
       newConfigs.push(config);
     }
 

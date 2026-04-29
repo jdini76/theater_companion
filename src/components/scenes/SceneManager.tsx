@@ -72,7 +72,7 @@ export function SceneManager({
       {/* Main layout: slim sidebar + wide detail panel */}
       <div className="flex gap-4 items-stretch" style={{ minHeight: "calc(100vh - 14rem)" }}>
         {/* Sidebar */}
-        <div className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-72"}`}>
+        <div className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[32rem]"}`}>
           <div className="card flex flex-col flex-1 overflow-hidden relative">
             {/* Collapse toggle */}
             <button

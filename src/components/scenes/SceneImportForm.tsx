@@ -80,6 +80,10 @@ export function SceneImportForm({
   const [mergeTargets, setMergeTargets] = useState<Map<string, string>>(
     new Map(),
   );
+  // mergeAliases: target name → list of source names merged into it
+  const [mergeAliases, setMergeAliases] = useState<Map<string, string[]>>(
+    new Map(),
+  );
   const [castImportMode, setCastImportMode] = useState<
     "add" | "replace" | "skip"
   >("add");
@@ -147,6 +151,11 @@ export function SceneImportForm({
       next.delete(sourceName);
       return next;
     });
+    setMergeAliases((prev) => {
+      const next = new Map(prev);
+      next.set(targetName, [...(next.get(targetName) ?? []), sourceName]);
+      return next;
+    });
   };
 
   const handleCreateScenes = () => {
@@ -170,17 +179,31 @@ export function SceneImportForm({
 
       createScenes(projectId, finalScenes);
 
-      const allCharacters = new Set<string>();
-      for (const scene of finalScenes) {
-        for (const c of scene.characters ?? []) allCharacters.add(c);
+      // Build per-character metadata from the cast review
+      const charData = new Map<string, { category?: string; aliases?: string[] }>();
+      for (const name of activeCast) {
+        const cat = castCategories.get(name);
+        charData.set(name, {
+          category: cat === "Group" ? "Group" : "Individual",
+          aliases: mergeAliases.get(name),
+        });
       }
-      for (const name of activeCast) allCharacters.add(name);
+      // Include any scene-detected names not in the reviewed cast list
+      for (const scene of finalScenes) {
+        for (const c of scene.characters ?? []) {
+          if (!charData.has(c)) charData.set(c, { category: "Individual" });
+        }
+      }
 
-      if (allCharacters.size > 0 && castImportMode !== "skip") {
+      if (charData.size > 0 && castImportMode !== "skip") {
+        const importData = Array.from(charData.entries()).map(([name, meta]) => ({
+          name,
+          ...meta,
+        }));
         if (castImportMode === "replace") {
-          replaceProjectCharacters(projectId, Array.from(allCharacters));
+          replaceProjectCharacters(projectId, importData);
         } else {
-          importCastCharacters(projectId, Array.from(allCharacters));
+          importCastCharacters(projectId, importData);
         }
       }
 

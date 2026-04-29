@@ -19,27 +19,36 @@ interface SceneViewerProps {
 }
 
 function useLineOverrides(sceneId: string) {
-  const storageKey = `scene_line_overrides_${sceneId}`;
+  const storageKey = `theater_scene_line_overrides_${sceneId}`;
+  const legacyKey = `scene_line_overrides_${sceneId}`;
 
   const [overrides, setOverrides] = useState<Map<number, LineOverride>>(() => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = localStorage.getItem(storageKey) ?? localStorage.getItem(legacyKey);
       if (raw) return new Map(JSON.parse(raw) as [number, LineOverride][]);
     } catch {}
     return new Map();
   });
 
-  // Re-load when the scene changes
+  // Re-load when the scene changes; migrate legacy key on first encounter
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      let raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        const legacy = localStorage.getItem(legacyKey);
+        if (legacy) {
+          localStorage.setItem(storageKey, legacy);
+          localStorage.removeItem(legacyKey);
+          raw = legacy;
+        }
+      }
       setOverrides(
         raw ? new Map(JSON.parse(raw) as [number, LineOverride][]) : new Map(),
       );
     } catch {
       setOverrides(new Map());
     }
-  }, [sceneId, storageKey]);
+  }, [sceneId, storageKey, legacyKey]);
 
   const assign = (lineIdx: number, assignment: LineOverride | undefined) => {
     setOverrides((prev) => {
@@ -184,7 +193,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
             <MoreHorizontal size={18} />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 w-40 bg-dark-card border border-white/10 rounded-lg shadow-lg z-20 overflow-hidden">
+            <div className="absolute right-0 top-full mt-1 w-40 bg-dark-card/70 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20 overflow-hidden">
               <button
                 onClick={handleCopyContent}
                 className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"

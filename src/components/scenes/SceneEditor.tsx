@@ -50,7 +50,7 @@ export function SceneEditor({ scene, onClose }: SceneEditorProps) {
   };
 
   return (
-    <div className="card space-y-6">
+    <div className="card flex flex-col flex-1 space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-light">Edit Scene</h2>
         {onClose && (
