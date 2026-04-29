@@ -193,7 +193,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
             <MoreHorizontal size={18} />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 w-40 bg-dark-card border border-white/10 rounded-lg shadow-lg z-20 overflow-hidden">
+            <div className="absolute right-0 top-full mt-1 w-40 bg-dark-card/70 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20 overflow-hidden">
               <button
                 onClick={handleCopyContent}
                 className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"

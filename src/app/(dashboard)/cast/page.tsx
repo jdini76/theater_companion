@@ -41,7 +41,7 @@ export default function CastPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-base py-8">
+    <div className="min-h-screen bg-dark-base py-8 px-0">
       <VoiceControlPanel projectId={currentProject.id} />
     </div>
   );

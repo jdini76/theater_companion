@@ -22,6 +22,8 @@ export interface CharacterRole {
   description?: string;
   actorName?: string;
   voiceConfigId?: string;
+  aliases?: string[];
+  category?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -46,6 +48,12 @@ export interface TTSSettings {
   kokoroSpeed: number;
   kokoroDevice: "wasm" | "webgpu";
   kokoroPreGenEnabled?: boolean; // Option to enable/disable pre-generation
+}
+
+export interface CharacterImportData {
+  name: string;
+  category?: string;
+  aliases?: string[];
 }
 
 export interface VoiceContextType {
@@ -80,8 +88,8 @@ export interface VoiceContextType {
   ) => void;
   deleteCharacter: (id: string) => void;
   getProjectCharacters: (projectId: string) => CharacterRole[];
-  importCastCharacters: (projectId: string, names: string[]) => CharacterRole[];
-  replaceProjectCharacters: (projectId: string, names: string[]) => CharacterRole[];
+  importCastCharacters: (projectId: string, data: CharacterImportData[]) => CharacterRole[];
+  replaceProjectCharacters: (projectId: string, data: CharacterImportData[]) => CharacterRole[];
   setCurrentCharacter: (characterId: string) => void;
   getCurrentCharacter: () => CharacterRole | null;
 }
