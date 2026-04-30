@@ -9,7 +9,7 @@
     "jsx": "preserve",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "baseUrl": ".",
+    // "baseUrl": ".",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "outDir": "./dist",
