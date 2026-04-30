@@ -48,6 +48,7 @@ export interface TTSSettings {
   kokoroSpeed: number;
   kokoroDevice: "wasm" | "webgpu";
   kokoroPreGenEnabled?: boolean; // Option to enable/disable pre-generation
+  voiceLangs?: string[];
 }
 
 export interface CharacterImportData {
@@ -93,3 +94,5 @@ export interface VoiceContextType {
   setCurrentCharacter: (characterId: string) => void;
   getCurrentCharacter: () => CharacterRole | null;
 }
+
+

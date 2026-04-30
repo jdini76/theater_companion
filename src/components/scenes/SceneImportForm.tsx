@@ -180,7 +180,10 @@ export function SceneImportForm({
       createScenes(projectId, finalScenes);
 
       // Build per-character metadata from the cast review
-      const charData = new Map<string, { category?: string; aliases?: string[] }>();
+      const charData = new Map<
+        string,
+        { category?: string; aliases?: string[] }
+      >();
       for (const name of activeCast) {
         const cat = castCategories.get(name);
         charData.set(name, {
@@ -196,10 +199,12 @@ export function SceneImportForm({
       }
 
       if (charData.size > 0 && castImportMode !== "skip") {
-        const importData = Array.from(charData.entries()).map(([name, meta]) => ({
-          name,
-          ...meta,
-        }));
+        const importData = Array.from(charData.entries()).map(
+          ([name, meta]) => ({
+            name,
+            ...meta,
+          }),
+        );
         if (castImportMode === "replace") {
           replaceProjectCharacters(projectId, importData);
         } else {
@@ -367,7 +372,7 @@ export function SceneImportForm({
                       className="hidden"
                     />
                     <div className="space-y-2">
-                      <div className="text-4xl">ðŸ“„</div>
+                      <div className="text-4xl">📄</div>
                       <p className="text-light font-semibold">
                         {isLoading
                           ? "Parsingâ€¦"

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { extractCharacterNames, parseDialogueLines } from "@/lib/rehearsal";
 import { getAvailableVoices, speakText } from "@/lib/voice";
@@ -21,7 +21,11 @@ interface RehearsalOnboardingProps {
   onCancel: () => void;
 }
 
-type Stage = "scene-input" | "scene-selection" | "character-select" | "voice-config";
+type Stage =
+  | "scene-input"
+  | "scene-selection"
+  | "character-select"
+  | "voice-config";
 
 export function RehearsalOnboarding({
   onRehearsalReady,
@@ -30,15 +34,45 @@ export function RehearsalOnboarding({
   const [stage, setStage] = useState<Stage>("scene-input");
   const [sceneContent, setSceneContent] = useState<string>("");
   const [detectedScenes, setDetectedScenes] = useState<ParsedScene[]>([]);
-  const [selectedSceneIndices, setSelectedSceneIndices] = useState<Set<number>>(new Set());
+  const [selectedSceneIndices, setSelectedSceneIndices] = useState<Set<number>>(
+    new Set(),
+  );
   const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string>("");
   const [voiceConfigs, setVoiceConfigs] = useState<Record<string, VoiceConfig>>(
-    {}
+    {},
   );
   const [error, setError] = useState<string>("");
   const [speakingChar, setSpeakingChar] = useState<string | null>(null);
-  const voices = getAvailableVoices();
+  // Get language preferences from settings (localStorage, multi-select)
+  const [voiceLangs, setVoiceLangs] = useState<string[]>([]);
+  const [voices, setVoices] = useState(getAvailableVoices());
+
+  useEffect(() => {
+    // Read language(s) from settings
+    try {
+      const raw = localStorage.getItem("theater_tts_settings");
+      if (raw) {
+        const settings = JSON.parse(raw);
+        if (
+          settings.provider === "browser" &&
+          Array.isArray(settings.voiceLangs)
+        ) {
+          setVoiceLangs(settings.voiceLangs);
+        } else {
+          setVoiceLangs([]);
+        }
+      }
+    } catch {}
+    // Listen for voice changes
+    const updateVoices = () => setVoices(getAvailableVoices());
+    window.speechSynthesis?.addEventListener("voiceschanged", updateVoices);
+    return () =>
+      window.speechSynthesis?.removeEventListener(
+        "voiceschanged",
+        updateVoices,
+      );
+  }, []);
 
   // Handle scene input to detect scenes
   const handleSceneSubmit = () => {
@@ -86,7 +120,7 @@ export function RehearsalOnboarding({
 
     if (characters.length === 0) {
       setError(
-        "No characters detected in selected scene(s). Make sure scene uses 'CHARACTER: dialogue' format."
+        "No characters detected in selected scene(s). Make sure scene uses 'CHARACTER: dialogue' format.",
       );
       return;
     }
@@ -97,7 +131,10 @@ export function RehearsalOnboarding({
     // Initialize voice configs for all detected characters
     const initConfigs: Record<string, VoiceConfig> = {};
     characters.forEach((char) => {
-      initConfigs[char] = createVoiceConfigUtil(char, voices[0]?.name || "Default");
+      initConfigs[char] = createVoiceConfigUtil(
+        char,
+        voices[0]?.name || "Default",
+      );
     });
     setVoiceConfigs(initConfigs);
     setSelectedSceneIndices(new Set(indices));
@@ -113,7 +150,7 @@ export function RehearsalOnboarding({
   // Handle voice config update
   const handleVoiceConfigChange = (
     characterName: string,
-    updates: Partial<Omit<VoiceConfig, "id" | "characterName" | "createdAt">>
+    updates: Partial<Omit<VoiceConfig, "id" | "characterName" | "createdAt">>,
   ) => {
     const config = voiceConfigs[characterName];
     if (!config) return;
@@ -160,9 +197,12 @@ export function RehearsalOnboarding({
     return (
       <div className="space-y-6 max-w-3xl">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-2">📝 Enter Your Scene(s)</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">
+            📝 Enter Your Scene(s)
+          </h2>
           <p className="text-gray-400 text-sm">
-            Paste your scene text below. You can paste single or multiple scenes&mdash;we&apos;ll detect them for you.
+            Paste your scene text below. You can paste single or multiple
+            scenes&mdash;we&apos;ll detect them for you.
           </p>
         </div>
 
@@ -216,7 +256,10 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
         <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 text-blue-300 text-sm">
           <p className="font-semibold">💡 Tips:</p>
           <p>• Character names should be in ALL CAPS followed by a colon</p>
-          <p>• Separate multiple scenes with headers like &quot;SCENE 1:&quot; or &quot;---&quot;</p>
+          <p>
+            • Separate multiple scenes with headers like &quot;SCENE 1:&quot; or
+            &quot;---&quot;
+          </p>
           <p className="font-mono text-xs mt-2">HAMLET: To be, or not to be</p>
         </div>
       </div>
@@ -228,9 +271,13 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
     return (
       <div className="space-y-6 max-w-3xl">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-2">🎬 Select Scene(s)</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">
+            🎬 Select Scene(s)
+          </h2>
           <p className="text-gray-400 text-sm">
-            {detectedScenes.length} scene{detectedScenes.length !== 1 ? "s" : ""} detected. Select which one(s) to rehearse:
+            {detectedScenes.length} scene
+            {detectedScenes.length !== 1 ? "s" : ""} detected. Select which
+            one(s) to rehearse:
           </p>
         </div>
 
@@ -263,7 +310,8 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
                   <div className="flex-1">
                     <p className="font-semibold text-lg">{scene.title}</p>
                     <p className="text-gray-400 text-sm mt-1">
-                      {lineCount} lines • {Math.ceil(scene.content.length / 5)} words
+                      {lineCount} lines • {Math.ceil(scene.content.length / 5)}{" "}
+                      words
                     </p>
                     <p className="text-gray-500 text-xs mt-2 line-clamp-2">
                       {scene.content.substring(0, 120).replace(/\n/g, " ")}...
@@ -292,7 +340,8 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
             disabled={selectedSceneIndices.size === 0}
             className="flex-1 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 text-lg py-3"
           >
-            Continue (Scene{selectedSceneIndices.size !== 1 ? "s" : ""} Selected)
+            Continue (Scene{selectedSceneIndices.size !== 1 ? "s" : ""}{" "}
+            Selected)
           </Button>
           <Button
             onClick={() => {
@@ -319,9 +368,13 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
     return (
       <div className="space-y-6 max-w-2xl">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-2">🎭 Choose Your Role</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">
+            🎭 Choose Your Role
+          </h2>
           <p className="text-gray-400 text-sm">
-            {detectedCharacters.length} character{detectedCharacters.length !== 1 ? "s" : ""} detected in {selectedScenesInfo}
+            {detectedCharacters.length} character
+            {detectedCharacters.length !== 1 ? "s" : ""} detected in{" "}
+            {selectedScenesInfo}
           </p>
         </div>
 
@@ -360,7 +413,9 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
     return (
       <div className="space-y-6 max-w-2xl">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-2">🎙️ Configure Voices</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">
+            🎙️ Configure Voices
+          </h2>
           <p className="text-gray-400 text-sm">
             Set up voices for all characters in the scene
           </p>
@@ -369,7 +424,8 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
         {/* Your Character Highlight */}
         <div className="bg-cyan-900/30 border border-cyan-700 rounded-lg p-4">
           <p className="text-cyan-300 font-semibold">
-            ▶️ You are playing: <span className="text-cyan-400">{selectedCharacter}</span>
+            ▶️ You are playing:{" "}
+            <span className="text-cyan-400">{selectedCharacter}</span>
           </p>
         </div>
 
@@ -408,12 +464,22 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
                   <select
                     value={config.voiceName}
                     onChange={(e) =>
-                      handleVoiceConfigChange(char, { voiceName: e.target.value })
+                      handleVoiceConfigChange(char, {
+                        voiceName: e.target.value,
+                      })
                     }
                     className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500"
                   >
-                    {voices.map((voice) => (
-                      <option key={voice.voiceURI} value={voice.name}>
+                    {(voiceLangs.length > 0
+                      ? voices.filter((v) =>
+                          voiceLangs.some((lang) => v.lang.startsWith(lang)),
+                        )
+                      : voices
+                    ).map((voice) => (
+                      <option
+                        key={voice.voiceURI || voice.name}
+                        value={voice.name}
+                      >
                         {voice.name} ({voice.lang})
                       </option>
                     ))}
@@ -487,7 +553,10 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
                     }
                     className="w-4 h-4 rounded border-gray-600 bg-gray-700 cursor-pointer"
                   />
-                  <label htmlFor={`mute-${char}`} className="text-sm text-gray-300">
+                  <label
+                    htmlFor={`mute-${char}`}
+                    className="text-sm text-gray-300"
+                  >
                     Mute this character
                   </label>
                 </div>
@@ -499,9 +568,7 @@ JULIET: Art thou gone so? Love, lord, ay husband, friend!`}
                     disabled={speakingChar !== null}
                     className="w-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-700 disabled:opacity-50 text-white px-3 py-2 rounded text-sm font-semibold transition"
                   >
-                    {speakingChar === char
-                      ? "⏹️ Stop Test"
-                      : "▶️ Test Voice"}
+                    {speakingChar === char ? "⏹️ Stop Test" : "▶️ Test Voice"}
                   </button>
                 )}
               </div>

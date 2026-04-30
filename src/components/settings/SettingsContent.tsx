@@ -1,6 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import {
+  getAvailableLanguages,
+  getAvailableVoices,
+} from "@/lib/voice";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
 import {
@@ -69,15 +73,24 @@ function saveTTSSettings(settings: TTSSettings): void {
 
 type PanelPhase =
   | { kind: "idle" }
-  | { kind: "resolving"; projects: ImportedProject[]; names: Map<string, string>; selected: Set<string> }
+  | {
+      kind: "resolving";
+      projects: ImportedProject[];
+      names: Map<string, string>;
+      selected: Set<string>;
+    }
   | { kind: "done"; count: number };
 
 function DataManagementPanel() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const legacyFileRef = useRef<HTMLInputElement>(null);
 
-  const [summary, setSummary] = useState<ReturnType<typeof getStorageSummary> | null>(null);
-  const [allProjects, setAllProjects] = useState<{ id: string; name: string }[]>([]);
+  const [summary, setSummary] = useState<ReturnType<
+    typeof getStorageSummary
+  > | null>(null);
+  const [allProjects, setAllProjects] = useState<
+    { id: string; name: string }[]
+  >([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<PanelPhase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +110,6 @@ function DataManagementPanel() {
       return next;
     });
   };
-
   const toggleAll = () => {
     setSelectedIds((prev) =>
       prev.size === allProjects.length
@@ -118,8 +130,14 @@ function DataManagementPanel() {
     setError(null);
     try {
       const projects = await parseImportFile(file);
-      const names = new Map(projects.map((p) => [p.bundle.project.id as string, p.name]));
-      const selected = new Set(projects.map((p) => p.bundle.project.id as string));
+      const names = new Map(
+        projects.map((p) => [p.bundle.project.id as string, p.name]),
+      );
+      // If you want to save settings here, do so as a side effect
+      // saveTTSSettings({ ...settings, previewText: testText, voiceLangs });
+      const selected = new Set(
+        projects.map((p) => p.bundle.project.id as string)
+      );
       setPhase({ kind: "resolving", projects, names, selected });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file.");
@@ -138,7 +156,9 @@ function DataManagementPanel() {
     setPhase({ kind: "done", count });
   };
 
-  const handleLegacyRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLegacyRestore = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (legacyFileRef.current) legacyFileRef.current.value = "";
@@ -165,7 +185,10 @@ function DataManagementPanel() {
             { label: "Characters", value: summary.characterCount },
             { label: "Size", value: `${summary.totalSizeKB} KB` },
           ].map((item) => (
-            <div key={item.label} className="bg-dark-panel rounded p-3 text-center">
+            <div
+              key={item.label}
+              className="bg-dark-panel rounded p-3 text-center"
+            >
               <div className="text-2xl font-bold text-light">{item.value}</div>
               <div className="text-muted text-xs">{item.label}</div>
             </div>
@@ -184,7 +207,10 @@ function DataManagementPanel() {
               <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel cursor-pointer border-b border-border hover:bg-white/5 transition-colors">
                 <input
                   type="checkbox"
-                  checked={selectedIds.size === allProjects.length && allProjects.length > 0}
+                  checked={
+                    selectedIds.size === allProjects.length &&
+                    allProjects.length > 0
+                  }
                   onChange={toggleAll}
                   className="accent-accent-cyan"
                 />
@@ -215,7 +241,8 @@ function DataManagementPanel() {
               onClick={handleExport}
               disabled={selectedIds.size === 0}
             >
-              Export {selectedIds.size > 0 ? `${selectedIds.size} ` : ""}Project{selectedIds.size !== 1 ? "s" : ""}
+              Export {selectedIds.size > 0 ? `${selectedIds.size} ` : ""}Project
+              {selectedIds.size !== 1 ? "s" : ""}
             </Button>
           </>
         )}
@@ -225,33 +252,45 @@ function DataManagementPanel() {
       <div className="space-y-3 border-t border-border pt-6">
         <h3 className="text-light font-semibold">Import Projects</h3>
 
-        {error && (
-          <p className="text-sm text-red-400">{error}</p>
-        )}
+        {error && <p className="text-sm text-red-400">{error}</p>}
 
         {phase.kind === "idle" && (
           <>
             <p className="text-muted text-sm">
-              Importing will never overwrite existing projects. If a name conflicts you can rename it before importing.
+              Importing will never overwrite existing projects. If a name
+              conflicts you can rename it before importing.
             </p>
-            <Button variant="secondary" onClick={() => importFileRef.current?.click()}>
+            <Button
+              variant="secondary"
+              onClick={() => importFileRef.current?.click()}
+            >
               Choose File to Import
             </Button>
-            <input ref={importFileRef} type="file" accept=".json" onChange={handleImportFile} className="hidden" />
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              onChange={handleImportFile}
+              className="hidden"
+            />
           </>
         )}
 
         {phase.kind === "resolving" && (
           <div className="space-y-4">
             <p className="text-muted text-sm">
-              Review the projects below. Rename any that conflict with an existing project name.
+              Review the projects below. Rename any that conflict with an
+              existing project name.
             </p>
             <div className="space-y-2">
               {phase.projects.map((p) => {
                 const id = p.bundle.project.id as string;
                 const currentName = phase.names.get(id) ?? p.name;
                 return (
-                  <div key={id} className={`flex items-center gap-3 p-3 rounded-lg border bg-background/50 transition-opacity ${phase.selected.has(id) ? "border-border" : "border-border opacity-40"}`}>
+                  <div
+                    key={id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border bg-background/50 transition-opacity ${phase.selected.has(id) ? "border-border" : "border-border opacity-40"}`}
+                  >
                     <input
                       type="checkbox"
                       checked={phase.selected.has(id)}
@@ -263,9 +302,13 @@ function DataManagementPanel() {
                       className="accent-accent-cyan flex-shrink-0"
                     />
                     {p.hasConflict ? (
-                      <span className="text-xs text-yellow-400 font-semibold w-16 flex-shrink-0">Conflict</span>
+                      <span className="text-xs text-yellow-400 font-semibold w-16 flex-shrink-0">
+                        Conflict
+                      </span>
                     ) : (
-                      <span className="text-xs text-green-400 font-semibold w-16 flex-shrink-0">Ready</span>
+                      <span className="text-xs text-green-400 font-semibold w-16 flex-shrink-0">
+                        Ready
+                      </span>
                     )}
                     <input
                       type="text"
@@ -278,17 +321,29 @@ function DataManagementPanel() {
                       className="flex-1 bg-background border border-border rounded px-2 py-1 text-sm text-light focus:outline-none focus:border-accent-cyan"
                     />
                     <span className="text-xs text-muted flex-shrink-0">
-                      {(p.bundle.scenes as unknown[]).length} scene{(p.bundle.scenes as unknown[]).length !== 1 ? "s" : ""}
+                      {(p.bundle.scenes as unknown[]).length} scene
+                      {(p.bundle.scenes as unknown[]).length !== 1 ? "s" : ""}
                     </span>
                   </div>
                 );
               })}
             </div>
             <div className="flex gap-3">
-              <Button variant="primary" onClick={handleConfirmImport} disabled={phase.selected.size === 0}>
-                Import {phase.selected.size} Project{phase.selected.size !== 1 ? "s" : ""}
+              <Button
+                variant="primary"
+                onClick={handleConfirmImport}
+                disabled={phase.selected.size === 0}
+              >
+                Import {phase.selected.size} Project
+                {phase.selected.size !== 1 ? "s" : ""}
               </Button>
-              <Button variant="secondary" onClick={() => { setPhase({ kind: "idle" }); setError(null); }}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPhase({ kind: "idle" });
+                  setError(null);
+                }}
+              >
                 Cancel
               </Button>
             </div>
@@ -298,13 +353,20 @@ function DataManagementPanel() {
         {phase.kind === "done" && (
           <div className="space-y-3">
             <p className="text-green-400 text-sm">
-              Imported {phase.count} project{phase.count !== 1 ? "s" : ""} successfully.
+              Imported {phase.count} project{phase.count !== 1 ? "s" : ""}{" "}
+              successfully.
             </p>
             <div className="flex gap-3">
-              <Button variant="primary" onClick={() => window.location.reload()}>
+              <Button
+                variant="primary"
+                onClick={() => window.location.reload()}
+              >
                 Reload to See Projects
               </Button>
-              <Button variant="secondary" onClick={() => setPhase({ kind: "idle" })}>
+              <Button
+                variant="secondary"
+                onClick={() => setPhase({ kind: "idle" })}
+              >
                 Import More
               </Button>
             </div>
@@ -323,10 +385,14 @@ function DataManagementPanel() {
             Restore legacy backup
           </button>
         </p>
-        <input ref={legacyFileRef} type="file" accept=".json" onChange={handleLegacyRestore} className="hidden" />
-        {legacyStatus && (
-          <p className="text-xs text-muted">{legacyStatus}</p>
-        )}
+        <input
+          ref={legacyFileRef}
+          type="file"
+          accept=".json"
+          onChange={handleLegacyRestore}
+          className="hidden"
+        />
+        {legacyStatus && <p className="text-xs text-muted">{legacyStatus}</p>}
       </div>
     </div>
   );
@@ -346,7 +412,9 @@ export function SettingsContent() {
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [extraPayloadJson, setExtraPayloadJson] = useState("{}");
-  const [extraPayloadError, setExtraPayloadError] = useState<string | null>(null);
+  const [extraPayloadError, setExtraPayloadError] = useState<string | null>(
+    null,
+  );
   const [testText, setTestText] = useState("Hello, this is a voice test.");
   const [testPlaying, setTestPlaying] = useState(false);
   const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
@@ -357,6 +425,24 @@ export function SettingsContent() {
   );
   const [kokoroLoadMsg, setKokoroLoadMsg] = useState<string | null>(null);
   const [kokoroTestPlaying, setKokoroTestPlaying] = useState(false);
+
+  // Multi-select for language filter
+  const [voiceLangs, setVoiceLangs] = useState<string[]>(() => {
+    const loaded = loadTTSSettings();
+    return Array.isArray(loaded.voiceLangs) ? loaded.voiceLangs : [];
+  });
+  const [browserVoices, setBrowserVoices] = useState(getAvailableVoices());
+
+  useEffect(() => {
+    const updateVoices = () => setBrowserVoices(getAvailableVoices());
+    updateVoices();
+    window.speechSynthesis?.addEventListener("voiceschanged", updateVoices);
+    return () =>
+      window.speechSynthesis?.removeEventListener(
+        "voiceschanged",
+        updateVoices,
+      );
+  }, []);
 
   useEffect(() => {
     const loaded = loadTTSSettings();
@@ -463,6 +549,63 @@ export function SettingsContent() {
           </div>
 
           {/* Provider Toggle */}
+          {/* Browser TTS Settings */}
+          {settings.provider === "browser" && (
+            <div className="space-y-4 border-t border-border pt-4">
+              {/* Language Filter */}
+              <div className="space-y-2 max-w-xs">
+                <label className="block text-light font-semibold">
+                  Voice Languages
+                </label>
+                <select
+                  multiple
+                  value={voiceLangs}
+                  onChange={e => {
+                    const selected = Array.from(e.target.selectedOptions).map(opt => opt.value);
+                    setVoiceLangs(selected);
+                  }}
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan h-32"
+                >
+                  {getAvailableLanguages().map((lang) => (
+                    <option key={lang} value={lang}>
+                      {lang}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-muted text-xs">
+                  Filter available voices by one or more language codes. Hold Ctrl/Cmd to select multiple.
+                </p>
+              </div>
+              {/* Voice List Preview */}
+              <div className="space-y-1">
+                <label className="block text-light font-semibold">
+                  Available Voices
+                </label>
+                <div className="max-h-40 overflow-y-auto border border-border rounded bg-dark-panel p-2 text-xs text-light">
+                  {(voiceLangs.length > 0
+                    ? browserVoices.filter(v => voiceLangs.some(lang => v.lang.startsWith(lang)))
+                    : browserVoices
+                  ).map((v) => (
+                    <div
+                      key={v.voiceURI || v.name}
+                      className="flex items-center gap-2 py-0.5"
+                    >
+                      <span className="font-mono">{v.name}</span>
+                      <span className="text-muted">({v.lang})</span>
+                    </div>
+                  ))}
+                  {(voiceLangs.length > 0
+                    ? browserVoices.filter(v => voiceLangs.some(lang => v.lang.startsWith(lang)))
+                    : browserVoices
+                  ).length === 0 && (
+                    <span className="text-muted">
+                      No voices found for selected language(s).
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           <div className="space-y-2">
             <label className="block text-light font-semibold">
               TTS Provider
@@ -737,7 +880,10 @@ export function SettingsContent() {
             <div className="space-y-4 border-t border-border pt-4">
               {/* API Base URL */}
               <div className="space-y-2">
-                <label className="block text-light font-semibold" htmlFor="apiUrl">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="apiUrl"
+                >
                   API Base URL
                 </label>
                 <input
@@ -757,7 +903,10 @@ export function SettingsContent() {
 
               {/* API Path */}
               <div className="space-y-2">
-                <label className="block text-light font-semibold" htmlFor="apiPath">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="apiPath"
+                >
                   API Path
                 </label>
                 <input
@@ -778,7 +927,10 @@ export function SettingsContent() {
 
               {/* API Key */}
               <div className="space-y-2">
-                <label className="block text-light font-semibold" htmlFor="apiKey">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="apiKey"
+                >
                   API Key{" "}
                   <span className="text-muted font-normal">(optional)</span>
                 </label>
@@ -801,7 +953,10 @@ export function SettingsContent() {
 
               {/* Default Voice ID */}
               <div className="space-y-2">
-                <label className="block text-light font-semibold" htmlFor="defaultVoiceId">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="defaultVoiceId"
+                >
                   Default Voice
                 </label>
                 <div className="flex gap-2">
@@ -883,7 +1038,10 @@ export function SettingsContent() {
 
               {/* Response Format */}
               <div className="space-y-2">
-                <label className="block text-light font-semibold" htmlFor="responseFormat">
+                <label
+                  className="block text-light font-semibold"
+                  htmlFor="responseFormat"
+                >
                   Response Format
                 </label>
                 <input
@@ -946,7 +1104,9 @@ export function SettingsContent() {
                     }
                   }}
                   rows={4}
-                  placeholder={'{\n  "download_format": "mp3",\n  "return_download_link": true\n}'}
+                  placeholder={
+                    '{\n  "download_format": "mp3",\n  "return_download_link": true\n}'
+                  }
                   className={`w-full bg-background border rounded px-3 py-2 text-light placeholder-muted focus:outline-none font-mono text-sm resize-vertical ${
                     extraPayloadError
                       ? "border-red-500"
