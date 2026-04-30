@@ -3,11 +3,13 @@ import { useState } from "react";
 import ScenesPage from "../scenes/page";
 import CastPage from "../cast/page";
 import RehearsalPage from "../rehearsals/page";
+import { SettingsContent } from "@/components/settings/SettingsContent";
 
 const TABS = [
   { id: "scenes", label: "Scenes" },
   { id: "cast", label: "Cast" },
   { id: "run-lines", label: "Run Lines" },
+  { id: "settings", label: "Settings" },
 ];
 
 export default function RehearsePage() {
@@ -31,22 +33,11 @@ export default function RehearsePage() {
         ))}
       </div>
       <div>
-        {tab === "scenes" && <ScenesTab />}
-        {tab === "cast" && <CastTab />}
-        {tab === "run-lines" && <RunLinesTab />}
+        {tab === "scenes" && <ScenesPage />}
+        {tab === "cast" && <CastPage />}
+        {tab === "run-lines" && <RehearsalPage />}
+        {tab === "settings" && <SettingsContent />}
       </div>
     </div>
   );
-}
-
-function ScenesTab() {
-  return <ScenesPage />;
-}
-
-function CastTab() {
-  return <CastPage />;
-}
-
-function RunLinesTab() {
-  return <RehearsalPage />;
 }

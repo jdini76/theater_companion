@@ -1,7 +1,7 @@
 import { ProjectManager } from "@/components/projects/ProjectManager";
 
 export const metadata = {
-  title: "Projects | Theater Manager",
+  title: "Productions | Theater Manager",
 };
 
 export default function ProjectsPage() {
