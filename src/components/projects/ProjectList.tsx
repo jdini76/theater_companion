@@ -81,6 +81,7 @@ export function ProjectListItem({
                   setEditedName(e.target.value);
                   setError("");
                 }}
+                onClick={(e) => e.stopPropagation()}
                 className="w-full px-3 py-2 border border-accent-cyan bg-dark-input text-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-cyan"
               />
               {error && (
@@ -106,14 +107,15 @@ export function ProjectListItem({
               <Button
                 size="sm"
                 variant="success"
-                onClick={handleSave}
+                onClick={(e) => { e.stopPropagation(); handleSave(); }}
               >
                 Save
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setIsEditing(false);
                   setEditedName(project.name);
                   setError("");
@@ -127,14 +129,14 @@ export function ProjectListItem({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setIsEditing(true)}
+                onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
               >
                 Rename
               </Button>
               <Button
                 size="sm"
                 variant="warn"
-                onClick={handleDelete}
+                onClick={(e) => { e.stopPropagation(); handleDelete(); }}
               >
                 Delete
               </Button>
