@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { extractSongsFromScenes, SongEntry } from "@/lib/songs";
 import { type LineOverride } from "@/components/scenes/SceneHighlight";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { SongList } from "./SongList";
 import { SongViewer } from "./SongViewer";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -43,13 +44,23 @@ export function SongManager({
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
+  // Persistent song metadata: hidden IDs and per-song URLs
+  const [hiddenSongIds, setHiddenSongIds] = useLocalStorage<string[]>(
+    `theater_songs_hidden_${projectId}`,
+    [],
+  );
+  const [songUrls, setSongUrls] = useLocalStorage<Record<string, string>>(
+    `theater_songs_urls_${projectId}`,
+    {},
+  );
+
   const scenes = getProjectScenes(projectId);
   const knownCast = useMemo(
     () => getProjectCharacters(projectId).map((c) => c.characterName),
     [getProjectCharacters, projectId],
   );
 
-  const songs = useMemo(() => {
+  const allSongs = useMemo(() => {
     const sceneIds = scenes.map((s) => s.id);
     const overrides = readAllSceneOverrides(sceneIds);
     return extractSongsFromScenes(
@@ -58,6 +69,12 @@ export function SongManager({
       overrides,
     );
   }, [scenes, knownCast]);
+
+  const hiddenSet = useMemo(() => new Set(hiddenSongIds), [hiddenSongIds]);
+  const songs = useMemo(
+    () => allSongs.filter((s) => !hiddenSet.has(s.id)),
+    [allSongs, hiddenSet],
+  );
 
   const selectedSong = selectedSongId
     ? (songs.find((s) => s.id === selectedSongId) ?? null)
@@ -68,9 +85,32 @@ export function SongManager({
     setSidebarCollapsed(true);
   };
 
+  const handleDeleteSong = useCallback(
+    (id: string) => {
+      setHiddenSongIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+      if (selectedSongId === id) setSelectedSongId(null);
+    },
+    [setHiddenSongIds, selectedSongId],
+  );
+
+  const handleSetUrl = useCallback(
+    (id: string, url: string) => {
+      setSongUrls((prev) => {
+        const next = { ...prev };
+        if (url.trim()) {
+          next[id] = url.trim();
+        } else {
+          delete next[id];
+        }
+        return next;
+      });
+    },
+    [setSongUrls],
+  );
+
   const handleToggleSidebar = () => {
     setSidebarCollapsed((v) => {
-      if (v) setSelectedSongId(null); // expanding -> clear selection
+      if (v) setSelectedSongId(null);
       return !v;
     });
   };
@@ -129,6 +169,7 @@ export function SongManager({
                   songs={songs}
                   selectedSongId={selectedSongId}
                   onSelectSong={handleSelectSong}
+                  onDeleteSong={handleDeleteSong}
                 />
               </div>
             )}
@@ -138,7 +179,11 @@ export function SongManager({
         {/* Detail panel */}
         <div className="flex-1 min-w-0 flex flex-col">
           {selectedSong ? (
-            <SongViewer song={selectedSong} />
+            <SongViewer
+              song={selectedSong}
+              url={songUrls[selectedSong.id] ?? ""}
+              onSetUrl={(url) => handleSetUrl(selectedSong.id, url)}
+            />
           ) : (
             <div className="card flex-1 flex flex-col items-center justify-center text-center py-16">
               <p className="text-muted text-lg mb-2">Select a song</p>

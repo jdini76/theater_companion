@@ -1,6 +1,7 @@
 "use client";
 import { useState, useCallback } from "react";
-import ScenesPage from "../scenes/page";
+import { SceneManager } from "@/components/scenes/SceneManager";
+import { useProjects } from "@/contexts/ProjectContext";
 import CastPage from "../cast/page";
 import RehearsalPage from "../rehearsals/page";
 import SongsPage from "../songs/page";
@@ -20,6 +21,8 @@ export default function RehearsePage() {
   const [tab, setTab] = useState("scenes");
   const [pendingSceneId, setPendingSceneId] = useState<string | null>(null);
   const { setCurrentCharacter } = useVoice();
+  const { getCurrentProject } = useProjects();
+  const currentProject = getCurrentProject();
 
   const navigateToCharacter = useCallback(
     (characterId: string) => {
@@ -55,11 +58,18 @@ export default function RehearsePage() {
           ))}
         </div>
         <div>
-          {tab === "scenes" && (
-            <ScenesPage
+          {tab === "scenes" && currentProject && (
+            <SceneManager
+              projectId={currentProject.id}
+              projectName={currentProject.name}
               initialSceneId={pendingSceneId}
               onSceneNavigated={() => setPendingSceneId(null)}
             />
+          )}
+          {tab === "scenes" && !currentProject && (
+            <div className="card text-center py-12">
+              <p className="text-muted">No project selected.</p>
+            </div>
           )}
           {tab === "cast" && <CastPage />}
           {tab === "run-lines" && <RehearsalPage />}

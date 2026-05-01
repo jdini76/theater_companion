@@ -5,15 +5,7 @@ import { useProjects } from "@/contexts/ProjectContext";
 import { SceneManager } from "@/components/scenes/SceneManager";
 import { useRouter } from "next/navigation";
 
-interface ScenesPageProps {
-  initialSceneId?: string | null;
-  onSceneNavigated?: () => void;
-}
-
-export default function ScenesPage({
-  initialSceneId,
-  onSceneNavigated,
-}: ScenesPageProps = {}) {
+export default function ScenesPage() {
   const { currentProjectId, getCurrentProject } = useProjects();
   const router = useRouter();
 
@@ -53,8 +45,6 @@ export default function ScenesPage({
       <SceneManager
         projectId={currentProject.id}
         projectName={currentProject.name}
-        initialSceneId={initialSceneId}
-        onSceneNavigated={onSceneNavigated}
       />
     </div>
   );

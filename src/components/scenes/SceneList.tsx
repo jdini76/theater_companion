@@ -5,6 +5,7 @@ import { Scene } from "@/types/scene";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { extractSceneCharacters } from "@/lib/scenes";
+import { ChevronUp, ChevronDown } from "lucide-react";
 
 interface SceneListProps {
   projectId: string;
@@ -12,10 +13,17 @@ interface SceneListProps {
   onSelectScene: (scene: Scene) => void;
 }
 
-export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneListProps) {
-  const { getProjectScenes, deleteScene, deleteScenes } = useScenes();
+export function SceneList({
+  projectId,
+  selectedSceneId,
+  onSelectScene,
+}: SceneListProps) {
+  const { getProjectScenes, deleteScene, deleteScenes, reorderScenes } =
+    useScenes();
   const { getProjectCharacters } = useVoice();
-  const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(new Set());
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(
+    new Set(),
+  );
 
   const scenes = getProjectScenes(projectId);
   const knownCast = useMemo(
@@ -27,7 +35,10 @@ export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneLi
     const cast = knownCast.length > 0 ? knownCast : undefined;
     const map = new Map<string, string[]>();
     for (const scene of scenes) {
-      map.set(scene.id, scene.characters ?? extractSceneCharacters(scene.content, cast));
+      map.set(
+        scene.id,
+        scene.characters ?? extractSceneCharacters(scene.content, cast),
+      );
     }
     return map;
   }, [scenes, knownCast]);
@@ -44,7 +55,11 @@ export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneLi
     e.stopPropagation();
     if (confirm("Delete this scene?")) {
       deleteScene(id);
-      setSelectedForDelete((prev) => { const s = new Set(prev); s.delete(id); return s; });
+      setSelectedForDelete((prev) => {
+        const s = new Set(prev);
+        s.delete(id);
+        return s;
+      });
     }
   };
 
@@ -66,18 +81,32 @@ export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneLi
     }
   };
 
+  const handleMove = (id: string, direction: -1 | 1, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ids = scenes.map((s) => s.id);
+    const idx = ids.indexOf(id);
+    const target = idx + direction;
+    if (target < 0 || target >= ids.length) return;
+    [ids[idx], ids[target]] = [ids[target], ids[idx]];
+    reorderScenes(projectId, ids);
+  };
+
   const allSelected = selectedForDelete.size === scenes.length;
 
   return (
     <div className="flex flex-col h-full">
       {/* Bulk-action bar — only visible when something is checked */}
-      <div className={`flex items-center justify-between mb-2 transition-all ${selectedForDelete.size > 0 ? "opacity-100" : "opacity-0 pointer-events-none h-0 mb-0 overflow-hidden"}`}>
+      <div
+        className={`flex items-center justify-between mb-2 transition-all ${selectedForDelete.size > 0 ? "opacity-100" : "opacity-0 pointer-events-none h-0 mb-0 overflow-hidden"}`}
+      >
         <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer hover:text-light">
           <input
             type="checkbox"
             checked={allSelected}
             onChange={() =>
-              setSelectedForDelete(allSelected ? new Set() : new Set(scenes.map((s) => s.id)))
+              setSelectedForDelete(
+                allSelected ? new Set() : new Set(scenes.map((s) => s.id)),
+              )
             }
             className="accent-accent-cyan"
           />
@@ -115,7 +144,9 @@ export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneLi
                 onChange={() => {}}
                 onClick={(e) => handleToggleDelete(scene.id, e)}
                 className={`accent-accent-cyan flex-shrink-0 transition-opacity ${
-                  selectedForDelete.size > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-60"
+                  selectedForDelete.size > 0
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-60"
                 }`}
               />
 
@@ -127,7 +158,9 @@ export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneLi
               {/* Title */}
               <span
                 className={`flex-1 text-sm truncate min-w-0 ${
-                  isSelected ? "text-light font-medium" : "text-muted group-hover:text-light"
+                  isSelected
+                    ? "text-light font-medium"
+                    : "text-muted group-hover:text-light"
                 }`}
                 title={scene.title}
               >
@@ -137,27 +170,51 @@ export function SceneList({ projectId, selectedSceneId, onSelectScene }: SceneLi
               {/* Badges */}
               <div className="flex items-center gap-1 flex-shrink-0">
                 {chars.length > 0 && (
-                  <span className="text-xs text-muted/60 tabular-nums" title={`${chars.length} character${chars.length !== 1 ? "s" : ""}`}>
+                  <span
+                    className="text-xs text-muted/60 tabular-nums"
+                    title={`${chars.length} character${chars.length !== 1 ? "s" : ""}`}
+                  >
                     {chars.length}
                     <span className="ml-0.5 opacity-60">👤</span>
                   </span>
                 )}
                 {songs.length > 0 && (
-                  <span className="text-xs text-yellow-500/60 tabular-nums ml-1" title={`${songs.length} song${songs.length !== 1 ? "s" : ""}`}>
+                  <span
+                    className="text-xs text-yellow-500/60 tabular-nums ml-1"
+                    title={`${songs.length} song${songs.length !== 1 ? "s" : ""}`}
+                  >
                     {songs.length}
                     <span className="ml-0.5 opacity-60">♪</span>
                   </span>
                 )}
               </div>
 
-              {/* Delete — on hover */}
-              <button
-                onClick={(e) => handleDelete(scene.id, e)}
-                className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-red-400/70 hover:text-red-400 text-sm leading-none transition-opacity px-0.5"
-                title="Delete scene"
-              >
-                ×
-              </button>
+              {/* Reorder + Delete — on hover */}
+              <div className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => handleMove(scene.id, -1, e)}
+                  disabled={idx === 0}
+                  className="text-muted hover:text-light disabled:opacity-20 p-0.5 rounded transition-colors"
+                  title="Move up"
+                >
+                  <ChevronUp size={13} />
+                </button>
+                <button
+                  onClick={(e) => handleMove(scene.id, 1, e)}
+                  disabled={idx === scenes.length - 1}
+                  className="text-muted hover:text-light disabled:opacity-20 p-0.5 rounded transition-colors"
+                  title="Move down"
+                >
+                  <ChevronDown size={13} />
+                </button>
+                <button
+                  onClick={(e) => handleDelete(scene.id, e)}
+                  className="text-red-400/70 hover:text-red-400 text-sm leading-none transition-colors px-0.5 ml-0.5"
+                  title="Delete scene"
+                >
+                  ×
+                </button>
+              </div>
             </div>
           );
         })}
