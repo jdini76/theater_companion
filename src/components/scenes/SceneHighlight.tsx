@@ -8,12 +8,19 @@ export type LineOverride =
   | { kind: "dialogue"; char: string }
   | { kind: "header"; char: string }
   | { kind: "stage-direction" }
-  | { kind: "group" };
+  | { kind: "group" }
+  | { kind: "song-title"; text: string };
 
 // Distinct neutral color for group/ensemble lines — sits outside the hue-based palette.
 const GROUP_COLOR: CharColor = {
   color: "hsl(45, 80%, 72%)",
   bgColor: "hsla(45, 80%, 72%, 0.12)",
+};
+
+// Color for song-title lines — distinct gold so it stands out from group/dialogue.
+const SONG_TITLE_COLOR: CharColor = {
+  color: "hsl(52, 100%, 68%)",
+  bgColor: "hsla(52, 100%, 68%, 0.12)",
 };
 
 // 12 colors distributed evenly around the hue wheel (~25-33° apart), each in a
@@ -99,6 +106,7 @@ interface LineAssignPanelProps {
   onReset: () => void;
   onClose: () => void;
   allCharacters?: string[];
+  lineText?: string;
 }
 
 export function LineAssignPanel({
@@ -109,13 +117,30 @@ export function LineAssignPanel({
   onReset,
   onClose,
   allCharacters = [],
+  lineText = "",
 }: LineAssignPanelProps) {
-  const [mode, setMode] = useState<"dialogue" | "header">(
-    currentAssignment?.kind === "header" ? "header" : "dialogue",
+  const [mode, setMode] = useState<"dialogue" | "header" | "song-title">(
+    currentAssignment?.kind === "header"
+      ? "header"
+      : currentAssignment?.kind === "song-title"
+        ? "song-title"
+        : "dialogue",
   );
   const [newCharInput, setNewCharInput] = useState("");
   const [dropdownValue, setDropdownValue] = useState("");
+  const [songTitleInput, setSongTitleInput] = useState(
+    currentAssignment?.kind === "song-title" ? currentAssignment.text : "",
+  );
   const isHeader = mode === "header";
+  const isSongTitle = mode === "song-title";
+
+  const switchMode = (newMode: "dialogue" | "header" | "song-title") => {
+    if (newMode === "song-title" && mode !== "song-title") {
+      // Pre-fill with the raw line text if no title is set yet
+      if (!songTitleInput) setSongTitleInput(lineText);
+    }
+    setMode(newMode);
+  };
 
   const commitNew = () => {
     const name = (newCharInput || dropdownValue).trim().toUpperCase();
@@ -150,82 +175,130 @@ export function LineAssignPanel({
   }
   return (
     <div className="my-1 p-2 rounded border border-border bg-background shadow space-y-2 text-xs">
-      <div className="flex gap-1">
+      <div className="flex gap-1 flex-wrap">
         <button
-          onClick={() => setMode("dialogue")}
-          className={`px-2 py-0.5 rounded transition-colors ${!isHeader ? "bg-accent-cyan/20 text-accent-cyan" : "text-muted hover:text-light"}`}
+          onClick={() => switchMode("dialogue")}
+          className={`px-2 py-0.5 rounded transition-colors ${mode === "dialogue" ? "bg-accent-cyan/20 text-accent-cyan" : "text-muted hover:text-light"}`}
         >
           Dialogue
         </button>
         <button
-          onClick={() => setMode("header")}
-          className={`px-2 py-0.5 rounded transition-colors ${isHeader ? "bg-accent-cyan/20 text-accent-cyan" : "text-muted hover:text-light"}`}
+          onClick={() => switchMode("header")}
+          className={`px-2 py-0.5 rounded transition-colors ${mode === "header" ? "bg-accent-cyan/20 text-accent-cyan" : "text-muted hover:text-light"}`}
         >
           Character Header
         </button>
-      </div>
-      <p className="text-muted">
-        {isHeader ? "Mark as start of:" : "Assign as dialogue for:"}
-      </p>
-      <div className="flex flex-wrap gap-1 mb-2">
-        {dedupedChars.map((char) => {
-          const color = colorMap.get(char.toUpperCase());
-          const isSelected = isHeader
-            ? currentAssignment?.kind === "header" &&
-              currentAssignment.char === char
-            : currentAssignment?.kind === "dialogue" &&
-              currentAssignment.char === char;
-          return (
-            <button
-              key={char}
-              onClick={() =>
-                onAssign(
-                  isHeader
-                    ? { kind: "header", char }
-                    : { kind: "dialogue", char },
-                )
-              }
-              style={{ color: color?.color, backgroundColor: color?.bgColor }}
-              className={`px-2 py-0.5 rounded font-mono hover:opacity-80 transition-opacity border ${isSelected ? "border-current" : "border-transparent"}`}
-            >
-              {char}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex gap-1 items-center">
-        <input
-          type="text"
-          value={newCharInput}
-          onChange={(e) => setNewCharInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitNew();
-          }}
-          placeholder="Add character name…"
-          className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-        />
-        <select
-          value={dropdownValue}
-          onChange={(e) => setDropdownValue(e.target.value)}
-          className="bg-background border border-border rounded px-2 py-0.5 text-light"
-        >
-          <option value="">All project characters…</option>
-          {dedupedAllChars
-            .filter((c) => !charSet.has(c))
-            .map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-        </select>
         <button
-          onClick={commitNew}
-          disabled={!newCharInput.trim() && !dropdownValue}
-          className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={() => switchMode("song-title")}
+          style={
+            mode === "song-title"
+              ? {
+                  color: SONG_TITLE_COLOR.color,
+                  backgroundColor: SONG_TITLE_COLOR.bgColor,
+                }
+              : undefined
+          }
+          className={`px-2 py-0.5 rounded transition-colors ${mode === "song-title" ? "" : "text-muted hover:text-light"}`}
         >
-          Add
+          ♪ Song Title
         </button>
       </div>
+
+      {isSongTitle ? (
+        <div className="flex gap-1 items-center">
+          <input
+            type="text"
+            value={songTitleInput}
+            onChange={(e) => setSongTitleInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && songTitleInput.trim()) {
+                onAssign({ kind: "song-title", text: songTitleInput.trim() });
+              }
+            }}
+            placeholder="Song title…"
+            className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+            autoFocus
+          />
+          <button
+            onClick={() => {
+              if (songTitleInput.trim())
+                onAssign({ kind: "song-title", text: songTitleInput.trim() });
+            }}
+            disabled={!songTitleInput.trim()}
+            className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Set
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-muted">
+            {isHeader ? "Mark as start of:" : "Assign as dialogue for:"}
+          </p>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {dedupedChars.map((char) => {
+              const color = colorMap.get(char.toUpperCase());
+              const isSelected = isHeader
+                ? currentAssignment?.kind === "header" &&
+                  currentAssignment.char === char
+                : currentAssignment?.kind === "dialogue" &&
+                  currentAssignment.char === char;
+              return (
+                <button
+                  key={char}
+                  onClick={() =>
+                    onAssign(
+                      isHeader
+                        ? { kind: "header", char }
+                        : { kind: "dialogue", char },
+                    )
+                  }
+                  style={{
+                    color: color?.color,
+                    backgroundColor: color?.bgColor,
+                  }}
+                  className={`px-2 py-0.5 rounded font-mono hover:opacity-80 transition-opacity border ${isSelected ? "border-current" : "border-transparent"}`}
+                >
+                  {char}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-1 items-center">
+            <input
+              type="text"
+              value={newCharInput}
+              onChange={(e) => setNewCharInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitNew();
+              }}
+              placeholder="Add character name…"
+              className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+            />
+            <select
+              value={dropdownValue}
+              onChange={(e) => setDropdownValue(e.target.value)}
+              className="bg-background border border-border rounded px-2 py-0.5 text-light"
+            >
+              <option value="">All project characters…</option>
+              {dedupedAllChars
+                .filter((c) => !charSet.has(c))
+                .map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+            </select>
+            <button
+              onClick={commitNew}
+              disabled={!newCharInput.trim() && !dropdownValue}
+              className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Add
+            </button>
+          </div>
+        </>
+      )}
       <div className="flex gap-2 pt-1 border-t border-border">
         <button
           onClick={() => onAssign({ kind: "group" })}
@@ -319,6 +392,7 @@ export function HighlightedContent({
         allCharacters={assignPanelProps?.allCharacters ?? []}
         colorMap={colorMap}
         currentAssignment={override}
+        lineText={lines[i]?.trim() ?? ""}
         onAssign={(ov) => {
           onAssign(i, ov);
           setActiveLine(null);
@@ -350,6 +424,27 @@ export function HighlightedContent({
         const clickClass = onAssign ? "cursor-pointer" : "";
 
         if (hasOverride && override) {
+          if (override.kind === "song-title") {
+            currentChar = null;
+            currentIsGroup = false;
+            return (
+              <div key={i}>
+                <div
+                  style={{
+                    color: SONG_TITLE_COLOR.color,
+                    backgroundColor: SONG_TITLE_COLOR.bgColor,
+                  }}
+                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-shrink-0 opacity-70">♪</span>
+                  <span className="flex-1">{override.text || trimmed}</span>
+                  {editIcon}
+                </div>
+                {isActive && makePanel(i, override)}
+              </div>
+            );
+          }
           if (override.kind === "group") {
             currentChar = null;
             currentIsGroup = true;

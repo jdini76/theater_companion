@@ -1,5 +1,6 @@
 import { Scene } from "@/types/scene";
 import { parseDialogueLines } from "@/lib/rehearsal";
+import { type LineOverride } from "@/components/scenes/SceneHighlight";
 
 export interface SongLine {
   character: string;
@@ -27,10 +28,14 @@ export interface SongEntry {
  *
  * For each scene, parses the dialogue lines, groups consecutive `isSong`
  * entries into discrete song blocks, and returns a `SongEntry` per block.
+ *
+ * @param sceneLineOverrides - Optional map of sceneId → (lineIndex → LineOverride).
+ *   Lines marked with `{ kind: "song-title" }` will be used as the song title.
  */
 export function extractSongsFromScenes(
   scenes: Scene[],
   knownCast?: string[],
+  sceneLineOverrides?: Map<string, Map<number, LineOverride>>,
 ): SongEntry[] {
   const results: SongEntry[] = [];
 
@@ -77,31 +82,40 @@ export function extractSongsFromScenes(
     }
     if (current.length > 0) blocks.push(current);
 
-    let songIndex = 0;
-    for (const block of blocks) {
-      songIndex++;
+    // Merge all blocks in this scene into a single song entry.
+    // Priority for title: (1) song-title line override, (2) explicit cue marker, (3) scene title.
+    const allLines: SongLine[] = blocks.flatMap((block) =>
+      block.map((l) => ({ character: l.character, text: l.dialogue })),
+    );
 
-      const explicitTitle = block.find((l) => l.songTitle)?.songTitle ?? null;
-      const title = explicitTitle ?? `Song ${songIndex}`;
+    // Check for a song-title override on any line in this scene
+    const overrideTitle = (() => {
+      const overrides = sceneLineOverrides?.get(scene.id);
+      if (!overrides) return null;
+      for (const [, ov] of overrides) {
+        if (ov.kind === "song-title") return ov.text;
+      }
+      return null;
+    })();
 
-      const lines: SongLine[] = block.map((l) => ({
-        character: l.character,
-        text: l.dialogue,
-      }));
+    const explicitTitle =
+      overrideTitle ??
+      blocks.flatMap((b) => b).find((l) => l.songTitle)?.songTitle ??
+      null;
+    const title = explicitTitle ?? scene.title;
 
-      const characters = Array.from(
-        new Set(block.map((l) => l.character).filter((c) => c !== "[Song]")),
-      ).sort();
+    const characters = Array.from(
+      new Set(allLines.map((l) => l.character).filter((c) => c !== "[Song]")),
+    ).sort();
 
-      results.push({
-        id: `${scene.id}_song_${songIndex}`,
-        sceneId: scene.id,
-        sceneTitle: scene.title,
-        title,
-        lines,
-        characters,
-      });
-    }
+    results.push({
+      id: `${scene.id}_songs`,
+      sceneId: scene.id,
+      sceneTitle: scene.title,
+      title,
+      lines: allLines,
+      characters,
+    });
   }
 
   return results;
