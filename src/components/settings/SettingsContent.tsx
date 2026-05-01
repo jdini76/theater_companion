@@ -1,10 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import {
-  getAvailableLanguages,
-  getAvailableVoices,
-} from "@/lib/voice";
+import { getAvailableLanguages, getAvailableVoices } from "@/lib/voice";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
 import {
@@ -136,7 +133,7 @@ function DataManagementPanel() {
       // If you want to save settings here, do so as a side effect
       // saveTTSSettings({ ...settings, previewText: testText, voiceLangs });
       const selected = new Set(
-        projects.map((p) => p.bundle.project.id as string)
+        projects.map((p) => p.bundle.project.id as string),
       );
       setPhase({ kind: "resolving", projects, names, selected });
     } catch (err) {
@@ -560,8 +557,10 @@ export function SettingsContent() {
                 <select
                   multiple
                   value={voiceLangs}
-                  onChange={e => {
-                    const selected = Array.from(e.target.selectedOptions).map(opt => opt.value);
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.selectedOptions).map(
+                      (opt) => opt.value,
+                    );
                     setVoiceLangs(selected);
                   }}
                   className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan h-32"
@@ -573,7 +572,8 @@ export function SettingsContent() {
                   ))}
                 </select>
                 <p className="text-muted text-xs">
-                  Filter available voices by one or more language codes. Hold Ctrl/Cmd to select multiple.
+                  Filter available voices by one or more language codes. Hold
+                  Ctrl/Cmd to select multiple.
                 </p>
               </div>
               {/* Voice List Preview */}
@@ -583,7 +583,9 @@ export function SettingsContent() {
                 </label>
                 <div className="max-h-40 overflow-y-auto border border-border rounded bg-dark-panel p-2 text-xs text-light">
                   {(voiceLangs.length > 0
-                    ? browserVoices.filter(v => voiceLangs.some(lang => v.lang.startsWith(lang)))
+                    ? browserVoices.filter((v) =>
+                        voiceLangs.some((lang) => v.lang.startsWith(lang)),
+                      )
                     : browserVoices
                   ).map((v) => (
                     <div
@@ -595,7 +597,9 @@ export function SettingsContent() {
                     </div>
                   ))}
                   {(voiceLangs.length > 0
-                    ? browserVoices.filter(v => voiceLangs.some(lang => v.lang.startsWith(lang)))
+                    ? browserVoices.filter((v) =>
+                        voiceLangs.some((lang) => v.lang.startsWith(lang)),
+                      )
                     : browserVoices
                   ).length === 0 && (
                     <span className="text-muted">

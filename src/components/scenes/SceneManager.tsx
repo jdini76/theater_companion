@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Scene } from "@/types/scene";
 import { useScenes } from "@/contexts/SceneContext";
 import { SceneImportForm } from "./SceneImportForm";
@@ -13,17 +13,32 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 interface SceneManagerProps {
   projectId: string;
   projectName?: string;
+  initialSceneId?: string | null;
+  onSceneNavigated?: () => void;
 }
 
 export function SceneManager({
   projectId,
   projectName = "Project",
+  initialSceneId,
+  onSceneNavigated,
 }: SceneManagerProps) {
   const { getProjectScenes } = useScenes();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+
+  // When a navigation request arrives, select that scene and collapse sidebar
+  useEffect(() => {
+    if (initialSceneId) {
+      setSelectedSceneId(initialSceneId);
+      setIsEditingScene(false);
+      setSidebarCollapsed(true);
+      onSceneNavigated?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSceneId]);
 
   const scenes = getProjectScenes(projectId);
   const selectedScene = selectedSceneId
@@ -70,17 +85,28 @@ export function SceneManager({
       )}
 
       {/* Main layout: slim sidebar + wide detail panel */}
-      <div className="flex gap-4 items-stretch" style={{ minHeight: "calc(100vh - 14rem)" }}>
+      <div
+        className="flex gap-4 items-stretch"
+        style={{ minHeight: "calc(100vh - 14rem)" }}
+      >
         {/* Sidebar */}
-        <div className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[32rem]"}`}>
+        <div
+          className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[32rem]"}`}
+        >
           <div className="card flex flex-col flex-1 overflow-hidden relative">
             {/* Collapse toggle */}
             <button
               onClick={handleToggleSidebar}
               className="absolute top-3 right-2 z-10 p-0.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
-              aria-label={sidebarCollapsed ? "Expand scene list" : "Collapse scene list"}
+              aria-label={
+                sidebarCollapsed ? "Expand scene list" : "Collapse scene list"
+              }
             >
-              {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+              {sidebarCollapsed ? (
+                <ChevronRight size={14} />
+              ) : (
+                <ChevronLeft size={14} />
+              )}
             </button>
 
             {!sidebarCollapsed && (

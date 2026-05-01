@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useVoice } from "@/contexts/VoiceContext";
+import { useScenes } from "@/contexts/SceneContext";
 import {
   getAvailableVoices,
   getTTSSettings,
@@ -13,8 +14,10 @@ import {
 import { KOKORO_VOICES } from "@/lib/kokoro-tts";
 import { TTSSettings } from "@/types/voice";
 import { Button } from "@/components/ui/Button";
+import { extractSongsFromScenes } from "@/lib/songs";
+import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 
-type Tab = "general" | "voice";
+type Tab = "general" | "voice" | "scenes" | "songs";
 
 interface VoiceConfigProps {
   characterId?: string;
@@ -31,6 +34,8 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     getVoiceConfig,
     getProjectCharacters,
   } = useVoice();
+  const { getProjectScenes } = useScenes();
+  const { navigateToScene } = useRehearsalNav();
 
   const charId = characterId || currentCharacterId;
   const character = charId ? characters.find((c) => c.id === charId) : null;
@@ -48,7 +53,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   const [testText, setTestText] = useState(
     character?.characterName
       ? `Hello, I am ${character.characterName}.`
-      : "Hello, this is a test of the voice."
+      : "Hello, this is a test of the voice.",
   );
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -58,9 +63,37 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   const [aliasSelect, setAliasSelect] = useState("");
   const [aliasSearch, setAliasSearch] = useState("");
   const [aliasDropdownOpen, setAliasDropdownOpen] = useState(false);
-  const [aliasDropdownRect, setAliasDropdownRect] = useState<DOMRect | null>(null);
+  const [aliasDropdownRect, setAliasDropdownRect] = useState<DOMRect | null>(
+    null,
+  );
   const aliasDropdownRef = useRef<HTMLDivElement>(null);
   const aliasTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Scenes and songs for this character
+  const characterScenes = useMemo(() => {
+    if (!character) return [];
+    const allNames = new Set(
+      [character.characterName, ...(character.aliases ?? [])].map((n) =>
+        n.toUpperCase(),
+      ),
+    );
+    return getProjectScenes(character.projectId).filter((scene) =>
+      (scene.characters ?? []).some((c) => allNames.has(c.toUpperCase())),
+    );
+  }, [character, getProjectScenes]);
+
+  const characterSongs = useMemo(() => {
+    if (!character) return [];
+    const allNames = new Set(
+      [character.characterName, ...(character.aliases ?? [])].map((n) =>
+        n.toUpperCase(),
+      ),
+    );
+    const scenes = getProjectScenes(character.projectId);
+    return extractSongsFromScenes(scenes).filter((song) =>
+      song.characters.some((c) => allNames.has(c.toUpperCase())),
+    );
+  }, [character, getProjectScenes]);
 
   // Sync local state when character changes
   useEffect(() => {
@@ -74,7 +107,10 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   useEffect(() => {
     if (!aliasDropdownOpen) return;
     const handler = (e: MouseEvent) => {
-      if (aliasDropdownRef.current && !aliasDropdownRef.current.contains(e.target as Node)) {
+      if (
+        aliasDropdownRef.current &&
+        !aliasDropdownRef.current.contains(e.target as Node)
+      ) {
         setAliasDropdownOpen(false);
       }
     };
@@ -96,7 +132,8 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     };
     loadVoices();
     window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
-    return () => window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
+    return () =>
+      window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
   }, []);
 
   useEffect(() => {
@@ -104,19 +141,27 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     setApiVoicesLoading(true);
     setApiVoicesError(null);
     fetchApiVoices(ttsSettings)
-      .then((v) => { setApiVoices(v); if (v.length === 0) setApiVoicesError("No voices returned."); })
-      .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+      .then((v) => {
+        setApiVoices(v);
+        if (v.length === 0) setApiVoicesError("No voices returned.");
+      })
+      .catch((err) =>
+        setApiVoicesError(err instanceof Error ? err.message : "Failed"),
+      )
       .finally(() => setApiVoicesLoading(false));
   }, [isApiMode, ttsSettings, apiVoices.length]);
 
   useEffect(() => {
-    if (character?.characterName) setTestText(`Hello, I am ${character.characterName}.`);
+    if (character?.characterName)
+      setTestText(`Hello, I am ${character.characterName}.`);
   }, [character?.characterName]);
 
   if (!character || !voiceConfig) {
     return (
       <div className="card flex-1 flex flex-col items-center justify-center text-center py-16">
-        <p className="text-muted">Select a character to configure voice settings</p>
+        <p className="text-muted">
+          Select a character to configure voice settings
+        </p>
       </div>
     );
   }
@@ -135,7 +180,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     if (!current.some((a) => a.toLowerCase() === aliasSelect.toLowerCase())) {
       updateCharacter(character.id, { aliases: [...current, aliasSelect] });
       const match = getProjectCharacters(character.projectId).find(
-        (c) => c.characterName.toLowerCase() === aliasSelect.toLowerCase()
+        (c) => c.characterName.toLowerCase() === aliasSelect.toLowerCase(),
       );
       if (match) deleteCharacter(match.id);
     }
@@ -144,48 +189,68 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
 
   const handleRemoveAlias = (alias: string) => {
     const updated = (character.aliases ?? []).filter((a) => a !== alias);
-    updateCharacter(character.id, { aliases: updated.length > 0 ? updated : undefined });
+    updateCharacter(character.id, {
+      aliases: updated.length > 0 ? updated : undefined,
+    });
     createCharacter(character.projectId, alias);
   };
 
   // Voice tab handlers
-  const handleVoiceChange = (voiceName: string) => updateVoiceConfig(voiceConfig.id, { voiceName });
-  const handleApiVoiceChange = (apiVoiceId: string) => updateVoiceConfig(voiceConfig.id, { apiVoiceId: apiVoiceId || undefined });
-  const handleRateChange = (rate: number) => updateVoiceConfig(voiceConfig.id, { rate });
-  const handlePitchChange = (pitch: number) => updateVoiceConfig(voiceConfig.id, { pitch });
-  const handleVolumeChange = (volume: number) => updateVoiceConfig(voiceConfig.id, { volume });
-  const handleMuteToggle = () => updateVoiceConfig(voiceConfig.id, { muted: !voiceConfig.muted });
+  const handleVoiceChange = (voiceName: string) =>
+    updateVoiceConfig(voiceConfig.id, { voiceName });
+  const handleApiVoiceChange = (apiVoiceId: string) =>
+    updateVoiceConfig(voiceConfig.id, { apiVoiceId: apiVoiceId || undefined });
+  const handleRateChange = (rate: number) =>
+    updateVoiceConfig(voiceConfig.id, { rate });
+  const handlePitchChange = (pitch: number) =>
+    updateVoiceConfig(voiceConfig.id, { pitch });
+  const handleVolumeChange = (volume: number) =>
+    updateVoiceConfig(voiceConfig.id, { volume });
+  const handleMuteToggle = () =>
+    updateVoiceConfig(voiceConfig.id, { muted: !voiceConfig.muted });
 
   const handleTestSpeech = async () => {
-    if (voiceConfig.muted) { alert("Character is muted. Unmute to hear voice."); return; }
+    if (voiceConfig.muted) {
+      alert("Character is muted. Unmute to hear voice.");
+      return;
+    }
     try {
       setIsSpeaking(true);
       await speakLine(testText, voiceConfig);
     } catch (error) {
-      alert(`Error speaking: ${error instanceof Error ? error.message : "Unknown error"}`);
+      alert(
+        `Error speaking: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     } finally {
       setIsSpeaking(false);
     }
   };
 
-  const handleStopSpeech = () => { stopLine(); setIsSpeaking(false); };
+  const handleStopSpeech = () => {
+    stopLine();
+    setIsSpeaking(false);
+  };
 
   return (
     <div className="card flex flex-col flex-1 space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-light">{character.characterName}</h2>
+        <h2 className="text-2xl font-semibold text-light">
+          {character.characterName}
+        </h2>
         {character.actorName && (
           <p className="text-muted text-sm mt-0.5">{character.actorName}</p>
         )}
         {character.category && (
-          <p className="text-xs text-accent-cyan mt-0.5">{character.category}</p>
+          <p className="text-xs text-accent-cyan mt-0.5">
+            {character.category}
+          </p>
         )}
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-border">
-        {(["general", "voice"] as Tab[]).map((tab) => (
+        {(["general", "scenes", "songs", "voice"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -195,35 +260,46 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                 : "border-transparent text-muted hover:text-light"
             }`}
           >
-            {tab}
+            {tab === "scenes"
+              ? `Scenes${characterScenes.length > 0 ? ` (${characterScenes.length})` : ""}`
+              : tab === "songs"
+                ? `Songs${characterSongs.length > 0 ? ` (${characterSongs.length})` : ""}`
+                : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
-
         {activeTab === "general" && (
           <div className="space-y-5">
             <div>
-              <label className="block text-light font-semibold mb-1 text-sm">Character Name</label>
+              <label className="block text-light font-semibold mb-1 text-sm">
+                Character Name
+              </label>
               <input
                 type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleNameBlur}
-                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
                 className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-light font-semibold mb-1 text-sm">Category</label>
+              <label className="block text-light font-semibold mb-1 text-sm">
+                Category
+              </label>
               <select
                 value={editCategory}
                 onChange={(e) => {
                   setEditCategory(e.target.value);
-                  updateCharacter(character.id, { category: e.target.value || undefined });
+                  updateCharacter(character.id, {
+                    category: e.target.value || undefined,
+                  });
                 }}
                 className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan text-sm"
               >
@@ -234,15 +310,21 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
             </div>
 
             <div>
-              <label className="block text-light font-semibold mb-1 text-sm">Merged Character Names</label>
-              <p className="text-muted text-xs mb-2">Character names that map to this character&apos;s voice</p>
+              <label className="block text-light font-semibold mb-1 text-sm">
+                Merged Character Names
+              </label>
+              <p className="text-muted text-xs mb-2">
+                Character names that map to this character&apos;s voice
+              </p>
               <div className="flex gap-2 mb-2">
                 <div className="relative flex-1" ref={aliasDropdownRef}>
                   <button
                     ref={aliasTriggerRef}
                     type="button"
                     onClick={() => {
-                      const rect = aliasTriggerRef.current?.getBoundingClientRect() ?? null;
+                      const rect =
+                        aliasTriggerRef.current?.getBoundingClientRect() ??
+                        null;
                       setAliasDropdownRect(rect);
                       setAliasDropdownOpen((v) => !v);
                       setAliasSearch("");
@@ -252,22 +334,35 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                     <span className={aliasSelect ? "text-light" : "text-muted"}>
                       {aliasSelect || "Select a character..."}
                     </span>
-                    <span className="text-muted ml-2">{aliasDropdownOpen ? "▲" : "▼"}</span>
+                    <span className="text-muted ml-2">
+                      {aliasDropdownOpen ? "▲" : "▼"}
+                    </span>
                   </button>
 
                   {aliasDropdownOpen && aliasDropdownRect && (
                     <div
                       className="fixed z-50 bg-dark-card/90 backdrop-blur-sm border border-border rounded shadow-lg flex flex-col overflow-hidden"
                       style={(() => {
-                        const spaceBelow = window.innerHeight - aliasDropdownRect.bottom - 8;
+                        const spaceBelow =
+                          window.innerHeight - aliasDropdownRect.bottom - 8;
                         const spaceAbove = aliasDropdownRect.top - 8;
-                        const flip = spaceBelow < 200 && spaceAbove > spaceBelow;
+                        const flip =
+                          spaceBelow < 200 && spaceAbove > spaceBelow;
                         return {
                           left: aliasDropdownRect.left,
                           width: aliasDropdownRect.width,
                           ...(flip
-                            ? { bottom: window.innerHeight - aliasDropdownRect.top + 4, maxHeight: Math.min(spaceAbove, 224) }
-                            : { top: aliasDropdownRect.bottom + 4, maxHeight: Math.min(spaceBelow, 224) }),
+                            ? {
+                                bottom:
+                                  window.innerHeight -
+                                  aliasDropdownRect.top +
+                                  4,
+                                maxHeight: Math.min(spaceAbove, 224),
+                              }
+                            : {
+                                top: aliasDropdownRect.bottom + 4,
+                                maxHeight: Math.min(spaceBelow, 224),
+                              }),
                         };
                       })()}
                     >
@@ -291,29 +386,50 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                       </div>
                       <div className="overflow-y-auto flex-1">
                         {(() => {
-                          const opts = getProjectCharacters(character.projectId).filter((c) =>
-                            c.id !== character.id &&
-                            !(character.aliases ?? []).some((a) => a.toLowerCase() === c.characterName.toLowerCase()) &&
-                            c.characterName.toLowerCase().includes(aliasSearch.toLowerCase())
+                          const opts = getProjectCharacters(
+                            character.projectId,
+                          ).filter(
+                            (c) =>
+                              c.id !== character.id &&
+                              !(character.aliases ?? []).some(
+                                (a) =>
+                                  a.toLowerCase() ===
+                                  c.characterName.toLowerCase(),
+                              ) &&
+                              c.characterName
+                                .toLowerCase()
+                                .includes(aliasSearch.toLowerCase()),
                           );
                           return opts.length === 0 ? (
-                            <p className="text-muted text-xs text-center py-3">No matches</p>
-                          ) : opts.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => { setAliasSelect(c.characterName); setAliasDropdownOpen(false); }}
-                              className={`w-full text-left px-3 py-2 text-sm transition-colors ${aliasSelect === c.characterName ? "bg-accent-cyan/10 text-accent-cyan" : "text-light hover:bg-white/5"}`}
-                            >
-                              {c.characterName}
-                            </button>
-                          ));
+                            <p className="text-muted text-xs text-center py-3">
+                              No matches
+                            </p>
+                          ) : (
+                            opts.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setAliasSelect(c.characterName);
+                                  setAliasDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm transition-colors ${aliasSelect === c.characterName ? "bg-accent-cyan/10 text-accent-cyan" : "text-light hover:bg-white/5"}`}
+                              >
+                                {c.characterName}
+                              </button>
+                            ))
+                          );
                         })()}
                       </div>
                     </div>
                   )}
                 </div>
-                <Button variant="secondary" size="sm" onClick={handleAddAlias} disabled={!aliasSelect}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAddAlias}
+                  disabled={!aliasSelect}
+                >
                   Add
                 </Button>
               </div>
@@ -344,29 +460,47 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
             <p className="text-xs text-muted">
               TTS Provider:{" "}
               <span className="text-accent-cyan">
-                {isKokoroMode ? "Kokoro AI" : isApiMode ? "API TTS" : "Browser TTS"}
+                {isKokoroMode
+                  ? "Kokoro AI"
+                  : isApiMode
+                    ? "API TTS"
+                    : "Browser TTS"}
               </span>
-              {(isApiMode || isKokoroMode) && <span className="text-muted"> — change in Settings</span>}
+              {(isApiMode || isKokoroMode) && (
+                <span className="text-muted"> — change in Settings</span>
+              )}
             </p>
 
             {/* Voice Selection */}
             {isKokoroMode ? (
               <div>
-                <label className="block text-light font-semibold mb-2">🎙️ Kokoro Voice</label>
+                <label className="block text-light font-semibold mb-2">
+                  🎙️ Kokoro Voice
+                </label>
                 <select
                   value={voiceConfig.apiVoiceId || ""}
                   onChange={(e) => handleApiVoiceChange(e.target.value)}
                   disabled={voiceConfig.muted}
                   className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
                 >
-                  <option value="">Default ({ttsSettings?.kokoroVoice || "am_puck"})</option>
-                  {KOKORO_VOICES.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  <option value="">
+                    Default ({ttsSettings?.kokoroVoice || "am_puck"})
+                  </option>
+                  {KOKORO_VOICES.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
                 </select>
-                <p className="text-muted text-xs mt-1">Override the default Kokoro voice for this character.</p>
+                <p className="text-muted text-xs mt-1">
+                  Override the default Kokoro voice for this character.
+                </p>
               </div>
             ) : isApiMode ? (
               <div>
-                <label className="block text-light font-semibold mb-2">🎙️ API Voice</label>
+                <label className="block text-light font-semibold mb-2">
+                  🎙️ API Voice
+                </label>
                 <div className="flex gap-2">
                   <select
                     value={voiceConfig.apiVoiceId || ""}
@@ -376,11 +510,15 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                   >
                     <option value="">
                       {apiVoices.length === 0
-                        ? (apiVoicesLoading ? "Loading voices..." : "Click Refresh to load")
+                        ? apiVoicesLoading
+                          ? "Loading voices..."
+                          : "Click Refresh to load"
                         : "Default voice"}
                     </option>
                     {apiVoices.map((v) => (
-                      <option key={v.id} value={v.id}>{v.name ? `${v.name} (${v.id})` : v.id}</option>
+                      <option key={v.id} value={v.id}>
+                        {v.name ? `${v.name} (${v.id})` : v.id}
+                      </option>
                     ))}
                   </select>
                   <Button
@@ -391,8 +529,16 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                       setApiVoicesLoading(true);
                       setApiVoicesError(null);
                       fetchApiVoices(ttsSettings)
-                        .then((v) => { setApiVoices(v); if (v.length === 0) setApiVoicesError("No voices returned."); })
-                        .catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed"))
+                        .then((v) => {
+                          setApiVoices(v);
+                          if (v.length === 0)
+                            setApiVoicesError("No voices returned.");
+                        })
+                        .catch((err) =>
+                          setApiVoicesError(
+                            err instanceof Error ? err.message : "Failed",
+                          ),
+                        )
                         .finally(() => setApiVoicesLoading(false));
                     }}
                     disabled={apiVoicesLoading}
@@ -400,12 +546,20 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                     {apiVoicesLoading ? "..." : "↻"}
                   </Button>
                 </div>
-                {apiVoicesError && <p className="text-red-400 text-xs mt-1">{apiVoicesError}</p>}
-                {voiceConfig.apiVoiceId && <p className="text-muted text-xs mt-1">Current: {voiceConfig.apiVoiceId}</p>}
+                {apiVoicesError && (
+                  <p className="text-red-400 text-xs mt-1">{apiVoicesError}</p>
+                )}
+                {voiceConfig.apiVoiceId && (
+                  <p className="text-muted text-xs mt-1">
+                    Current: {voiceConfig.apiVoiceId}
+                  </p>
+                )}
               </div>
             ) : (
               <div>
-                <label className="block text-light font-semibold mb-2">🎙️ Voice</label>
+                <label className="block text-light font-semibold mb-2">
+                  🎙️ Voice
+                </label>
                 <select
                   value={voiceConfig.voiceName}
                   onChange={(e) => handleVoiceChange(e.target.value)}
@@ -414,20 +568,29 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                 >
                   <option value="">-- Select Voice --</option>
                   {voices.map((voice) => (
-                    <option key={voice.voiceURI || voice.name} value={voice.name}>
+                    <option
+                      key={voice.voiceURI || voice.name}
+                      value={voice.name}
+                    >
                       {voice.name} ({voice.lang})
                     </option>
                   ))}
                 </select>
-                <p className="text-muted text-xs mt-1">Select the voice for this character</p>
+                <p className="text-muted text-xs mt-1">
+                  Select the voice for this character
+                </p>
               </div>
             )}
 
             {/* Rate */}
             <div>
               <div className="flex justify-between items-center mb-2">
-                <label className="text-light font-semibold">⚡ {isApiMode || isKokoroMode ? "Speed" : "Speech Rate"}</label>
-                <span className="text-accent-cyan font-mono">{voiceConfig.rate.toFixed(1)}x</span>
+                <label className="text-light font-semibold">
+                  ⚡ {isApiMode || isKokoroMode ? "Speed" : "Speech Rate"}
+                </label>
+                <span className="text-accent-cyan font-mono">
+                  {voiceConfig.rate.toFixed(1)}x
+                </span>
               </div>
               <input
                 type="range"
@@ -440,7 +603,9 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                 className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
               />
               <div className="flex justify-between text-xs text-muted mt-1">
-                <span>Slow ({isApiMode || isKokoroMode ? "0.5x" : "0.1x"})</span>
+                <span>
+                  Slow ({isApiMode || isKokoroMode ? "0.5x" : "0.1x"})
+                </span>
                 <span>Normal (1x)</span>
                 <span>Fast ({isApiMode || isKokoroMode ? "2x" : "10x"})</span>
               </div>
@@ -451,7 +616,9 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-light font-semibold">🎵 Pitch</label>
-                  <span className="text-accent-cyan font-mono">{voiceConfig.pitch.toFixed(1)}</span>
+                  <span className="text-accent-cyan font-mono">
+                    {voiceConfig.pitch.toFixed(1)}
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -459,12 +626,16 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                   max="2"
                   step="0.1"
                   value={voiceConfig.pitch}
-                  onChange={(e) => handlePitchChange(parseFloat(e.target.value))}
+                  onChange={(e) =>
+                    handlePitchChange(parseFloat(e.target.value))
+                  }
                   disabled={voiceConfig.muted}
                   className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
                 />
                 <div className="flex justify-between text-xs text-muted mt-1">
-                  <span>Deep (0)</span><span>Normal (1)</span><span>High (2)</span>
+                  <span>Deep (0)</span>
+                  <span>Normal (1)</span>
+                  <span>High (2)</span>
                 </div>
               </div>
             )}
@@ -473,7 +644,9 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
             <div>
               <div className="flex justify-between items-center mb-2">
                 <label className="text-light font-semibold">🔊 Volume</label>
-                <span className="text-accent-cyan font-mono">{Math.round(voiceConfig.volume * 100)}%</span>
+                <span className="text-accent-cyan font-mono">
+                  {Math.round(voiceConfig.volume * 100)}%
+                </span>
               </div>
               <input
                 type="range"
@@ -486,7 +659,9 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                 className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
               />
               <div className="flex justify-between text-xs text-muted mt-1">
-                <span>Silent</span><span>Normal</span><span>Loud</span>
+                <span>Silent</span>
+                <span>Normal</span>
+                <span>Loud</span>
               </div>
             </div>
 
@@ -495,24 +670,32 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               <button
                 onClick={handleMuteToggle}
                 className={`px-4 py-2 rounded font-semibold transition-all ${
-                  voiceConfig.muted ? "bg-warn-amber text-yellow-900" : "bg-accent-cyan text-dark-base"
+                  voiceConfig.muted
+                    ? "bg-warn-amber text-yellow-900"
+                    : "bg-accent-cyan text-dark-base"
                 }`}
               >
                 {voiceConfig.muted ? "🔇 Muted" : "🔊 Active"}
               </button>
               <div>
                 <p className="text-light font-semibold">
-                  {voiceConfig.muted ? "Character is Muted" : "Character Voice Active"}
+                  {voiceConfig.muted
+                    ? "Character is Muted"
+                    : "Character Voice Active"}
                 </p>
                 <p className="text-muted text-sm">
-                  {voiceConfig.muted ? "Click to unmute and enable voice" : "Click to mute character voice"}
+                  {voiceConfig.muted
+                    ? "Click to unmute and enable voice"
+                    : "Click to mute character voice"}
                 </p>
               </div>
             </div>
 
             {/* Test Speech */}
             <div className="space-y-3 p-4 bg-background border border-border rounded-lg">
-              <label className="block text-light font-semibold">🎬 Test Voice</label>
+              <label className="block text-light font-semibold">
+                🎬 Test Voice
+              </label>
               <input
                 type="text"
                 value={testText}
@@ -523,15 +706,80 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               />
               <div className="flex gap-2">
                 {isSpeaking ? (
-                  <Button variant="warn" onClick={handleStopSpeech} className="flex-1">⏹️ Stop Speaking</Button>
+                  <Button
+                    variant="warn"
+                    onClick={handleStopSpeech}
+                    className="flex-1"
+                  >
+                    ⏹️ Stop Speaking
+                  </Button>
                 ) : (
-                  <Button variant="primary" onClick={handleTestSpeech} disabled={voiceConfig.muted || !testText.trim()} className="flex-1">▶️ Play Voice</Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleTestSpeech}
+                    disabled={voiceConfig.muted || !testText.trim()}
+                    className="flex-1"
+                  >
+                    ▶️ Play Voice
+                  </Button>
                 )}
               </div>
             </div>
           </div>
         )}
 
+        {activeTab === "scenes" && (
+          <div className="space-y-2">
+            {characterScenes.length === 0 ? (
+              <p className="text-muted text-sm italic">
+                This character has no scenes.
+              </p>
+            ) : (
+              characterScenes.map((scene) => (
+                <button
+                  key={scene.id}
+                  onClick={() => navigateToScene(scene.id)}
+                  className="w-full text-left px-3 py-2 rounded border border-border bg-background hover:border-accent-cyan/50 hover:bg-white/5 transition-colors"
+                >
+                  <p className="text-sm text-light font-medium">
+                    {scene.title}
+                  </p>
+                  {scene.description && (
+                    <p className="text-xs text-muted mt-0.5">
+                      {scene.description}
+                    </p>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === "songs" && (
+          <div className="space-y-2">
+            {characterSongs.length === 0 ? (
+              <p className="text-muted text-sm italic">
+                No songs detected for this character.
+              </p>
+            ) : (
+              characterSongs.map((song) => (
+                <div
+                  key={song.id}
+                  className="px-3 py-2 rounded border border-border bg-background"
+                >
+                  <p className="text-sm text-light font-medium">{song.title}</p>
+                  <p className="text-xs text-muted mt-0.5">{song.sceneTitle}</p>
+                  <p className="text-xs text-muted/60 mt-0.5">
+                    {song.lines.length} line{song.lines.length !== 1 ? "s" : ""}
+                    {song.characters.length > 1
+                      ? ` · with ${song.characters.filter((c) => c.toUpperCase() !== character.characterName.toUpperCase()).join(", ")}`
+                      : ""}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

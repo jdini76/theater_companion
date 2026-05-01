@@ -43,7 +43,8 @@ export function extractSceneCharacters(
 
   // Use "mixed" format so all character patterns (colon, standalone, inline)
   // are checked.  For character extraction purposes we want maximum recall.
-  const lines = parseDialogueLines(content, "mixed");
+  // Pass knownCast so Approach C (cast-comparison) song detection fires.
+  const lines = parseDialogueLines(content, "mixed", knownCast);
   const characters = new Set<string>();
 
   // ── Build cast lookup tables (if cast list provided) ────────────

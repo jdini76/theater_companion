@@ -43,6 +43,200 @@ interface ParsedSceneData {
   songs: string[];
 }
 
+// ── Master-list name matching ─────────────────────────────────────────────────
+type MatchResult =
+  | { kind: "exact"; canonical: string }
+  | { kind: "partial"; canonical: string }
+  | { kind: "new" };
+
+function matchAgainstMaster(name: string, masterList: string[]): MatchResult {
+  const upper = name.toUpperCase().trim();
+  for (const master of masterList) {
+    if (master.toUpperCase().trim() === upper)
+      return { kind: "exact", canonical: master };
+  }
+  for (const master of masterList) {
+    const masterUpper = master.toUpperCase().trim();
+    const masterWords = masterUpper.split(/\s+/);
+    const detectedWords = upper.split(/\s+/);
+    // Detected is a single word that is the first or last word of a master name
+    if (masterWords.length > 1 && detectedWords.length < masterWords.length) {
+      if (
+        masterWords[0] === upper ||
+        masterWords[masterWords.length - 1] === upper
+      )
+        return { kind: "partial", canonical: master };
+    }
+    // Master is a single word that is the first or last word of the detected name
+    if (detectedWords.length > 1 && masterWords.length < detectedWords.length) {
+      if (
+        detectedWords[0] === masterUpper ||
+        detectedWords[detectedWords.length - 1] === masterUpper
+      )
+        return { kind: "partial", canonical: master };
+    }
+  }
+  return { kind: "new" };
+}
+
+// Common English words that appear in ALL CAPS in scripts but are never character names.
+const OBVIOUS_NON_CHARACTER_WORDS = new Set([
+  // Pronouns
+  "I",
+  "YOU",
+  "HE",
+  "SHE",
+  "IT",
+  "WE",
+  "THEY",
+  "ME",
+  "HIM",
+  "HER",
+  "US",
+  "THEM",
+  "MY",
+  "YOUR",
+  "HIS",
+  "ITS",
+  "OUR",
+  "THEIR",
+  "MINE",
+  "YOURS",
+  "OURS",
+  "THEIRS",
+  "MYSELF",
+  "YOURSELF",
+  "HIMSELF",
+  "HERSELF",
+  "ITSELF",
+  "OURSELVES",
+  "THEMSELVES",
+  "WHO",
+  "WHOM",
+  "WHOSE",
+  "WHICH",
+  "THAT",
+  "THIS",
+  "THESE",
+  "THOSE",
+  // Articles
+  "A",
+  "AN",
+  "THE",
+  // Conjunctions / prepositions
+  "AND",
+  "BUT",
+  "OR",
+  "NOR",
+  "SO",
+  "YET",
+  "FOR",
+  "IF",
+  "AS",
+  "OF",
+  "IN",
+  "ON",
+  "AT",
+  "BY",
+  "TO",
+  "UP",
+  "DO",
+  "NOT",
+  "NO",
+  "YES",
+  "OH",
+  "AH",
+  // Auxiliary verbs
+  "IS",
+  "ARE",
+  "WAS",
+  "WERE",
+  "BE",
+  "BEEN",
+  "BEING",
+  "HAS",
+  "HAVE",
+  "HAD",
+  "DO",
+  "DOES",
+  "DID",
+  "WILL",
+  "WOULD",
+  "SHALL",
+  "SHOULD",
+  "MAY",
+  "MIGHT",
+  "MUST",
+  "CAN",
+  "COULD",
+  // Stage direction words sometimes leaking through
+  "ENTER",
+  "EXIT",
+  "EXEUNT",
+  "ASIDE",
+  "PAUSE",
+  "BEAT",
+]);
+
+/**
+ * Returns true if the name looks like a plain English word rather than a
+ * character name. Used to pre-classify obvious false positives as Non-character.
+ */
+function looksLikeNonCharacter(name: string): boolean {
+  const upper = name.toUpperCase().trim();
+  // Single-word match against known non-character words
+  if (OBVIOUS_NON_CHARACTER_WORDS.has(upper)) return true;
+  // Very short single-character tokens (except common 1-letter stage initials)
+  if (/^[A-Z]$/.test(upper)) return true;
+  return false;
+}
+
+/**
+ * Returns true if the name looks like a group label rather than an individual.
+ * Heuristic: single ALL-CAPS word ending in S that isn't a known proper name
+ * ending (James, Thomas, Lucas, etc.).
+ */
+function looksLikeGroup(name: string): boolean {
+  const upper = name.toUpperCase().trim();
+  // Only apply to single-word names
+  if (/\s/.test(upper)) return false;
+  // Must end in S
+  if (!upper.endsWith("S")) return false;
+  // Exclude common proper names that end in S so we don't falsely flag them
+  const PROPER_S_ENDINGS = new Set([
+    "JAMES",
+    "THOMAS",
+    "LUCAS",
+    "MARCUS",
+    "NICOLAS",
+    "ALEXIS",
+    "TRAVIS",
+    "JULES",
+    "MILES",
+    "GILES",
+    "ROSS",
+    "TESS",
+    "BESS",
+    "JESS",
+    "LEWIS",
+    "CHRIS",
+    "PARIS",
+    "IRIS",
+    "DORIS",
+    "GLADYS",
+    "PHYLLIS",
+    "FRANCIS",
+    "CHARLES",
+    "DOUGLAS",
+    "JULIUS",
+    "CORNELIUS",
+    "SILAS",
+    "JESUS",
+  ]);
+  if (PROPER_S_ENDINGS.has(upper)) return false;
+  return true;
+}
+
 // interface ScenePreview {
 //   title: string;
 //   contentPreview: string;
@@ -87,6 +281,12 @@ export function SceneImportForm({
   const [castImportMode, setCastImportMode] = useState<
     "add" | "replace" | "skip"
   >("add");
+  // Names auto-resolved against the master list (not shown in review UI)
+  const [autoAcceptedNames, setAutoAcceptedNames] = useState<string[]>([]);
+  // Partial match suggestions: detected name → canonical master name
+  const [partialMatchSuggestions, setPartialMatchSuggestions] = useState<
+    Map<string, string>
+  >(new Map());
 
   const handleParseText = (text: string) => {
     setError(null);
@@ -117,21 +317,93 @@ export function SceneImportForm({
       );
 
       const castPageNames = extractCastNames(text);
-      const castSet = new Set<string>(castPageNames);
+      const existingCast = getProjectCharacters(projectId).map(
+        (c) => c.characterName,
+      );
+      // Master list: cast page names take priority, then existing project chars
+      const masterList =
+        castPageNames.length > 0 ? castPageNames : existingCast;
+
+      // Collect all raw character names detected across scenes
+      const rawDetectedSet = new Set<string>();
       for (const scene of scenes) {
         for (const char of extractSceneCharacters(scene.content))
-          castSet.add(char);
-      }
-      let cast = Array.from(castSet).sort();
-      if (cast.length === 0) {
-        cast = getProjectCharacters(projectId).map((c) => c.characterName);
+          rawDetectedSet.add(char);
       }
 
-      const categories = new Map<string, CastCategory>();
-      for (const name of cast) categories.set(name, "Individual");
-      setCastCategories(categories);
-      setCastNames(cast);
-      setShowCastReview(true);
+      // Classify each detected name against the master list
+      const autoAccepted: string[] =
+        masterList.length > 0 ? [...masterList] : [];
+      const autoAcceptedUpperSet = new Set(
+        autoAccepted.map((n) => n.toUpperCase()),
+      );
+      const flagged: string[] = [];
+      const suggestions = new Map<string, string>();
+      const initCategories = new Map<string, CastCategory>();
+      const initMergeTargets = new Map<string, string>();
+      const initMergeAliases = new Map<string, string[]>();
+
+      for (const name of rawDetectedSet) {
+        if (autoAcceptedUpperSet.has(name.toUpperCase())) continue;
+        if (masterList.length === 0) {
+          // No master list — send everything to review (original behaviour)
+          flagged.push(name);
+          initCategories.set(name, "Individual");
+        } else {
+          const result = matchAgainstMaster(name, masterList);
+          if (result.kind === "exact") {
+            autoAccepted.push(result.canonical);
+            autoAcceptedUpperSet.add(result.canonical.toUpperCase());
+          } else if (result.kind === "partial") {
+            // Partial match — flag for review with pre-filled merge suggestion
+            flagged.push(name);
+            suggestions.set(name, result.canonical);
+            initCategories.set(name, "Merge Characters");
+            initMergeTargets.set(name, result.canonical);
+            const existing = initMergeAliases.get(result.canonical) ?? [];
+            initMergeAliases.set(result.canonical, [...existing, name]);
+          } else {
+            // New name not in master list — apply heuristics before flagging
+            flagged.push(name);
+            if (looksLikeNonCharacter(name)) {
+              initCategories.set(name, "Non-character");
+            } else if (looksLikeGroup(name)) {
+              initCategories.set(name, "Group");
+            } else {
+              initCategories.set(name, "Individual");
+            }
+          }
+        }
+      }
+
+      const localScenesData = scenes.map((scene) => ({
+        title: scene.title,
+        content: scene.content,
+        songs: toc ? findSongsForScene(toc, scene.title) : [],
+      }));
+
+      if (flagged.length === 0) {
+        // Everything exactly matched — skip review entirely
+        const allCats = new Map<string, CastCategory>();
+        for (const n of autoAccepted) allCats.set(n, "Individual");
+        doCreateScenes(
+          localScenesData,
+          autoAccepted,
+          allCats,
+          new Map(),
+          "add",
+        );
+      } else {
+        // Show review for flagged names only
+        setAutoAcceptedNames(autoAccepted);
+        setPartialMatchSuggestions(suggestions);
+        setParsedSceneData(localScenesData);
+        setCastNames(flagged.sort());
+        setCastCategories(initCategories);
+        setMergeTargets(initMergeTargets);
+        setMergeAliases(initMergeAliases);
+        setShowCastReview(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to parse text");
       setDetectedSceneCount(0);
@@ -158,14 +430,20 @@ export function SceneImportForm({
     });
   };
 
-  const handleCreateScenes = () => {
+  const doCreateScenes = (
+    scenesData: ParsedSceneData[],
+    activeCastNames: string[],
+    categories: Map<string, CastCategory>,
+    aliases: Map<string, string[]>,
+    importMode: "add" | "replace" | "skip",
+  ) => {
     setError(null);
     try {
-      const activeCast = castNames.filter(
-        (name) => castCategories.get(name) !== "Non-character",
+      const activeCast = activeCastNames.filter(
+        (name) => categories.get(name) !== "Non-character",
       );
 
-      const finalScenes = parsedSceneData.map((scene) => ({
+      const finalScenes = scenesData.map((scene) => ({
         title: scene.title,
         content: scene.content,
         characters: extractSceneCharacters(scene.content, activeCast),
@@ -179,16 +457,16 @@ export function SceneImportForm({
 
       createScenes(projectId, finalScenes);
 
-      // Build per-character metadata from the cast review
+      // Build per-character metadata
       const charData = new Map<
         string,
         { category?: string; aliases?: string[] }
       >();
       for (const name of activeCast) {
-        const cat = castCategories.get(name);
+        const cat = categories.get(name);
         charData.set(name, {
           category: cat === "Group" ? "Group" : "Individual",
-          aliases: mergeAliases.get(name),
+          aliases: aliases.get(name),
         });
       }
       // Include any scene-detected names not in the reviewed cast list
@@ -198,14 +476,14 @@ export function SceneImportForm({
         }
       }
 
-      if (charData.size > 0 && castImportMode !== "skip") {
+      if (charData.size > 0 && importMode !== "skip") {
         const importData = Array.from(charData.entries()).map(
           ([name, meta]) => ({
             name,
             ...meta,
           }),
         );
-        if (castImportMode === "replace") {
+        if (importMode === "replace") {
           replaceProjectCharacters(projectId, importData);
         } else {
           importCastCharacters(projectId, importData);
@@ -217,6 +495,21 @@ export function SceneImportForm({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create scenes");
     }
+  };
+
+  const handleCreateScenes = () => {
+    // Combine auto-accepted (exact master matches) with the reviewed flagged names
+    const allCategories = new Map(castCategories);
+    for (const n of autoAcceptedNames) {
+      if (!allCategories.has(n)) allCategories.set(n, "Individual");
+    }
+    doCreateScenes(
+      parsedSceneData,
+      [...autoAcceptedNames, ...castNames],
+      allCategories,
+      mergeAliases,
+      castImportMode,
+    );
   };
 
   const handlePasteInput = () => handleParseText(pastedText);
@@ -258,6 +551,8 @@ export function SceneImportForm({
     setParsedSceneData([]);
     setMergeTargets(new Map());
     setCastImportMode("add");
+    setAutoAcceptedNames([]);
+    setPartialMatchSuggestions(new Map());
   };
 
   return (
@@ -422,12 +717,25 @@ export function SceneImportForm({
         <div className="space-y-4 border-t border-border pt-6">
           <div>
             <h3 className="text-light font-semibold text-lg">
-              Review Identified Cast
+              Review Flagged Characters
             </h3>
             <p className="text-muted text-sm mt-1">
-              Categorize each name. Non-characters are excluded from the cast.
+              These names could not be automatically resolved. Partial matches
+              are pre-filled — confirm or reclassify as needed.
             </p>
           </div>
+
+          {autoAcceptedNames.length > 0 && (
+            <div className="p-3 bg-accent-cyan/10 border border-accent-cyan/30 rounded text-sm flex items-center gap-2">
+              <span className="text-accent-cyan font-semibold">
+                {autoAcceptedNames.length} character
+                {autoAcceptedNames.length !== 1 ? "s" : ""} auto-matched
+              </span>
+              <span className="text-muted">
+                from the master cast list and will be imported automatically.
+              </span>
+            </div>
+          )}
 
           {getProjectCharacters(projectId).length > 0 && (
             <div className="p-3 rounded border border-border bg-background/50 space-y-2">
@@ -500,11 +808,18 @@ export function SceneImportForm({
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span
-                        className={`text-sm font-mono ${category === "Non-character" ? "text-muted line-through" : "text-light"}`}
-                      >
-                        {name}
-                      </span>
+                      <div>
+                        <span
+                          className={`text-sm font-mono ${category === "Non-character" ? "text-muted line-through" : "text-light"}`}
+                        >
+                          {name}
+                        </span>
+                        {partialMatchSuggestions.has(name) && (
+                          <p className="text-xs text-yellow-400 mt-0.5">
+                            Possible match: {partialMatchSuggestions.get(name)}
+                          </p>
+                        )}
+                      </div>
                       <select
                         value={category}
                         onChange={(e) => {
@@ -553,19 +868,20 @@ export function SceneImportForm({
                           }}
                           className="flex-1 text-xs rounded px-2 py-1 border border-border bg-background text-light focus:outline-none focus:border-accent-cyan"
                         >
-                          <option value="">Select characterâ€¦</option>
-                          {castNames
-                            .filter(
+                          <option value="">Select character…</option>
+                          {[
+                            ...autoAcceptedNames,
+                            ...castNames.filter(
                               (n) =>
                                 n !== name &&
                                 (castCategories.get(n) ?? "Individual") !==
                                   "Merge Characters",
-                            )
-                            .map((n) => (
-                              <option key={n} value={n}>
-                                {n}
-                              </option>
-                            ))}
+                            ),
+                          ].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
                         </select>
                         <button
                           onClick={() => handleMerge(name, mergeTarget)}

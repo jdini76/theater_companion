@@ -2,18 +2,10 @@
 
 import React, { useEffect } from "react";
 import { useProjects } from "@/contexts/ProjectContext";
-import { SceneManager } from "@/components/scenes/SceneManager";
+import { SongManager } from "@/components/songs/SongManager";
 import { useRouter } from "next/navigation";
 
-interface ScenesPageProps {
-  initialSceneId?: string | null;
-  onSceneNavigated?: () => void;
-}
-
-export default function ScenesPage({
-  initialSceneId,
-  onSceneNavigated,
-}: ScenesPageProps = {}) {
+export default function SongsPage() {
   const { currentProjectId, getCurrentProject } = useProjects();
   const router = useRouter();
 
@@ -34,7 +26,7 @@ export default function ScenesPage({
               No Project Selected
             </h1>
             <p className="text-muted mb-6">
-              Select a project first to manage its scenes.
+              Select a project first to view songs.
             </p>
             <button
               onClick={() => router.push("/projects")}
@@ -49,12 +41,10 @@ export default function ScenesPage({
   }
 
   return (
-    <div className="min-h-screen bg-dark-base py-8">
-      <SceneManager
+    <div className="min-h-screen bg-dark-base py-8 px-0">
+      <SongManager
         projectId={currentProject.id}
         projectName={currentProject.name}
-        initialSceneId={initialSceneId}
-        onSceneNavigated={onSceneNavigated}
       />
     </div>
   );

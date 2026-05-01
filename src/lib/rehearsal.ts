@@ -31,6 +31,45 @@ const STANDALONE_CHAR_NAME_RE =
 const STANDALONE_STAGE_DIR_RE = /^\([\s\S]*\)$|^\[[\s\S]*\]$/;
 
 /**
+ * Stage direction patterns that OPEN a song block.
+ * Only tested against lines already confirmed as standalone stage directions
+ * (wrapped in ( ) or [ ]), so they won't collide with dialogue.
+ *
+ * Captures an optional song title after a colon:
+ *   Group 1 – title from the `(...)` form
+ *   Group 2 – title from the `[...]` form
+ *
+ * Examples matched:
+ *   (Singing)  (Sung)  (Sings)  (Song)
+ *   (Song: "Tomorrow")  (Song begins)  (Song begins: "Title")
+ *   (Music begins)  (Music up)  (Music starts)
+ *   (Underscore)  (Underscore: "Title")
+ *   (Number: "My Favorite Things")  (Musical number)
+ *   (Reprise: "Tomorrow")
+ *   [SONG]  [Song: Tomorrow]  [Music]  [Singing]
+ */
+const SONG_CUE_START_RE =
+  /^\((?:sing(?:s|ing)?|sung|song(?:\s+begins?)?|music\s+(?:begins?|starts?|up)|underscore|(?:musical\s+)?number|reprise)(?:\s*:\s*["']?([^"')]+?)["']?)?\)$|^\[(?:song|singing|sung|music|underscore)(?:\s*:\s*([^\]]+))?\]$/i;
+
+/**
+ * Stage direction patterns that CLOSE a song block and return to speech.
+ *
+ * Examples matched:
+ *   (Spoken)  (Spoke)  (Speaking)  (Dialogue resumes)
+ *   (End of song)  (Song ends)  (Music ends)  (Music out)  (Music stops)
+ *   [Spoken]  [End of song]  [Music out]
+ */
+const SONG_CUE_END_RE =
+  /^\((?:spoke(?:n)?|speaking|dialogue\s+resumes?|end\s+of\s+song|song\s+ends?|music\s+(?:ends?|out|stops?))\)$|^\[(?:spoke(?:n)?|end\s+of\s+song|music\s+(?:ends?|out))\]$/i;
+
+/**
+ * Matches a line that is entirely uppercase — used by the post-parse pass
+ * to identify song lyric lines that were not caught by active state.
+ * Allows letters, digits, whitespace, and common lyric punctuation.
+ */
+const ALL_CAPS_LYRIC_RE = /^[A-Z0-9\s\-',.!?;:()\[\]…*]+$/;
+
+/**
  * Character speech line:  NAME: dialogue
  *
  * Name character set covers:
@@ -235,11 +274,14 @@ function expandInlineParentheticals(lines: DialogueLine[]): DialogueLine[] {
 
   for (const line of lines) {
     // Don't touch lines already classified as stage directions, narrative,
-    // or scene headings.
+    // scene headings, or song lyrics (songs preserve their own parentheticals
+    // as vocal/performance directions, not inline stage directions).
     if (
       line.isStageDirection ||
       line.character === "[Narrative]" ||
-      line.character === "[Scene Heading]"
+      line.character === "[Scene Heading]" ||
+      line.character === "[Song]" ||
+      line.isSong
     ) {
       result.push({ ...line, lineNumber: lineNumber++ });
       continue;
@@ -599,6 +641,61 @@ function isValidCharacterName(name: string): boolean {
   return validCount / name.length >= 0.8;
 }
 
+// ── Song detection helpers ───────────────────────────────────────────────────
+
+/**
+ * Returns true when `name` (ALL CAPS) appears in the known cast set, either
+ * as a full match or as a word within a multi-word name.
+ *
+ *   isKnownCharacter("HANNIGAN", {"MISS HANNIGAN"}) → true
+ *   isKnownCharacter("PHIL", {"PHIL CONNORS"})      → true
+ *   isKnownCharacter("CHORUS", {"MISS HANNIGAN"})   → false
+ */
+function isKnownCharacter(name: string, knownCharSet: Set<string>): boolean {
+  const upper = name.toUpperCase();
+  if (knownCharSet.has(upper)) return true;
+  for (const known of knownCharSet) {
+    const parts = known.split(/\s+/);
+    if (parts.length > 1 && parts.includes(upper)) return true;
+  }
+  return false;
+}
+
+/**
+ * Post-parse pass: find runs of 2+ consecutive [Narrative] lines whose text
+ * is entirely uppercase (likely song lyrics that slipped past active detection)
+ * and re-tag them as `[Song]` lines with `isSong: true`.
+ *
+ * A single isolated ALL-CAPS narrative line is NOT re-tagged to avoid
+ * false-positives from things like scene headings that weren't caught.
+ */
+function tagConsecutiveLyrics(lines: DialogueLine[]): DialogueLine[] {
+  const isCandidate = lines.map(
+    (l) =>
+      l.character === "[Narrative]" &&
+      !l.isSong &&
+      ALL_CAPS_LYRIC_RE.test(l.dialogue.trim()),
+  );
+
+  for (let i = 0; i < lines.length; ) {
+    if (!isCandidate[i]) {
+      i++;
+      continue;
+    }
+    // Find end of this run
+    let j = i;
+    while (j < lines.length && isCandidate[j]) j++;
+    if (j - i >= 2) {
+      for (let k = i; k < j; k++) {
+        lines[k] = { ...lines[k], character: "[Song]", isSong: true };
+      }
+    }
+    i = j;
+  }
+
+  return lines;
+}
+
 // ── Main parser ──────────────────────────────────────────────────────────────
 
 /**
@@ -629,6 +726,7 @@ function isValidCharacterName(name: string): boolean {
 export function parseDialogueLines(
   sceneContent: string,
   formatHint?: ScriptFormat,
+  knownCharacters?: string[],
 ): DialogueLine[] {
   const output: DialogueLine[] = [];
   let lineNumber = 0;
@@ -647,6 +745,18 @@ export function parseDialogueLines(
   // Standalone format: character name seen on its own line, waiting for the
   // first dialogue line below it.
   let pendingStandaloneChar: string | null = null;
+
+  // ── Song detection state ────────────────────────────────────────
+  // True while inside a song block (set by cue markers, cast comparison,
+  // or heuristic detection; cleared by end-of-song cues or scene headings).
+  let inSongBlock = false;
+  // Song title extracted from an explicit cue marker like (Song: "Tomorrow").
+  let currentSongTitle: string | null = null;
+  // Uppercased known cast for Approach C (cast-comparison) detection.
+  const knownCharSet: Set<string> =
+    knownCharacters && knownCharacters.length > 0
+      ? new Set(knownCharacters.map((n) => n.toUpperCase()))
+      : new Set();
 
   const fmt = formatHint ?? detectScriptFormat(sceneContent);
   const useStandalone = fmt === "standalone" || fmt === "mixed";
@@ -679,6 +789,9 @@ export function parseDialogueLines(
       lastDialogueIdx = -1;
       afterBlank = false;
       pendingStandaloneChar = null;
+      // Scene headings always end any active song block.
+      inSongBlock = false;
+      currentSongTitle = null;
       continue;
     }
 
@@ -690,6 +803,19 @@ export function parseDialogueLines(
         dialogue: trimmed,
         isStageDirection: true,
       });
+
+      // ── Approach A: song cue detection ──────────────────────────
+      // Check whether this stage direction opens or closes a song block.
+      const songStartMatch = SONG_CUE_START_RE.exec(trimmed);
+      if (songStartMatch) {
+        inSongBlock = true;
+        currentSongTitle =
+          (songStartMatch[1] ?? songStartMatch[2] ?? "").trim() || null;
+      } else if (SONG_CUE_END_RE.test(trimmed)) {
+        inSongBlock = false;
+        currentSongTitle = null;
+      }
+
       // Preserve lastCharacter and pendingStandaloneChar: a stage direction
       // between a speaker label and their dialogue (CMIYC) or mid-song
       // (Groundhog Day) does not end the current speaker.
@@ -718,15 +844,31 @@ export function parseDialogueLines(
 
       if (isValidCharacterName(character)) {
         pendingStandaloneChar = null;
+        // When the character starts speaking with lowercase dialogue, exit song mode.
+        if (inSongBlock && dialogue && /[a-z]/.test(dialogue)) {
+          inSongBlock = false;
+          currentSongTitle = null;
+        }
         if (dialogue) {
           const idx = output.length;
-          output.push({ lineNumber: lineNumber++, character, dialogue });
+          const entry: DialogueLine = {
+            lineNumber: lineNumber++,
+            character,
+            dialogue,
+          };
+          if (inSongBlock) {
+            entry.isSong = true;
+            if (currentSongTitle) entry.songTitle = currentSongTitle;
+          }
+          output.push(entry);
           lastCharacter = character;
           lastDialogueIdx = idx;
         } else {
           // Song/verse mode: CHARACTER: with no inline text.
+          // The empty cue header signals that lyrics follow.
           lastCharacter = character;
           lastDialogueIdx = -1;
+          inSongBlock = true;
         }
         afterBlank = false;
         continue;
@@ -745,23 +887,34 @@ export function parseDialogueLines(
           // Append to existing entry (hard-wrapped continuation)
           if (!afterBlank) {
             output[lastDialogueIdx].dialogue += " " + trimmed;
+            if (inSongBlock) output[lastDialogueIdx].isSong = true;
           } else {
             const idx = output.length;
-            output.push({
+            const entry: DialogueLine = {
               lineNumber: lineNumber++,
               character: lastCharacter,
               dialogue: trimmed,
-            });
+            };
+            if (inSongBlock) {
+              entry.isSong = true;
+              if (currentSongTitle) entry.songTitle = currentSongTitle;
+            }
+            output.push(entry);
             lastDialogueIdx = idx;
           }
         } else {
           // Song mode: first lyric line
           const idx = output.length;
-          output.push({
+          const entry: DialogueLine = {
             lineNumber: lineNumber++,
             character: lastCharacter,
             dialogue: trimmed,
-          });
+          };
+          if (inSongBlock) {
+            entry.isSong = true;
+            if (currentSongTitle) entry.songTitle = currentSongTitle;
+          }
+          output.push(entry);
           lastDialogueIdx = idx;
         }
         afterBlank = false;
@@ -790,6 +943,7 @@ export function parseDialogueLines(
     if (useStandalone) {
       const sm = STANDALONE_CHAR_NAME_RE.exec(trimmed);
       if (sm && isValidCharacterName(sm[1].trim())) {
+        const nameCandidate = sm[1].trim();
         let acceptAsCharacter = afterBlank;
         if (!acceptAsCharacter && lastDialogueIdx >= 0) {
           // Lookahead: find the next non-empty, non-stage-direction line.
@@ -803,8 +957,34 @@ export function parseDialogueLines(
             break;
           }
         }
+
+        // ── Approach C: cast-aware lyric detection ──────────────────
+        // If we have a known cast list and this name isn't in it, the line
+        // is almost certainly a song lyric (e.g. "TOMORROW, TOMORROW…")
+        // rather than a new speaker label. Enter song mode.
+        if (
+          acceptAsCharacter &&
+          knownCharSet.size > 0 &&
+          !isKnownCharacter(nameCandidate, knownCharSet)
+        ) {
+          inSongBlock = true;
+          const idx = output.length;
+          const entry: DialogueLine = {
+            lineNumber: lineNumber++,
+            character: "[Song]",
+            dialogue: trimmed,
+            isSong: true,
+          };
+          if (currentSongTitle) entry.songTitle = currentSongTitle;
+          output.push(entry);
+          lastDialogueIdx = idx;
+          lastCharacter = null;
+          afterBlank = false;
+          continue;
+        }
+
         if (acceptAsCharacter) {
-          pendingStandaloneChar = sm[1].trim();
+          pendingStandaloneChar = nameCandidate;
           // Emit trailing parenthetical as stage direction:
           //   DOLLAR (overlapping) → stage direction "(overlapping)"
           if (sm[2]) {
@@ -815,6 +995,9 @@ export function parseDialogueLines(
               isStageDirection: true,
             });
           }
+          // Entering character speech: exit song mode if active.
+          inSongBlock = false;
+          currentSongTitle = null;
           lastDialogueIdx = -1;
           afterBlank = false;
           continue;
@@ -860,14 +1043,20 @@ export function parseDialogueLines(
       if (!afterBlank && lastDialogueIdx >= 0) {
         // Hard-wrapped continuation: append so TTS reads as one speech.
         output[lastDialogueIdx].dialogue += " " + trimmed;
+        if (inSongBlock) output[lastDialogueIdx].isSong = true;
       } else {
         // Verse break (blank-separated) or first lyric after CHARACTER:
         const idx = output.length;
-        output.push({
+        const entry: DialogueLine = {
           lineNumber: lineNumber++,
           character: lastCharacter,
           dialogue: trimmed,
-        });
+        };
+        if (inSongBlock) {
+          entry.isSong = true;
+          if (currentSongTitle) entry.songTitle = currentSongTitle;
+        }
+        output.push(entry);
         lastDialogueIdx = idx;
       }
       afterBlank = false;
@@ -875,14 +1064,26 @@ export function parseDialogueLines(
     }
 
     // ── Narrative / unclassified ────────────────────────────────────
-    output.push({
-      lineNumber: lineNumber++,
-      character: "[Narrative]",
-      dialogue: trimmed,
-    });
+    // When inside a song block, tag as [Song] instead of [Narrative].
+    {
+      const entry: DialogueLine = {
+        lineNumber: lineNumber++,
+        character: inSongBlock ? "[Song]" : "[Narrative]",
+        dialogue: trimmed,
+      };
+      if (inSongBlock) {
+        entry.isSong = true;
+        if (currentSongTitle) entry.songTitle = currentSongTitle;
+      }
+      output.push(entry);
+    }
     lastDialogueIdx = -1;
     afterBlank = false;
   }
+
+  // Approach B: tag any remaining runs of 2+ consecutive ALL-CAPS [Narrative]
+  // lines that weren't caught by active state (no cues, no cast list).
+  tagConsecutiveLyrics(output);
 
   return expandInlineParentheticals(output);
 }
@@ -894,7 +1095,12 @@ export function extractCharacterNames(lines: DialogueLine[]): string[] {
   const characters = new Set<string>();
 
   for (const line of lines) {
-    if (!line.isStageDirection && line.character !== "[Narrative]") {
+    if (
+      !line.isStageDirection &&
+      !line.isSong &&
+      line.character !== "[Narrative]" &&
+      line.character !== "[Song]"
+    ) {
       characters.add(line.character);
     }
   }
@@ -913,7 +1119,16 @@ export function getLinesByCharacter(
 }
 
 /**
- * Get lines for a user to practice (all non-user character lines)
+ * Return only the non-song lines from a parsed dialogue array.
+ * Use this to strip song lyrics from a line list before passing it to the
+ * rehearsal engine or TTS — songs are handled by a separate tab.
+ */
+export function filterSongLines(lines: DialogueLine[]): DialogueLine[] {
+  return lines.filter((l) => !l.isSong);
+}
+
+/**
+ * Get lines for a user to practice (all non-user character lines, excluding songs)
  */
 export function getNonUserLines(
   lines: DialogueLine[],
@@ -923,7 +1138,8 @@ export function getNonUserLines(
     (line) =>
       line.character !== userCharacterName &&
       line.character !== "[Narrative]" &&
-      !line.isStageDirection,
+      !line.isStageDirection &&
+      !line.isSong,
   );
 }
 

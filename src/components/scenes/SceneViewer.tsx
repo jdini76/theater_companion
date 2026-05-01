@@ -11,6 +11,7 @@ import {
   HighlightedContent,
 } from "./SceneHighlight";
 import { MoreHorizontal } from "lucide-react";
+import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 
 interface SceneViewerProps {
   scene: Scene;
@@ -24,7 +25,8 @@ function useLineOverrides(sceneId: string) {
 
   const [overrides, setOverrides] = useState<Map<number, LineOverride>>(() => {
     try {
-      const raw = localStorage.getItem(storageKey) ?? localStorage.getItem(legacyKey);
+      const raw =
+        localStorage.getItem(storageKey) ?? localStorage.getItem(legacyKey);
       if (raw) return new Map(JSON.parse(raw) as [number, LineOverride][]);
     } catch {}
     return new Map();
@@ -76,6 +78,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getProjectCharacters } = useVoice();
+  const { navigateToCharacter } = useRehearsalNav();
   const { updateScene } = useScenes();
   const { overrides, assign } = useLineOverrides(scene.id);
 
@@ -227,7 +230,26 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
         <div className="flex flex-wrap gap-1.5">
           {sceneCharacters.map((char) => {
             const color = colorMap.get(char);
-            return (
+            const projectChar = getProjectCharacters(projectId).find(
+              (c) =>
+                c.characterName.toUpperCase() === char ||
+                (c.aliases ?? []).some((a) => a.toUpperCase() === char),
+            );
+            return projectChar ? (
+              <button
+                key={char}
+                onClick={() => navigateToCharacter(projectChar.id)}
+                style={{
+                  color: color?.color,
+                  backgroundColor: color?.bgColor,
+                  borderColor: color?.color ? `${color.color}40` : undefined,
+                }}
+                className="px-2 py-0.5 rounded-full text-xs font-mono border hover:opacity-80 hover:ring-1 hover:ring-white/20 transition-opacity cursor-pointer"
+                title={`View ${char} in Cast`}
+              >
+                {char}
+              </button>
+            ) : (
               <span
                 key={char}
                 style={{
