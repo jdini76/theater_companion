@@ -16,8 +16,9 @@ const GROUP_COLOR: CharColor = {
   bgColor: "hsla(45, 80%, 72%, 0.12)",
 };
 
-// 12 colors spaced ~30° apart on the hue wheel — one per major perceptual region,
-// tuned for readability on dark backgrounds. Wraps at 12 for larger casts.
+// 12 colors distributed evenly around the hue wheel (~25-33° apart), each in a
+// distinct perceptual region. No near-duplicates. Tuned for dark backgrounds.
+// Hues: 4, 28, 52, 85, 113, 142, 175, 200, 228, 268, 305, 335
 const CHAR_PALETTE: CharColor[] = [
   { color: "hsl(4,   82%, 65%)", bgColor: "hsla(4,   82%, 65%, 0.12)" }, // red
   { color: "hsl(28,  88%, 62%)", bgColor: "hsla(28,  88%, 62%, 0.12)" }, // orange
@@ -30,13 +31,17 @@ const CHAR_PALETTE: CharColor[] = [
   { color: "hsl(268, 64%, 68%)", bgColor: "hsla(268, 64%, 68%, 0.12)" }, // purple
   { color: "hsl(305, 62%, 68%)", bgColor: "hsla(305, 62%, 68%, 0.12)" }, // magenta
   { color: "hsl(335, 72%, 66%)", bgColor: "hsla(335, 72%, 66%, 0.12)" }, // rose
-  { color: "hsl(168, 58%, 56%)", bgColor: "hsla(168, 58%, 56%, 0.12)" }, // seafoam
+  { color: "hsl(113, 50%, 57%)", bgColor: "hsla(113, 50%, 57%, 0.12)" }, // yellow-green
 ];
 
 export function buildCharColorMap(names: string[]): Map<string, CharColor> {
   const map = new Map<string, CharColor>();
+  const N = CHAR_PALETTE.length; // 12
+  // Stride 7 is coprime with 12, so it visits all 12 palette slots before repeating.
+  // This ensures alphabetically adjacent names get maximally different hues rather
+  // than neighboring ones (which look similar on screen).
   [...names].sort().forEach((name, i) => {
-    map.set(name.toUpperCase(), CHAR_PALETTE[i % CHAR_PALETTE.length]);
+    map.set(name.toUpperCase(), CHAR_PALETTE[(i * 7) % N]);
   });
   return map;
 }
@@ -226,7 +231,11 @@ export function LineAssignPanel({
           onClick={() => onAssign({ kind: "group" })}
           style={
             currentAssignment?.kind === "group"
-              ? { color: GROUP_COLOR.color, backgroundColor: GROUP_COLOR.bgColor, borderColor: GROUP_COLOR.color }
+              ? {
+                  color: GROUP_COLOR.color,
+                  backgroundColor: GROUP_COLOR.bgColor,
+                  borderColor: GROUP_COLOR.color,
+                }
               : undefined
           }
           className={`px-2 py-0.5 rounded border transition-colors hover:text-light ${currentAssignment?.kind === "group" ? "border-current" : "border-border text-muted"}`}
@@ -348,7 +357,10 @@ export function HighlightedContent({
             return (
               <div key={i}>
                 <div
-                  style={{ color: GROUP_COLOR.color, backgroundColor: GROUP_COLOR.bgColor }}
+                  style={{
+                    color: GROUP_COLOR.color,
+                    backgroundColor: GROUP_COLOR.bgColor,
+                  }}
                   className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
                   onClick={toggle}
                 >
@@ -356,7 +368,10 @@ export function HighlightedContent({
                   {editIcon}
                 </div>
                 {dialogue && (
-                  <div style={{ color: GROUP_COLOR.color, opacity: 0.8 }} className="pl-3">
+                  <div
+                    style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                    className="pl-3"
+                  >
                     {dialogue}
                   </div>
                 )}

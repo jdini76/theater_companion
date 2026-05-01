@@ -5,6 +5,7 @@ import { Scene } from "@/types/scene";
 // import { Button } from "@/components/ui/Button";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
+import { extractSceneCharacters } from "@/lib/scenes";
 import {
   type LineOverride,
   buildCharColorMap,
@@ -82,21 +83,59 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const { updateScene } = useScenes();
   const { overrides, assign } = useLineOverrides(scene.id);
 
-  const projectCast = getProjectCharacters(projectId).map(
-    (c) => c.characterName,
-  );
+  const projectCharacters = getProjectCharacters(projectId);
+  const projectCast = projectCharacters.map((c) => c.characterName);
   const sceneChars = scene.characters ?? [];
-  // Deduplicate by uppercased name, always display as ALL CAPS
-  const nameSet = new Set<string>();
-  const allNames: string[] = [];
-  for (const name of [...projectCast, ...sceneChars]) {
-    const upper = name.toUpperCase();
-    if (!nameSet.has(upper)) {
-      nameSet.add(upper);
-      allNames.push(upper);
+
+  // Build alias → canonical map (uppercase) so merged names resolve correctly.
+  // e.g. "APPLE" was merged into "MISS HANNIGAN" → aliasToCanonical("APPLE") = "MISS HANNIGAN"
+  const aliasToCanonical = new Map<string, string>();
+  for (const char of projectCharacters) {
+    for (const alias of char.aliases ?? []) {
+      aliasToCanonical.set(
+        alias.toUpperCase(),
+        char.characterName.toUpperCase(),
+      );
     }
   }
-  const colorMap = buildCharColorMap(allNames);
+
+  // Canonical names for color assignment (determines which hue each character gets).
+  const canonicalUpperSet = new Set<string>();
+  const canonicalNames: string[] = [];
+  for (const name of projectCast) {
+    const upper = name.toUpperCase();
+    if (!canonicalUpperSet.has(upper)) {
+      canonicalUpperSet.add(upper);
+      canonicalNames.push(upper);
+    }
+  }
+
+  // Color map: built from canonical names only, then alias entries are added
+  // pointing to the same color as their canonical so highlights match.
+  const colorMap = buildCharColorMap(
+    projectCast.length > 0
+      ? canonicalNames
+      : sceneChars.map((n) => n.toUpperCase()),
+  );
+  for (const [alias, canonical] of aliasToCanonical) {
+    const color = colorMap.get(canonical);
+    if (color) colorMap.set(alias, color);
+  }
+
+  // allNames: canonical + alias names so HighlightedContent can match both forms.
+  // When no project cast exists, fall back to scene.characters.
+  const allNamesSet = new Set<string>();
+  const allNames: string[] = [];
+  const highlightSource =
+    projectCast.length > 0
+      ? [...canonicalNames, ...Array.from(aliasToCanonical.keys())]
+      : sceneChars.map((n) => n.toUpperCase());
+  for (const name of highlightSource) {
+    if (!allNamesSet.has(name)) {
+      allNamesSet.add(name);
+      allNames.push(name);
+    }
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -143,11 +182,24 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
     assign(lineIdx, assignment);
   };
 
-  // Fix: define assignPanelProps before return
-  // Deduplicate and uppercase for assignPanelProps
+  // Character tags: re-derive from scene content using the expanded cast
+  // (canonical + aliases) so merged names and abbreviations both resolve.
+  // Results are remapped to canonical names so each character appears once.
   const sceneCharSet = new Set<string>();
   const sceneCharacters: string[] = [];
-  for (const name of sceneChars) {
+  const expandedCast =
+    projectCast.length > 0
+      ? [...projectCast, ...Array.from(aliasToCanonical.keys())]
+      : [];
+  const rawTagNames =
+    projectCast.length > 0
+      ? extractSceneCharacters(scene.content, expandedCast)
+      : sceneChars;
+  const resolvedTagNames = rawTagNames.map((name) => {
+    const upper = name.toUpperCase();
+    return aliasToCanonical.get(upper) ?? upper;
+  });
+  for (const name of resolvedTagNames) {
     const upper = name.toUpperCase();
     if (!sceneCharSet.has(upper)) {
       sceneCharSet.add(upper);
