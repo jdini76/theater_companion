@@ -18,7 +18,9 @@ export interface ProjectBundle {
   projectSettings: RawRecord | null;
   rehearsalHistory: RawRecord[];
   sceneLineOverrides: Record<string, string>; // sceneId → JSON string
-  rehearsalSettingsJson: string | null;       // theater_rehearsal_settings_<projectId>
+  rehearsalSettingsJson: string | null; // theater_rehearsal_settings_<projectId>
+  songsHiddenJson: string | null; // theater_songs_hidden_<projectId>
+  songsUrlsJson: string | null; // theater_songs_urls_<projectId>
 }
 
 export interface ExportDataV2 {
@@ -43,7 +45,9 @@ function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
     if (raw) return JSON.parse(raw) as T;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return fallback;
 }
 
@@ -70,9 +74,14 @@ export function buildProjectBundle(projectId: string): ProjectBundle | null {
     characters.map((c) => c.voiceConfigId as string).filter(Boolean),
   );
   const allVoiceConfigs = readJson<RawRecord[]>("theater_voice_configs", []);
-  const voiceConfigs = allVoiceConfigs.filter((vc) => usedVoiceConfigIds.has(getId(vc)));
+  const voiceConfigs = allVoiceConfigs.filter((vc) =>
+    usedVoiceConfigIds.has(getId(vc)),
+  );
 
-  const allProjectSettings = readJson<Record<string, RawRecord>>("theater_project_settings", {});
+  const allProjectSettings = readJson<Record<string, RawRecord>>(
+    "theater_project_settings",
+    {},
+  );
   const projectSettings = allProjectSettings[projectId] ?? null;
 
   const allHistory = readJson<RawRecord[]>("theater_rehearsal_history", []);
@@ -88,6 +97,11 @@ export function buildProjectBundle(projectId: string): ProjectBundle | null {
   const rehearsalSettingsJson =
     localStorage.getItem(`theater_rehearsal_settings_${projectId}`) ?? null;
 
+  const songsHiddenJson =
+    localStorage.getItem(`theater_songs_hidden_${projectId}`) ?? null;
+  const songsUrlsJson =
+    localStorage.getItem(`theater_songs_urls_${projectId}`) ?? null;
+
   return {
     project,
     scenes,
@@ -97,6 +111,8 @@ export function buildProjectBundle(projectId: string): ProjectBundle | null {
     rehearsalHistory,
     sceneLineOverrides,
     rehearsalSettingsJson,
+    songsHiddenJson,
+    songsUrlsJson,
   };
 }
 
@@ -156,7 +172,9 @@ export async function parseImportFile(file: File): Promise<ImportedProject[]> {
   try {
     payload = JSON.parse(text);
   } catch {
-    throw new Error("Could not read file — make sure it is a valid JSON backup.");
+    throw new Error(
+      "Could not read file — make sure it is a valid JSON backup.",
+    );
   }
 
   if (!payload || typeof payload !== "object") {
@@ -194,9 +212,18 @@ export function executeImport(importedProjects: ImportedProject[]): number {
   const existingProjects = readJson<RawRecord[]>("theater_projects", []);
   const existingScenes = readJson<RawRecord[]>("theater_scenes", []);
   const existingChars = readJson<RawRecord[]>("theater_characters", []);
-  const existingVoiceConfigs = readJson<RawRecord[]>("theater_voice_configs", []);
-  const existingProjectSettings = readJson<Record<string, RawRecord>>("theater_project_settings", {});
-  const existingHistory = readJson<RawRecord[]>("theater_rehearsal_history", []);
+  const existingVoiceConfigs = readJson<RawRecord[]>(
+    "theater_voice_configs",
+    [],
+  );
+  const existingProjectSettings = readJson<Record<string, RawRecord>>(
+    "theater_project_settings",
+    {},
+  );
+  const existingHistory = readJson<RawRecord[]>(
+    "theater_rehearsal_history",
+    [],
+  );
 
   let importedCount = 0;
 
@@ -240,7 +267,9 @@ export function executeImport(importedProjects: ImportedProject[]): number {
         ...char,
         id: crypto.randomUUID(),
         projectId: newProjectId,
-        voiceConfigId: oldVcId ? (voiceConfigIdMap.get(oldVcId) ?? undefined) : undefined,
+        voiceConfigId: oldVcId
+          ? (voiceConfigIdMap.get(oldVcId) ?? undefined)
+          : undefined,
       });
     }
 
@@ -259,15 +288,22 @@ export function executeImport(importedProjects: ImportedProject[]): number {
         ...entry,
         id: crypto.randomUUID(),
         projectId: newProjectId,
-        sceneId: oldSceneId ? (sceneIdMap.get(oldSceneId) ?? oldSceneId) : undefined,
+        sceneId: oldSceneId
+          ? (sceneIdMap.get(oldSceneId) ?? oldSceneId)
+          : undefined,
       });
     }
 
     // Scene line overrides
-    for (const [oldSceneId, value] of Object.entries(bundle.sceneLineOverrides)) {
+    for (const [oldSceneId, value] of Object.entries(
+      bundle.sceneLineOverrides,
+    )) {
       const newSceneId = sceneIdMap.get(oldSceneId);
       if (newSceneId) {
-        localStorage.setItem(`theater_scene_line_overrides_${newSceneId}`, value);
+        localStorage.setItem(
+          `theater_scene_line_overrides_${newSceneId}`,
+          value,
+        );
       }
     }
 
@@ -279,15 +315,70 @@ export function executeImport(importedProjects: ImportedProject[]): number {
       );
     }
 
+    // Songs: hidden list and reference URLs.
+    // Song IDs are `${sceneId}_songs`, so old scene IDs must be remapped to
+    // the new scene IDs assigned during this import.
+    if (bundle.songsHiddenJson) {
+      try {
+        const oldHidden = JSON.parse(bundle.songsHiddenJson) as string[];
+        const newHidden = oldHidden.map((id) => {
+          for (const [oldSceneId, newSceneId] of sceneIdMap) {
+            if (id === `${oldSceneId}_songs`) return `${newSceneId}_songs`;
+          }
+          return id;
+        });
+        localStorage.setItem(
+          `theater_songs_hidden_${newProjectId}`,
+          JSON.stringify(newHidden),
+        );
+      } catch {
+        /* ignore corrupt data */
+      }
+    }
+    if (bundle.songsUrlsJson) {
+      try {
+        const oldUrls = JSON.parse(bundle.songsUrlsJson) as Record<
+          string,
+          string
+        >;
+        const newUrls: Record<string, string> = {};
+        for (const [oldId, url] of Object.entries(oldUrls)) {
+          let newId = oldId;
+          for (const [oldSceneId, newSceneId] of sceneIdMap) {
+            if (oldId === `${oldSceneId}_songs`) {
+              newId = `${newSceneId}_songs`;
+              break;
+            }
+          }
+          newUrls[newId] = url;
+        }
+        localStorage.setItem(
+          `theater_songs_urls_${newProjectId}`,
+          JSON.stringify(newUrls),
+        );
+      } catch {
+        /* ignore corrupt data */
+      }
+    }
+
     importedCount++;
   }
 
   localStorage.setItem("theater_projects", JSON.stringify(existingProjects));
   localStorage.setItem("theater_scenes", JSON.stringify(existingScenes));
   localStorage.setItem("theater_characters", JSON.stringify(existingChars));
-  localStorage.setItem("theater_voice_configs", JSON.stringify(existingVoiceConfigs));
-  localStorage.setItem("theater_project_settings", JSON.stringify(existingProjectSettings));
-  localStorage.setItem("theater_rehearsal_history", JSON.stringify(existingHistory));
+  localStorage.setItem(
+    "theater_voice_configs",
+    JSON.stringify(existingVoiceConfigs),
+  );
+  localStorage.setItem(
+    "theater_project_settings",
+    JSON.stringify(existingProjectSettings),
+  );
+  localStorage.setItem(
+    "theater_rehearsal_history",
+    JSON.stringify(existingHistory),
+  );
 
   return importedCount;
 }
@@ -331,8 +422,11 @@ export async function restoreLegacyBackup(
     );
   }
 
-  const data = (payload as { data: Record<string, string>; exportedAt?: string }).data;
-  const exportedAt = (payload as { exportedAt?: string }).exportedAt ?? "unknown";
+  const data = (
+    payload as { data: Record<string, string>; exportedAt?: string }
+  ).data;
+  const exportedAt =
+    (payload as { exportedAt?: string }).exportedAt ?? "unknown";
 
   for (const key of Object.keys(data)) {
     if (!key.startsWith("theater_")) {

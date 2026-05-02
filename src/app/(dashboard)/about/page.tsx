@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 
 type MainTab = "general" | "productions" | "rehearse";
-type RehearseSub = "scenes" | "cast" | "run-lines" | "settings";
+type RehearseSub = "scenes" | "cast" | "run-lines" | "songs" | "settings";
 
 const MAIN_TABS: { id: MainTab; label: string }[] = [
   { id: "general", label: "General" },
@@ -15,6 +15,7 @@ const REHEARSE_SUBS: { id: RehearseSub; label: string }[] = [
   { id: "scenes", label: "Scenes" },
   { id: "cast", label: "Cast" },
   { id: "run-lines", label: "Run Lines" },
+  { id: "songs", label: "Songs" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -369,6 +370,49 @@ function ScenesSubTab() {
         character detected in a scene will appear there ready to have a voice
         assigned.
       </p>
+
+      <SectionHeading>Scene Viewer &amp; Character Highlighting</SectionHeading>
+      <p>
+        Clicking a scene opens the{" "}
+        <span className="text-light font-medium">Scene Viewer</span>, which
+        displays the full script with each character&apos;s lines highlighted in
+        a distinct color. Colors are assigned automatically using a golden-angle
+        hue distribution — consecutive characters in the cast are always
+        near-opposite on the color wheel, so similar colors are avoided even for
+        large casts of 20+.
+      </p>
+
+      <SubHeading>Multi-character headers</SubHeading>
+      <p>
+        Lines spoken by more than one character (e.g.{" "}
+        <code className="text-accent-cyan text-xs">ANNIE &amp; GRACE:</code> or{" "}
+        <code className="text-accent-cyan text-xs">TOM AND JERRY:</code>) are
+        detected automatically. Each character&apos;s name is rendered in their
+        own highlight color inline, with the separator dimmed. The dialogue that
+        follows is shown in the group color (amber).
+      </p>
+      <p className="mt-1">
+        Supported separators:{" "}
+        <code className="text-accent-cyan text-xs">&amp;</code>,{" "}
+        <code className="text-accent-cyan text-xs">/</code>,{" "}
+        <code className="text-accent-cyan text-xs">AND</code>, and commas when
+        all comma-separated parts match known character names.
+      </p>
+
+      <SubHeading>My lines only</SubHeading>
+      <p>
+        When one or more characters have been marked{" "}
+        <span className="text-light font-medium">My role</span> in the Cast tab,
+        a <Tag>My lines only</Tag> checkbox appears at the top of the scene
+        viewer. Enabling it dims all other characters&apos; lines to plain text
+        while keeping your character(s) fully highlighted — useful for quickly
+        spotting your cues on a busy page.
+      </p>
+      <Note>
+        The <Tag>My lines only</Tag> toggle state is remembered between
+        sessions. It only appears when at least one character is marked as your
+        role.
+      </Note>
     </div>
   );
 }
@@ -440,6 +484,36 @@ function CastSubTab() {
           payload.
         </li>
       </ul>
+
+      <SectionHeading>My Role</SectionHeading>
+      <p>
+        Each character&apos;s detail panel has a{" "}
+        <span className="text-light font-medium">My role</span> checkbox in the
+        header. Check it for every character you are playing in the production.
+        Actors doubling (playing multiple parts) can mark multiple characters.
+      </p>
+      <p className="mt-2">
+        Marking a character as your role enables two features:
+      </p>
+      <ul className="list-disc list-inside space-y-1 mt-1">
+        <li>
+          A <Tag>My characters only</Tag> filter appears above the character
+          search in the sidebar, letting you collapse the list to just your
+          roles.
+        </li>
+        <li>
+          A <Tag>My lines only</Tag> toggle appears in the Scene Viewer,
+          highlighting only your lines and dimming all others.
+        </li>
+      </ul>
+
+      <SectionHeading>Filtering the Character List</SectionHeading>
+      <p>
+        The sidebar above the character search box shows a{" "}
+        <Tag>My characters only</Tag> checkbox whenever at least one character
+        is marked as your role. Enabling it filters the list to your roles only.
+        The text search still works on top of this filter.
+      </p>
 
       <SectionHeading>Previewing Voices</SectionHeading>
       <p>
@@ -852,6 +926,61 @@ function SettingsSubTab() {
   );
 }
 
+function SongsSubTab() {
+  return (
+    <div className="space-y-2 text-muted text-sm leading-relaxed">
+      <p>
+        The <span className="text-light font-medium">Songs</span> tab collects
+        every song from your imported scenes into one place. Songs are detected
+        automatically — no manual entry required.
+      </p>
+
+      <SectionHeading>How Songs Are Detected</SectionHeading>
+      <p>
+        When scenes are imported, any line tagged as a{" "}
+        <span className="text-light font-medium">Song Title</span> (using the
+        line assignment tool in the Scene Viewer) marks the start of a song. All
+        dialogue and lyric lines that follow, until the next scene break or song
+        title, are grouped under that song. The characters singing in that block
+        are listed automatically.
+      </p>
+      <Note>
+        Songs are derived entirely from your scene content and line overrides.
+        They update automatically whenever you edit a scene or change a line
+        assignment.
+      </Note>
+
+      <SectionHeading>Song List</SectionHeading>
+      <p>
+        The sidebar lists every detected song with its title, the scene it comes
+        from, and the characters who sing in it. Click a song to open its
+        viewer. Songs can be hidden from the list using the{" "}
+        <span className="text-light font-medium">×</span> button on hover — this
+        does not delete any scene data, it only removes the entry from the Songs
+        view. Hidden songs reappear if you re-import the scene.
+      </p>
+
+      <SectionHeading>Song Viewer</SectionHeading>
+      <p>
+        Selecting a song opens the viewer, which shows the full lyric content
+        with character lines highlighted in their assigned colors — the same
+        color system used in the Scene Viewer. Ensemble songs (multiple
+        characters) are labeled as such.
+      </p>
+
+      <SubHeading>Reference Link</SubHeading>
+      <p>
+        Each song has a <span className="text-light font-medium">link</span>{" "}
+        icon in the header. Click it to attach a URL — typically a YouTube or
+        other video link — to the song. Paste a YouTube watch URL or short link
+        and it is automatically converted to an embedded player displayed
+        directly in the viewer. Any other URL opens as a plain link. Links are
+        stored per-production in localStorage.
+      </p>
+    </div>
+  );
+}
+
 function RehearsalSection() {
   const [sub, setSub] = useState<RehearseSub>("scenes");
 
@@ -884,6 +1013,7 @@ function RehearsalSection() {
       {sub === "scenes" && <ScenesSubTab />}
       {sub === "cast" && <CastSubTab />}
       {sub === "run-lines" && <RunLinesSubTab />}
+      {sub === "songs" && <SongsSubTab />}
       {sub === "settings" && <SettingsSubTab />}
     </div>
   );
