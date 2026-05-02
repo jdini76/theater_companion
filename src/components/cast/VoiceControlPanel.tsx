@@ -24,11 +24,13 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    useState(!!currentCharacterId);
   const [searchQuery, setSearchQuery] = useState("");
 
   const characters = getProjectCharacters(projectId);
-  const selectedChar = characters.find((c) => c.id === currentCharacterId) ?? null;
+  const selectedChar =
+    characters.find((c) => c.id === currentCharacterId) ?? null;
 
   const filteredCharacters = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -36,7 +38,7 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
     return characters.filter(
       (c) =>
         c.characterName.toLowerCase().includes(q) ||
-        (c.actorName && c.actorName.toLowerCase().includes(q))
+        (c.actorName && c.actorName.toLowerCase().includes(q)),
     );
   }, [characters, searchQuery]);
 
@@ -57,14 +59,16 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
         projectId,
         characterName.trim(),
         description.trim() || undefined,
-        actorName.trim() || undefined
+        actorName.trim() || undefined,
       );
       setCharacterName("");
       setActorName("");
       setDescription("");
       setShowAddForm(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create character");
+      setError(
+        err instanceof Error ? err.message : "Failed to create character",
+      );
     } finally {
       setIsCreating(false);
     }
@@ -148,16 +152,29 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
       )}
 
       {/* Main layout: slim sidebar + wide detail panel */}
-      <div className="flex gap-4 items-stretch" style={{ minHeight: "calc(100vh - 14rem)" }}>
+      <div
+        className="flex gap-4 items-stretch"
+        style={{ minHeight: "calc(100vh - 14rem)" }}
+      >
         {/* Sidebar */}
-        <div className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[32rem]"}`}>
+        <div
+          className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[32rem]"}`}
+        >
           <div className="card flex flex-col flex-1 overflow-hidden relative">
             <button
               onClick={() => setSidebarCollapsed((v) => !v)}
               className="absolute top-3 right-2 z-10 p-0.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
-              aria-label={sidebarCollapsed ? "Expand character list" : "Collapse character list"}
+              aria-label={
+                sidebarCollapsed
+                  ? "Expand character list"
+                  : "Collapse character list"
+              }
             >
-              {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+              {sidebarCollapsed ? (
+                <ChevronRight size={14} />
+              ) : (
+                <ChevronLeft size={14} />
+              )}
             </button>
 
             {!sidebarCollapsed && (
@@ -214,7 +231,9 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
                         >
                           <span
                             className={`flex-1 text-sm truncate min-w-0 font-semibold ${
-                              isSelected ? "text-light" : "text-muted group-hover:text-light"
+                              isSelected
+                                ? "text-light"
+                                : "text-muted group-hover:text-light"
                             }`}
                             title={char.characterName}
                           >
