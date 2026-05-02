@@ -1245,6 +1245,23 @@ export function SettingsContent() {
           <DataManagementPanel />
         </section>
       )}
+
+      {/* Build Info */}
+      <div className="text-center text-muted text-xs pt-2 pb-1 space-y-0.5">
+        <div>
+          Theater Companion{" "}
+          <span className="font-mono">
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+          </span>
+        </div>
+        {process.env.NEXT_PUBLIC_BUILD_NUMBER !== "local" && (
+          <div className="font-mono">
+            build&nbsp;#{process.env.NEXT_PUBLIC_BUILD_NUMBER}
+            &nbsp;&middot;&nbsp;
+            {process.env.NEXT_PUBLIC_GIT_SHA?.slice(0, 7)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

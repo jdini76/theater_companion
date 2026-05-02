@@ -56,7 +56,10 @@ function GeneralTab() {
       <div className="flex items-start gap-3 pb-4 border-b border-border">
         <div>
           <p className="text-light font-semibold text-base">
-            Theater Rehearsal Manager — v0.1.0
+            Theater Rehearsal Manager —{" "}
+            <span className="font-mono">
+              v{process.env.NEXT_PUBLIC_APP_VERSION}
+            </span>
           </p>
           <p className="mt-1">
             A personal rehearsal tool for actors. Load your script, assign
@@ -894,7 +897,17 @@ export default function AboutPage() {
       <div>
         <h1 className="text-3xl font-bold text-light">About</h1>
         <p className="text-muted text-sm mt-1">
-          Theater Rehearsal Manager v0.1.0
+          Theater Rehearsal Manager{" "}
+          <span className="font-mono">
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+          </span>
+          {process.env.NEXT_PUBLIC_BUILD_NUMBER !== "local" && (
+            <span className="font-mono text-muted/60">
+              {" "}
+              · build #{process.env.NEXT_PUBLIC_BUILD_NUMBER} (
+              {process.env.NEXT_PUBLIC_GIT_SHA?.slice(0, 7)})
+            </span>
+          )}
         </p>
       </div>
 
