@@ -634,6 +634,36 @@ export function HighlightedContent({
           const { chars, rawPrefix, dialogue } = multiMatchResult;
           currentChar = null;
           currentIsGroup = false;
+
+          // If none of the chars have a color (e.g. "my lines only" is on and
+          // none of these characters are the user's role), render as an
+          // uncolored header — same style as a non-user single-character line.
+          // Use a sentinel currentChar so continuation lines also render
+          // uncolored (colorMap.get(sentinel) → undefined → no color/opacity 0.8)
+          // rather than falling through to the italic stage-direction style.
+          const anyColored = chars.some((c) => colorMap.has(c));
+          if (!anyColored) {
+            currentMultiChars = [];
+            currentChar = "\x00"; // sentinel: truthy, never in colorMap
+            return (
+              <div key={i}>
+                <div
+                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">{rawPrefix}:</span>
+                  {editIcon}
+                </div>
+                {dialogue && (
+                  <div style={{ opacity: 0.8 }} className="pl-3">
+                    {dialogue}
+                  </div>
+                )}
+                {isActive && makePanel(i, undefined)}
+              </div>
+            );
+          }
+
           currentMultiChars = chars;
           // Tokenize header: find each char name in the original text and
           // colour it; render separators (" & ", " AND ", etc.) in muted text.
