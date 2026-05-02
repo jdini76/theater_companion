@@ -23,32 +23,45 @@ const SONG_TITLE_COLOR: CharColor = {
   bgColor: "hsla(52, 100%, 68%, 0.12)",
 };
 
-// 12 colors distributed evenly around the hue wheel (~25-33° apart), each in a
-// distinct perceptual region. No near-duplicates. Tuned for dark backgrounds.
-// Hues: 4, 28, 52, 85, 113, 142, 175, 200, 228, 268, 305, 335
-const CHAR_PALETTE: CharColor[] = [
-  { color: "hsl(4,   82%, 65%)", bgColor: "hsla(4,   82%, 65%, 0.12)" }, // red
-  { color: "hsl(28,  88%, 62%)", bgColor: "hsla(28,  88%, 62%, 0.12)" }, // orange
-  { color: "hsl(52,  80%, 58%)", bgColor: "hsla(52,  80%, 58%, 0.12)" }, // yellow
-  { color: "hsl(85,  55%, 58%)", bgColor: "hsla(85,  55%, 58%, 0.12)" }, // lime
-  { color: "hsl(142, 56%, 58%)", bgColor: "hsla(142, 56%, 58%, 0.12)" }, // green
-  { color: "hsl(175, 62%, 56%)", bgColor: "hsla(175, 62%, 56%, 0.12)" }, // teal
-  { color: "hsl(200, 78%, 64%)", bgColor: "hsla(200, 78%, 64%, 0.12)" }, // sky blue
-  { color: "hsl(228, 68%, 70%)", bgColor: "hsla(228, 68%, 70%, 0.12)" }, // indigo
-  { color: "hsl(268, 64%, 68%)", bgColor: "hsla(268, 64%, 68%, 0.12)" }, // purple
-  { color: "hsl(305, 62%, 68%)", bgColor: "hsla(305, 62%, 68%, 0.12)" }, // magenta
-  { color: "hsl(335, 72%, 66%)", bgColor: "hsla(335, 72%, 66%, 0.12)" }, // rose
-  { color: "hsl(113, 50%, 57%)", bgColor: "hsla(113, 50%, 57%, 0.12)" }, // yellow-green
+// Golden angle (~137.5°) hue rotation for maximum hue spread across any cast size.
+//
+// VARIANT CYCLE (k=4): With 4 S/L variants, same-variant characters are always
+// 4 × 137.5° = 550° → 190° apart in hue (near-complementary). k=3 gave only
+// 52.5° — too close. k=4 is the sweet spot.
+//
+// PERCEPTUAL CORRECTIONS: The human eye has unequal hue sensitivity. Equal hue
+// spacing in HSL does NOT mean equal perceived difference:
+//   • Yellow-green (55–110°): appears brighter/glaring → darken by dropping L
+//   • Blue-indigo (210–255°): reads darker than other hues → raise L slightly
+//   • Cyan-teal (158–205°): can look washed-out → boost S
+// These corrections keep perceived brightness roughly uniform across all hues.
+const GOLDEN_ANGLE = 137.508; // degrees — 360° × (1 − 1/φ)
+const CHAR_VARIANTS: { s: number; l: number }[] = [
+  { s: 80, l: 63 }, // standard
+  { s: 91, l: 49 }, // vivid-dark
+  { s: 55, l: 76 }, // light-muted
+  { s: 86, l: 57 }, // vivid-medium
 ];
+
+function perceptualCorrection(hue: number): { ds: number; dl: number } {
+  if (hue >= 55 && hue < 110) return { ds: 0, dl: -10 }; // yellow-green: darken
+  if (hue >= 210 && hue < 255) return { ds: 0, dl: +8 }; // blue-indigo: lighten
+  if (hue >= 158 && hue < 205) return { ds: +10, dl: 0 }; // cyan-teal: vivify
+  return { ds: 0, dl: 0 };
+}
 
 export function buildCharColorMap(names: string[]): Map<string, CharColor> {
   const map = new Map<string, CharColor>();
-  const N = CHAR_PALETTE.length; // 12
-  // Stride 7 is coprime with 12, so it visits all 12 palette slots before repeating.
-  // This ensures alphabetically adjacent names get maximally different hues rather
-  // than neighboring ones (which look similar on screen).
   [...names].sort().forEach((name, i) => {
-    map.set(name.toUpperCase(), CHAR_PALETTE[(i * 7) % N]);
+    const hue = Math.round((i * GOLDEN_ANGLE) % 360);
+    const { s: baseS, l: baseL } = CHAR_VARIANTS[i % CHAR_VARIANTS.length];
+    const { ds, dl } = perceptualCorrection(hue);
+    const s = Math.min(95, Math.max(40, baseS + ds));
+    const l = Math.min(80, Math.max(40, baseL + dl));
+    map.set(name.toUpperCase(), {
+      color: `hsl(${hue}, ${s}%, ${l}%)`,
+      bgColor: `hsla(${hue}, ${s}%, ${l}%, 0.12)`,
+    });
   });
   return map;
 }
@@ -75,6 +88,68 @@ export function matchCharInLine(
     const firstName = char.split(" ")[0];
     if (firstName && firstName !== char && isMatch(upper, firstName)) {
       return { char, prefix: firstName };
+    }
+  }
+
+  return null;
+}
+
+function tryMatchAllParts(
+  parts: string[],
+  charSet: Set<string>,
+): string[] | null {
+  const result: string[] = [];
+  for (const raw of parts) {
+    const p = raw.trim();
+    if (!p) return null;
+    if (charSet.has(p)) {
+      result.push(p);
+      continue;
+    }
+    let found = false;
+    for (const char of charSet) {
+      if (char === p || char.startsWith(p + " ")) {
+        result.push(char);
+        found = true;
+        break;
+      }
+    }
+    if (!found) return null;
+  }
+  return result;
+}
+
+const MULTI_CHAR_SEP = /\s*[&/]\s*|\s+AND\s+/i;
+
+// Detect headers with multiple characters (e.g. "ANNIE & GRACE:" or "TOM AND JERRY:").
+// Returns the canonical (uppercase) char names and any inline dialogue after the colon.
+export function matchMultiCharInLine(
+  line: string,
+  charSet: Set<string>,
+): { chars: string[]; rawPrefix: string; dialogue: string | null } | null {
+  const trimmed = line.trim();
+  const colonIdx = trimmed.indexOf(":");
+  if (colonIdx === -1) return null;
+
+  const rawPrefix = trimmed.slice(0, colonIdx);
+  const upperPrefix = rawPrefix.toUpperCase();
+  const afterColon = trimmed.slice(colonIdx + 1).trim();
+
+  // Primary separators: &  /  AND
+  const primaryParts = upperPrefix.split(MULTI_CHAR_SEP);
+  if (primaryParts.length >= 2) {
+    const matched = tryMatchAllParts(primaryParts, charSet);
+    if (matched && matched.length >= 2) {
+      return { chars: matched, rawPrefix, dialogue: afterColon || null };
+    }
+  }
+
+  // Comma separator — only treat as multi-char when ALL parts match known characters
+  const commaParts = upperPrefix.split(/\s*,\s*/);
+  if (commaParts.length >= 2) {
+    const matched = tryMatchAllParts(commaParts, charSet);
+    if (matched && matched.length >= 2) {
+      return { chars: matched, rawPrefix, dialogue: afterColon || null };
     }
   }
 
@@ -365,6 +440,7 @@ export function HighlightedContent({
   const lines = content.split("\n");
   let currentChar: string | null = null;
   let currentIsGroup = false;
+  let currentMultiChars: string[] = [];
 
   const parenStageLines = new Set<number>();
   {
@@ -414,6 +490,7 @@ export function HighlightedContent({
         if (!trimmed) {
           currentChar = null;
           currentIsGroup = false;
+          currentMultiChars = [];
           return <div key={i} className="h-2" />;
         }
 
@@ -427,6 +504,7 @@ export function HighlightedContent({
           if (override.kind === "song-title") {
             currentChar = null;
             currentIsGroup = false;
+            currentMultiChars = [];
             return (
               <div key={i}>
                 <div
@@ -448,6 +526,7 @@ export function HighlightedContent({
           if (override.kind === "group") {
             currentChar = null;
             currentIsGroup = true;
+            currentMultiChars = [];
             const { header, dialogue } = splitAtColon("", trimmed);
             return (
               <div key={i}>
@@ -477,6 +556,7 @@ export function HighlightedContent({
           if (override.kind === "header") {
             currentIsGroup = false;
             currentChar = override.char.toUpperCase();
+            currentMultiChars = [];
             const color = colorMap.get(override.char.toUpperCase());
             const { header, dialogue } = splitAtColon(override.char, trimmed);
             return (
@@ -549,11 +629,76 @@ export function HighlightedContent({
           );
         }
 
+        const multiMatchResult = matchMultiCharInLine(line, charSet);
+        if (multiMatchResult) {
+          const { chars, rawPrefix, dialogue } = multiMatchResult;
+          currentChar = null;
+          currentIsGroup = false;
+          currentMultiChars = chars;
+          // Tokenize header: find each char name in the original text and
+          // colour it; render separators (" & ", " AND ", etc.) in muted text.
+          const upperPrefix = rawPrefix.toUpperCase();
+          const segs: { text: string; color?: CharColor }[] = [];
+          let pos = 0;
+          for (const char of chars) {
+            const idx = upperPrefix.indexOf(char, pos);
+            if (idx === -1) continue;
+            if (idx > pos) segs.push({ text: rawPrefix.slice(pos, idx) });
+            segs.push({
+              text: rawPrefix.slice(idx, idx + char.length),
+              color: colorMap.get(char),
+            });
+            pos = idx + char.length;
+          }
+          if (pos < rawPrefix.length) segs.push({ text: rawPrefix.slice(pos) });
+          return (
+            <div key={i}>
+              <div
+                className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                onClick={toggle}
+              >
+                <span className="flex-1">
+                  {segs.map((seg, si) =>
+                    seg.color ? (
+                      <span
+                        key={si}
+                        style={{
+                          color: seg.color.color,
+                          backgroundColor: seg.color.bgColor,
+                        }}
+                        className="rounded-sm px-0.5"
+                      >
+                        {seg.text}
+                      </span>
+                    ) : (
+                      <span key={si} className="opacity-50">
+                        {seg.text}
+                      </span>
+                    ),
+                  )}
+                  <span className="opacity-50">:</span>
+                </span>
+                {editIcon}
+              </div>
+              {dialogue && (
+                <div
+                  style={{ color: GROUP_COLOR.color, opacity: 0.85 }}
+                  className="pl-3"
+                >
+                  {dialogue}
+                </div>
+              )}
+              {isActive && makePanel(i, undefined)}
+            </div>
+          );
+        }
+
         const matchResult = matchCharInLine(line, charSet);
         if (matchResult) {
           const { char: matched, prefix } = matchResult;
           currentIsGroup = false;
           currentChar = matched;
+          currentMultiChars = [];
           const color = colorMap.get(matched);
           const { header, dialogue } = splitAtColon(prefix, trimmed);
           return (
@@ -579,7 +724,7 @@ export function HighlightedContent({
           );
         }
 
-        if (currentIsGroup) {
+        if (currentIsGroup || currentMultiChars.length > 0) {
           return (
             <div key={i}>
               <div

@@ -33,6 +33,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     deleteCharacter,
     getVoiceConfig,
     getProjectCharacters,
+    setMyRole,
   } = useVoice();
   const { getProjectScenes } = useScenes();
   const { navigateToScene } = useRehearsalNav();
@@ -235,17 +236,32 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     <div className="card flex flex-col flex-1 space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-light">
-          {character.characterName}
-        </h2>
-        {character.actorName && (
-          <p className="text-muted text-sm mt-0.5">{character.actorName}</p>
-        )}
-        {character.category && (
-          <p className="text-xs text-accent-cyan mt-0.5">
-            {character.category}
-          </p>
-        )}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold text-light">
+              {character.characterName}
+            </h2>
+            {character.actorName && (
+              <p className="text-muted text-sm mt-0.5">{character.actorName}</p>
+            )}
+            {character.category && (
+              <p className="text-xs text-accent-cyan mt-0.5">
+                {character.category}
+              </p>
+            )}
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer mt-1 flex-shrink-0 select-none">
+            <input
+              type="checkbox"
+              checked={!!character.isMyRole}
+              onChange={(e) =>
+                setMyRole(character.id, character.projectId, e.target.checked)
+              }
+              className="accent-accent-cyan w-4 h-4"
+            />
+            <span className="text-sm text-muted">My role</span>
+          </label>
+        </div>
       </div>
 
       {/* Tabs */}

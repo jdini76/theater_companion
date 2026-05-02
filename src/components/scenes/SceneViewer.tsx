@@ -5,6 +5,7 @@ import { Scene } from "@/types/scene";
 // import { Button } from "@/components/ui/Button";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { extractSceneCharacters } from "@/lib/scenes";
 import {
   type LineOverride,
@@ -77,6 +78,10 @@ function useLineOverrides(sceneId: string) {
 export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const [isCopied, setIsCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [highlightMyOnly, setHighlightMyOnly] = useLocalStorage(
+    "theater_scene_highlight_my_only",
+    false,
+  );
   const menuRef = useRef<HTMLDivElement>(null);
   const { getProjectCharacters } = useVoice();
   const { navigateToCharacter } = useRehearsalNav();
@@ -84,6 +89,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
   const { overrides, assign } = useLineOverrides(scene.id);
 
   const projectCharacters = getProjectCharacters(projectId);
+  const myRoleChars = projectCharacters.filter((c) => c.isMyRole);
   const projectCast = projectCharacters.map((c) => c.characterName);
   const sceneChars = scene.characters ?? [];
 
@@ -220,6 +226,20 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
     allCharacters,
   };
 
+  // When "highlight my lines only" is on, filter the colorMap so only the
+  // user's role(s) lines get coloured. We always pass allNames as characters
+  // so that non-user character headers are still detected — this prevents
+  // currentChar from "leaking" the user's color onto the next character's lines.
+  const myRoleNames: string[] = myRoleChars.flatMap((c) => [
+    c.characterName.toUpperCase(),
+    ...(c.aliases ?? []).map((a) => a.toUpperCase()),
+  ]);
+  const myRoleNamesSet = new Set(myRoleNames);
+  const displayColorMap =
+    highlightMyOnly && myRoleNames.length > 0
+      ? new Map([...colorMap].filter(([k]) => myRoleNamesSet.has(k)))
+      : colorMap;
+
   const songs = scene.songs ?? [];
 
   return (
@@ -277,9 +297,9 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
         </div>
       </div>
 
-      {/* Character tags */}
+      {/* Character tags + My lines toggle */}
       {sceneCharacters.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {sceneCharacters.map((char) => {
             const color = colorMap.get(char);
             const projectChar = getProjectCharacters(projectId).find(
@@ -315,6 +335,19 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
               </span>
             );
           })}
+
+          {/* My lines only toggle */}
+          {myRoleChars.length > 0 && (
+            <label className="ml-auto flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0">
+              <input
+                type="checkbox"
+                checked={highlightMyOnly}
+                onChange={(e) => setHighlightMyOnly(e.target.checked)}
+                className="accent-accent-cyan w-3.5 h-3.5"
+              />
+              <span className="text-xs text-muted">My lines only</span>
+            </label>
+          )}
         </div>
       )}
 
@@ -337,7 +370,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
         <HighlightedContent
           content={scene.content}
           characters={allNames}
-          colorMap={colorMap}
+          colorMap={displayColorMap}
           overrides={overrides}
           onAssign={handleAssign}
           maxHeight="max-h-[calc(160vh-20rem)]"

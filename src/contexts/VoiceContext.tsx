@@ -1,7 +1,12 @@
 "use client";
 
 import React, { createContext, useContext, ReactNode } from "react";
-import { VoiceConfig, CharacterRole, VoiceContextType, CharacterImportData } from "@/types/voice";
+import {
+  VoiceConfig,
+  CharacterRole,
+  VoiceContextType,
+  CharacterImportData,
+} from "@/types/voice";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
   createVoiceConfig as createVoiceConfigUtil,
@@ -18,21 +23,20 @@ const VoiceContext = createContext<VoiceContextType | undefined>(undefined);
 export function VoiceProvider({ children }: { children: ReactNode }) {
   const [voiceConfigs, setVoiceConfigs] = useLocalStorage<VoiceConfig[]>(
     "theater_voice_configs",
-    []
+    [],
   );
   const [characters, setCharacters] = useLocalStorage<CharacterRole[]>(
     "theater_characters",
-    []
+    [],
   );
-  const [currentCharacterId, setCurrentCharacterId] = useLocalStorage<string | null>(
-    "theater_current_character_id",
-    null
-  );
+  const [currentCharacterId, setCurrentCharacterId] = useLocalStorage<
+    string | null
+  >("theater_current_character_id", null);
 
   const createVoiceConfig = (
     characterName: string,
     voiceName: string,
-    options?: { rate?: number; pitch?: number; volume?: number }
+    options?: { rate?: number; pitch?: number; volume?: number },
   ): VoiceConfig => {
     const newConfig = createVoiceConfigUtil(characterName, voiceName, options);
     setVoiceConfigs((prev) => [...prev, newConfig]);
@@ -41,7 +45,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
   const updateVoiceConfig = (
     id: string,
-    updates: Partial<Omit<VoiceConfig, "id" | "characterName" | "createdAt">>
+    updates: Partial<Omit<VoiceConfig, "id" | "characterName" | "createdAt">>,
   ): void => {
     const config = voiceConfigs.find((c) => c.id === id);
     if (!config) {
@@ -65,20 +69,28 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     return voiceConfigs.find((c) => c.id === id) || null;
   };
 
-  const getVoiceConfigByCharacter = (characterName: string): VoiceConfig | null => {
+  const getVoiceConfigByCharacter = (
+    characterName: string,
+  ): VoiceConfig | null => {
     const upper = characterName.trim().toUpperCase();
     // Exact match first
-    const exact = voiceConfigs.find((c) => c.characterName.toUpperCase() === upper);
+    const exact = voiceConfigs.find(
+      (c) => c.characterName.toUpperCase() === upper,
+    );
     if (exact) return exact;
     // Fuzzy: first-name / prefix match
-    return voiceConfigs.find((c) => characterNamesMatch(c.characterName, characterName)) || null;
+    return (
+      voiceConfigs.find((c) =>
+        characterNamesMatch(c.characterName, characterName),
+      ) || null
+    );
   };
 
   const createCharacter = (
     projectId: string,
     characterName: string,
     description?: string,
-    actorName?: string
+    actorName?: string,
   ): CharacterRole => {
     const validation = validateCharacterName(characterName);
     if (!validation.valid) {
@@ -89,12 +101,15 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       projectId,
       characterName,
       description,
-      actorName
+      actorName,
     );
 
     // Auto-create default voice config
     const voiceConfig = createVoiceConfig(characterName, "Default");
-    const characterWithVoice = { ...newCharacter, voiceConfigId: voiceConfig.id };
+    const characterWithVoice = {
+      ...newCharacter,
+      voiceConfigId: voiceConfig.id,
+    };
 
     setCharacters((prev) => [...prev, characterWithVoice]);
     return characterWithVoice;
@@ -102,7 +117,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
 
   const updateCharacter = (
     id: string,
-    updates: Partial<Omit<CharacterRole, "id" | "projectId" | "createdAt">>
+    updates: Partial<Omit<CharacterRole, "id" | "projectId" | "createdAt">>,
   ): void => {
     const character = characters.find((c) => c.id === id);
     if (!character) {
@@ -133,9 +148,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const getProjectCharacters = (projectId: string): CharacterRole[] => {
     return characters
       .filter((c) => c.projectId === projectId)
-      .sort((a, b) =>
-        a.characterName.localeCompare(b.characterName)
-      );
+      .sort((a, b) => a.characterName.localeCompare(b.characterName));
   };
 
   const replaceProjectCharacters = (
@@ -234,6 +247,20 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     return characters.find((c) => c.id === currentCharacterId) || null;
   };
 
+  const setMyRole = (
+    characterId: string,
+    projectId: string,
+    checked: boolean,
+  ): void => {
+    setCharacters((prev) =>
+      prev.map((c) => {
+        if (c.projectId !== projectId || c.id !== characterId) return c;
+        if (!!c.isMyRole === checked) return c;
+        return { ...c, isMyRole: checked || undefined };
+      }),
+    );
+  };
+
   return (
     <VoiceContext.Provider
       value={{
@@ -253,6 +280,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         replaceProjectCharacters,
         setCurrentCharacter: setCurrentCharacterById,
         getCurrentCharacter,
+        setMyRole,
       }}
     >
       {children}

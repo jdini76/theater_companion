@@ -27,20 +27,23 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(!!currentCharacterId);
   const [searchQuery, setSearchQuery] = useState("");
+  const [myRoleOnly, setMyRoleOnly] = useState(false);
 
   const characters = getProjectCharacters(projectId);
   const selectedChar =
     characters.find((c) => c.id === currentCharacterId) ?? null;
+  const hasMyRoles = characters.some((c) => c.isMyRole);
 
   const filteredCharacters = useMemo(() => {
+    let list = myRoleOnly ? characters.filter((c) => c.isMyRole) : characters;
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return characters;
-    return characters.filter(
+    if (!q) return list;
+    return list.filter(
       (c) =>
         c.characterName.toLowerCase().includes(q) ||
         (c.actorName && c.actorName.toLowerCase().includes(q)),
     );
-  }, [characters, searchQuery]);
+  }, [characters, searchQuery, myRoleOnly]);
 
   const handleSelectCharacter = (characterId: string) => {
     setCurrentCharacter(characterId);
@@ -206,6 +209,20 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
                     </button>
                   )}
                 </div>
+
+                {hasMyRoles && (
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none mb-2 flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={myRoleOnly}
+                      onChange={(e) => setMyRoleOnly(e.target.checked)}
+                      className="accent-accent-cyan w-3.5 h-3.5"
+                    />
+                    <span className="text-xs text-muted">
+                      My characters only
+                    </span>
+                  </label>
+                )}
 
                 {characters.length === 0 ? (
                   <div className="text-center py-8">

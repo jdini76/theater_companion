@@ -24,6 +24,7 @@ export interface CharacterRole {
   voiceConfigId?: string;
   aliases?: string[];
   category?: string;
+  isMyRole?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,10 +90,15 @@ export interface VoiceContextType {
   ) => void;
   deleteCharacter: (id: string) => void;
   getProjectCharacters: (projectId: string) => CharacterRole[];
-  importCastCharacters: (projectId: string, data: CharacterImportData[]) => CharacterRole[];
-  replaceProjectCharacters: (projectId: string, data: CharacterImportData[]) => CharacterRole[];
+  importCastCharacters: (
+    projectId: string,
+    data: CharacterImportData[],
+  ) => CharacterRole[];
+  replaceProjectCharacters: (
+    projectId: string,
+    data: CharacterImportData[],
+  ) => CharacterRole[];
   setCurrentCharacter: (characterId: string) => void;
   getCurrentCharacter: () => CharacterRole | null;
+  setMyRole: (characterId: string, projectId: string, checked: boolean) => void;
 }
-
-
