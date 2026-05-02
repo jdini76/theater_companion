@@ -420,6 +420,7 @@ interface HighlightedContentProps {
   overrides?: Map<number, LineOverride>;
   onAssign?: (lineIdx: number, assignment: LineOverride | undefined) => void;
   maxHeight?: string;
+  textSize?: string;
   assignPanelProps?: {
     sceneCharacters: string[];
     allCharacters: string[];
@@ -433,6 +434,7 @@ export function HighlightedContent({
   overrides = new Map(),
   onAssign,
   maxHeight = "max-h-80",
+  textSize = "text-xs",
   assignPanelProps,
 }: HighlightedContentProps) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
@@ -483,7 +485,7 @@ export function HighlightedContent({
 
   return (
     <div
-      className={`font-mono text-xs ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}
+      className={`font-mono ${textSize} ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}
     >
       {lines.map((line, i) => {
         const trimmed = line.trim();

@@ -82,6 +82,10 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
     "theater_scene_highlight_my_only",
     false,
   );
+  const [scriptTextSize, setScriptTextSize] = useLocalStorage<string>(
+    "theater_scene_text_size",
+    "text-xs",
+  );
   const menuRef = useRef<HTMLDivElement>(null);
   const { getProjectCharacters } = useVoice();
   const { navigateToCharacter } = useRehearsalNav();
@@ -348,6 +352,40 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
               <span className="text-xs text-muted">My lines only</span>
             </label>
           )}
+
+          {/* Text size control */}
+          <div
+            className={`flex items-center gap-0.5 flex-shrink-0 ${
+              myRoleChars.length === 0 ? "ml-auto" : ""
+            }`}
+          >
+            {(["text-xs", "text-sm", "text-base"] as const).map((size) => (
+              <button
+                key={size}
+                onClick={() => setScriptTextSize(size)}
+                title={
+                  size === "text-xs"
+                    ? "Small"
+                    : size === "text-sm"
+                      ? "Medium"
+                      : "Large"
+                }
+                className={`px-1 rounded leading-none transition-colors ${
+                  scriptTextSize === size
+                    ? "text-light bg-white/15"
+                    : "text-muted hover:text-light"
+                } ${
+                  size === "text-xs"
+                    ? "text-xs"
+                    : size === "text-sm"
+                      ? "text-sm"
+                      : "text-base"
+                }`}
+              >
+                A
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -374,6 +412,7 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
           overrides={overrides}
           onAssign={handleAssign}
           maxHeight="max-h-[calc(160vh-20rem)]"
+          textSize={scriptTextSize}
           assignPanelProps={assignPanelProps}
         />
       </div>
