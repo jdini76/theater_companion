@@ -7,9 +7,9 @@
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 const PDFJS_CDN_URL =
-  "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/legacy/build/pdf.min.mjs";
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.min.mjs";
 const PDFJS_WORKER_CDN_URL =
-  "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/legacy/build/pdf.worker.min.mjs";
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.min.mjs";
 
 interface PdfjsLib {
   getDocument: (params: { data: ArrayBuffer }) => {
@@ -35,17 +35,39 @@ interface PdfPage {
   }>;
 }
 
+let pdfjsWorkerBlobUrl: string | null = null;
+async function getWorkerSrc(): Promise<string> {
+  if (pdfjsWorkerBlobUrl) return pdfjsWorkerBlobUrl;
+  try {
+    const res = await fetch(PDFJS_WORKER_CDN_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const code = await res.text();
+    const blob = new Blob([code], { type: "text/javascript" });
+    pdfjsWorkerBlobUrl = URL.createObjectURL(blob);
+    return pdfjsWorkerBlobUrl;
+  } catch {
+    // Fetch failed — fall back to direct CDN URL
+    return PDFJS_WORKER_CDN_URL;
+  }
+}
+
 let pdfjsPromise: Promise<PdfjsLib> | null = null;
 
 function loadPdfjs(): Promise<PdfjsLib> {
   if (pdfjsPromise) return pdfjsPromise;
 
-  pdfjsPromise = import(
-    /* webpackIgnore: true */
-    PDFJS_CDN_URL
-  ).then((mod: PdfjsLib) => {
-    mod.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN_URL;
-    return mod;
+  pdfjsPromise = Promise.all([
+    import(
+      /* webpackIgnore: true */
+      PDFJS_CDN_URL
+    ) as Promise<unknown>,
+    getWorkerSrc(),
+  ]).then(([mod, workerSrc]) => {
+    // iOS Safari ESM imports may expose the library on .default
+    const raw = mod as Record<string, unknown>;
+    const lib = (raw.getDocument ? raw : raw.default) as PdfjsLib;
+    lib.GlobalWorkerOptions.workerSrc = workerSrc as string;
+    return lib;
   });
 
   return pdfjsPromise;
