@@ -9,14 +9,22 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 
 interface SceneListProps {
   projectId: string;
+  filteredScenes: Scene[];
   selectedSceneId: string | null;
   onSelectScene: (scene: Scene) => void;
+  onlyMyScenes: boolean;
+  onOnlyMyScenesChange: (v: boolean) => void;
+  hasMyRole: boolean;
 }
 
 export function SceneList({
   projectId,
+  filteredScenes,
   selectedSceneId,
   onSelectScene,
+  onlyMyScenes,
+  onOnlyMyScenesChange,
+  hasMyRole,
 }: SceneListProps) {
   const { getProjectScenes, deleteScene, deleteScenes, reorderScenes } =
     useScenes();
@@ -25,25 +33,28 @@ export function SceneList({
     new Set(),
   );
 
-  const scenes = getProjectScenes(projectId);
+  const allScenes = getProjectScenes(projectId);
+  const projectCharacters = getProjectCharacters(projectId);
   const knownCast = useMemo(
-    () => getProjectCharacters(projectId).map((c) => c.characterName),
-    [getProjectCharacters, projectId],
+    () => projectCharacters.map((c) => c.characterName),
+    [projectCharacters],
   );
 
   const sceneCharacters = useMemo(() => {
     const cast = knownCast.length > 0 ? knownCast : undefined;
     const map = new Map<string, string[]>();
-    for (const scene of scenes) {
+    for (const scene of allScenes) {
       map.set(
         scene.id,
         scene.characters ?? extractSceneCharacters(scene.content, cast),
       );
     }
     return map;
-  }, [scenes, knownCast]);
+  }, [allScenes, knownCast]);
 
-  if (scenes.length === 0) {
+  const scenes = filteredScenes;
+
+  if (allScenes.length === 0) {
     return (
       <div className="text-center py-8">
         <p className="text-muted text-sm">No scenes yet</p>
@@ -95,6 +106,19 @@ export function SceneList({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Only my scenes filter */}
+      {hasMyRole && (
+        <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer hover:text-light mb-2 select-none">
+          <input
+            type="checkbox"
+            checked={onlyMyScenes}
+            onChange={(e) => onOnlyMyScenesChange(e.target.checked)}
+            className="accent-accent-cyan w-3.5 h-3.5"
+          />
+          Only my scenes
+        </label>
+      )}
+
       {/* Bulk-action bar — only visible when something is checked */}
       <div
         className={`flex items-center justify-between mb-2 transition-all ${selectedForDelete.size > 0 ? "opacity-100" : "opacity-0 pointer-events-none h-0 mb-0 overflow-hidden"}`}

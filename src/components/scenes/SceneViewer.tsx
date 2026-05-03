@@ -12,13 +12,23 @@ import {
   buildCharColorMap,
   HighlightedContent,
 } from "./SceneHighlight";
-import { MoreHorizontal } from "lucide-react";
+import {
+  MoreHorizontal,
+  Maximize2,
+  Minimize2,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 
 interface SceneViewerProps {
   scene: Scene;
   projectId: string;
   onEdit?: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 }
 
 function useLineOverrides(sceneId: string) {
@@ -75,9 +85,18 @@ function useLineOverrides(sceneId: string) {
   return { overrides, assign };
 }
 
-export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
+export function SceneViewer({
+  scene,
+  projectId,
+  onEdit,
+  onPrev,
+  onNext,
+  hasPrev,
+  hasNext,
+}: SceneViewerProps) {
   const [isCopied, setIsCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [highlightMyOnly, setHighlightMyOnly] = useLocalStorage(
     "theater_scene_highlight_my_only",
     false,
@@ -146,6 +165,15 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
       allNames.push(name);
     }
   }
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -264,6 +292,29 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
 
         {/* Ellipsis menu */}
         <div className="relative flex-shrink-0" ref={menuRef}>
+          {/* Prev / Next nav */}
+          {(onPrev || onNext) && (
+            <div className="inline-flex items-center gap-0.5 mr-1">
+              <button
+                onClick={onPrev}
+                disabled={!hasPrev}
+                title="Previous scene"
+                className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
+                aria-label="Previous scene"
+              >
+                <ChevronUp size={16} />
+              </button>
+              <button
+                onClick={onNext}
+                disabled={!hasNext}
+                title="Next scene"
+                className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
+                aria-label="Next scene"
+              >
+                <ChevronDown size={16} />
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setMenuOpen((v) => !v)}
             className="p-1.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
@@ -385,6 +436,14 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
                 A
               </button>
             ))}
+            <button
+              onClick={() => setIsFullscreen(true)}
+              title="Fullscreen"
+              className="ml-1 p-0.5 rounded text-muted hover:text-light transition-colors"
+              aria-label="Expand to fullscreen"
+            >
+              <Maximize2 size={13} />
+            </button>
           </div>
         </div>
       )}
@@ -416,6 +475,61 @@ export function SceneViewer({ scene, projectId, onEdit }: SceneViewerProps) {
           assignPanelProps={assignPanelProps}
         />
       </div>
+
+      {/* Fullscreen overlay */}
+      {isFullscreen && (
+        <div className="fixed inset-0 z-50 bg-dark-base flex flex-col">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
+            <h2 className="text-lg font-bold text-light truncate">
+              {scene.title}
+            </h2>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {(onPrev || onNext) && (
+                <>
+                  <button
+                    onClick={onPrev}
+                    disabled={!hasPrev}
+                    title="Previous scene"
+                    className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
+                    aria-label="Previous scene"
+                  >
+                    <ChevronUp size={16} />
+                  </button>
+                  <button
+                    onClick={onNext}
+                    disabled={!hasNext}
+                    title="Next scene"
+                    className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
+                    aria-label="Next scene"
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setIsFullscreen(false)}
+                title="Exit fullscreen (Esc)"
+                className="p-1.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+                aria-label="Exit fullscreen"
+              >
+                <Minimize2 size={18} />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 p-4">
+            <HighlightedContent
+              content={scene.content}
+              characters={allNames}
+              colorMap={displayColorMap}
+              overrides={overrides}
+              onAssign={handleAssign}
+              maxHeight="max-h-[calc(100vh-5rem)]"
+              textSize={scriptTextSize}
+              assignPanelProps={assignPanelProps}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
