@@ -122,11 +122,17 @@ function tryMatchAllParts(
 const MULTI_CHAR_SEP = /\s*[&/]\s*|\s+AND\s+/i;
 
 // Detect headers with multiple characters (e.g. "ANNIE & GRACE:" or "TOM AND JERRY:").
-// Returns the canonical (uppercase) char names and any inline dialogue after the colon.
+// Returns the canonical (uppercase) char names, the original text parts as they appear
+// in the prefix (used for positional tokenization), and any inline dialogue after the colon.
 export function matchMultiCharInLine(
   line: string,
   charSet: Set<string>,
-): { chars: string[]; rawPrefix: string; dialogue: string | null } | null {
+): {
+  chars: string[];
+  textParts: string[];
+  rawPrefix: string;
+  dialogue: string | null;
+} | null {
   const trimmed = line.trim();
   const colonIdx = trimmed.indexOf(":");
   if (colonIdx === -1) return null;
@@ -140,7 +146,12 @@ export function matchMultiCharInLine(
   if (primaryParts.length >= 2) {
     const matched = tryMatchAllParts(primaryParts, charSet);
     if (matched && matched.length >= 2) {
-      return { chars: matched, rawPrefix, dialogue: afterColon || null };
+      return {
+        chars: matched,
+        textParts: primaryParts.map((p) => p.trim()).filter(Boolean),
+        rawPrefix,
+        dialogue: afterColon || null,
+      };
     }
   }
 
@@ -149,7 +160,12 @@ export function matchMultiCharInLine(
   if (commaParts.length >= 2) {
     const matched = tryMatchAllParts(commaParts, charSet);
     if (matched && matched.length >= 2) {
-      return { chars: matched, rawPrefix, dialogue: afterColon || null };
+      return {
+        chars: matched,
+        textParts: commaParts.map((p) => p.trim()).filter(Boolean),
+        rawPrefix,
+        dialogue: afterColon || null,
+      };
     }
   }
 
@@ -633,7 +649,7 @@ export function HighlightedContent({
 
         const multiMatchResult = matchMultiCharInLine(line, charSet);
         if (multiMatchResult) {
-          const { chars, rawPrefix, dialogue } = multiMatchResult;
+          const { chars, textParts, rawPrefix, dialogue } = multiMatchResult;
           currentChar = null;
           currentIsGroup = false;
 
@@ -667,20 +683,24 @@ export function HighlightedContent({
           }
 
           currentMultiChars = chars;
-          // Tokenize header: find each char name in the original text and
-          // colour it; render separators (" & ", " AND ", etc.) in muted text.
+          // Tokenize header: find each name as it appears in the original text
+          // (textParts) and colour it using the canonical name (chars) for the
+          // colorMap lookup. This handles abbreviated names like "JOHN" that
+          // resolve to a longer canonical "JOHN DOE" — searching for "JOHN DOE"
+          // in "JOHN & JANE" would fail, but searching for "JOHN" succeeds.
           const upperPrefix = rawPrefix.toUpperCase();
           const segs: { text: string; color?: CharColor }[] = [];
           let pos = 0;
-          for (const char of chars) {
-            const idx = upperPrefix.indexOf(char, pos);
+          for (let ci = 0; ci < chars.length; ci++) {
+            const part = textParts[ci] ?? chars[ci];
+            const idx = upperPrefix.indexOf(part, pos);
             if (idx === -1) continue;
             if (idx > pos) segs.push({ text: rawPrefix.slice(pos, idx) });
             segs.push({
-              text: rawPrefix.slice(idx, idx + char.length),
-              color: colorMap.get(char),
+              text: rawPrefix.slice(idx, idx + part.length),
+              color: colorMap.get(chars[ci]),
             });
-            pos = idx + char.length;
+            pos = idx + part.length;
           }
           if (pos < rawPrefix.length) segs.push({ text: rawPrefix.slice(pos) });
           return (

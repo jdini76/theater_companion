@@ -6,6 +6,13 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: [],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+      include: ["src/lib/**", "src/components/**", "src/hooks/**"],
+      exclude: ["**/*.test.ts", "**/*.test.tsx"],
+      reportOnFailure: true,
+    },
   },
   resolve: {
     alias: {

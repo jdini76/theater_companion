@@ -17,6 +17,18 @@ const SCENE_HEADING_RE =
   /^(?:#\s*\d+\s*[-\u2013\u2014]\s*\S|ACT\s+(?:ONE|TWO|THREE|I{1,3}V?|\d+)\b|(?:SCENE|scene)\s*\d+[a-z]?\b|(?:Prologue|Epilogue|Interlude)\s*:)/i;
 
 /**
+ * Scene-end and production-end markers (AACT / standard play format).
+ * These appear on their own line to signal the end of a scene or the play
+ * and should be treated as stage directions, not character names.
+ *
+ * Examples:
+ *   CURTAIN   BLACKOUT   LIGHTS OUT   FADE OUT   FADE TO BLACK
+ *   INTERMISSION   THE END   END OF PLAY   END OF ACT I   END.
+ */
+const SCENE_END_MARKER_RE =
+  /^(?:CURTAIN|BLACKOUT|LIGHTS?\s+OUT|FADE\s*(?:OUT|TO\s+(?:BLACK|DARK))|FADEOUT|INTERMISSION|(?:THE\s+)?END(?:\s+OF\s+(?:ACT|PLAY|SCENE)(?:\s+[IVX\d]+)?|\.)?|BLACKOUT\s+AND\s+END(?:\s+OF\s+(?:ACT|PLAY))?)\s*$/i;
+
+/**
  * ALL-CAPS character name on its own line (no colon) — screenplay / CMIYC style.
  * Handles optional trailing stage note: "DOLLAR (overlapping)", "PAULA (exits.)"
  */
@@ -61,6 +73,18 @@ const SONG_CUE_START_RE =
  */
 const SONG_CUE_END_RE =
   /^\((?:spoke(?:n)?|speaking|dialogue\s+resumes?|end\s+of\s+song|song\s+ends?|music\s+(?:ends?|out|stops?))\)$|^\[(?:spoke(?:n)?|end\s+of\s+song|music\s+(?:ends?|out))\]$/i;
+
+/**
+ * Modern-format song cues found in published librettos (e.g. Applause-style).
+ * These use a pronoun before the verb or a fuller phrasing, and may include
+ * a trailing period — patterns not covered by SONG_CUE_START_RE:
+ *
+ *   (She sings.)   (He sings)   (They sing.)   (We sing.)
+ *   (sings the following)   (She sings the following)
+ *   (singing the following)   (She sings along)
+ */
+const MODERN_SONG_CUE_RE =
+  /^\((?:(?:she|he|they|we|i|all)\s+)?sing(?:s|ing)?(?:\s+(?:the\s+following|along|and\s+danc(?:es?|ing)))?\s*\.?\)$/i;
 
 /**
  * Matches a line that is entirely uppercase — used by the post-parse pass
@@ -213,6 +237,14 @@ const NON_CHARACTER_WORDS = new Set([
   "BETCHA'",
   "STEADA",
   "HARK",
+  // AACT / standard play format: scene description headers and end markers
+  // that can appear in ALL CAPS but are never character names
+  "SETTING",
+  "PLACE",
+  "CURTAIN",
+  "BLACKOUT",
+  "FADEOUT",
+  "INTERMISSION",
 ]);
 
 // ── Inline parenthetical helpers ─────────────────────────────────────────────
@@ -795,6 +827,26 @@ export function parseDialogueLines(
       continue;
     }
 
+    // ── Scene-end / production-end marker (AACT format) ────────────
+    // CURTAIN, BLACKOUT, FADE OUT, INTERMISSION, THE END, etc. appear on
+    // their own line to close a scene. Emit as a stage direction rather
+    // than accidentally treating them as character names.
+    if (SCENE_END_MARKER_RE.test(trimmed)) {
+      output.push({
+        lineNumber: lineNumber++,
+        character: "[Stage Direction]",
+        dialogue: trimmed,
+        isStageDirection: true,
+      });
+      lastCharacter = null;
+      lastDialogueIdx = -1;
+      pendingStandaloneChar = null;
+      afterBlank = false;
+      inSongBlock = false;
+      currentSongTitle = null;
+      continue;
+    }
+
     // ── Standalone stage direction ──────────────────────────────────
     if (STANDALONE_STAGE_DIR_RE.test(trimmed)) {
       output.push({
@@ -811,6 +863,9 @@ export function parseDialogueLines(
         inSongBlock = true;
         currentSongTitle =
           (songStartMatch[1] ?? songStartMatch[2] ?? "").trim() || null;
+      } else if (MODERN_SONG_CUE_RE.test(trimmed)) {
+        // Modern-format cue: (She sings.)  (He sings)  (They sing.)  etc.
+        inSongBlock = true;
       } else if (SONG_CUE_END_RE.test(trimmed)) {
         inSongBlock = false;
         currentSongTitle = null;
@@ -932,6 +987,29 @@ export function parseDialogueLines(
       pendingStandaloneChar = null;
       afterBlank = false;
       continue;
+    }
+
+    // ── Modern format: indented ALL-CAPS lyrics ──────────────────────
+    // In modern musical librettos (e.g. Applause-style), song lyrics are
+    // indented with ≥ 4 leading spaces while character names and dialogue
+    // sit at the left margin. When we are already in a song block, any such
+    // indented all-caps line is treated as a lyric line — not a new speaker.
+    if (inSongBlock) {
+      const leadingSpaces = allLines[i].length - allLines[i].trimStart().length;
+      if (leadingSpaces >= 4 && ALL_CAPS_LYRIC_RE.test(trimmed)) {
+        const idx = output.length;
+        const entry: DialogueLine = {
+          lineNumber: lineNumber++,
+          character: lastCharacter ?? "[Song]",
+          dialogue: trimmed,
+          isSong: true,
+        };
+        if (currentSongTitle) entry.songTitle = currentSongTitle;
+        output.push(entry);
+        lastDialogueIdx = idx;
+        afterBlank = false;
+        continue;
+      }
     }
 
     // ── Standalone character name (screenplay / CMIYC format) ───────
