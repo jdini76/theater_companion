@@ -127,14 +127,32 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   const isKokoroMode = ttsSettings?.provider === "kokoro";
 
   useEffect(() => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
     const loadVoices = () => {
-      const available = getAvailableVoices();
-      if (available.length > 0) setVoices(available);
+      const raw = synth.getVoices();
+      if (raw.length > 0)
+        setVoices(
+          raw.map((v) => ({
+            name: v.name,
+            lang: v.lang,
+            voiceURI: v.voiceURI,
+          })),
+        );
     };
+    synth.onvoiceschanged = loadVoices;
+    synth.addEventListener?.("voiceschanged", loadVoices);
     loadVoices();
-    window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
-    return () =>
-      window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
+    const timers = [
+      setTimeout(loadVoices, 100),
+      setTimeout(loadVoices, 500),
+      setTimeout(loadVoices, 1500),
+    ];
+    return () => {
+      timers.forEach(clearTimeout);
+      synth.removeEventListener?.("voiceschanged", loadVoices);
+    };
   }, []);
 
   useEffect(() => {
@@ -591,6 +609,14 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                       {voice.name} ({voice.lang})
                     </option>
                   ))}
+                  {/* If saved voice name no longer matches (e.g. had quality suffix),
+                      show it as a placeholder option so the selector isn't blank */}
+                  {voiceConfig.voiceName &&
+                    !voices.some((v) => v.name === voiceConfig.voiceName) && (
+                      <option value={voiceConfig.voiceName} disabled>
+                        {voiceConfig.voiceName} (not found — please reselect)
+                      </option>
+                    )}
                 </select>
                 <p className="text-muted text-xs mt-1">
                   Select the voice for this character

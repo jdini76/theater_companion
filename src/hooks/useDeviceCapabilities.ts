@@ -15,6 +15,10 @@ function detectDevice(): DeviceType {
   return "desktop";
 }
 
+export function isIOS(): boolean {
+  return detectDevice() === "ios";
+}
+
 export function useDeviceCapabilities() {
   const deviceType = useMemo(() => detectDevice(), []);
   const isMobile = deviceType === "ios" || deviceType === "android";

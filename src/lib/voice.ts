@@ -187,9 +187,20 @@ export function speakText(
     utterance.pitch = voiceConfig.pitch;
     utterance.volume = voiceConfig.volume;
 
-    // Find and set the voice
+    // Find and set the voice — try exact match first, then strip quality
+    // suffixes like "(Enhanced)" or "(Premium)" which iOS doesn't expose
+    // through the Web Speech API even when those variants are downloaded.
     const voices = synth.getVoices();
-    const voice = voices.find((v) => v.name === voiceConfig.voiceName);
+    const normName = (n: string) =>
+      n
+        .replace(/\s*\((enhanced|premium|hd)\)\s*$/i, "")
+        .trim()
+        .toLowerCase();
+    const voice =
+      voices.find((v) => v.name === voiceConfig.voiceName) ??
+      voices.find(
+        (v) => normName(v.name) === normName(voiceConfig.voiceName ?? ""),
+      );
     if (voice) {
       utterance.voice = voice;
     }

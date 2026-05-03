@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { getAvailableLanguages, getAvailableVoices } from "@/lib/voice";
+import { getAvailableVoices } from "@/lib/voice";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
 import {
@@ -32,6 +32,178 @@ import {
   getStorageSummary,
   type ImportedProject,
 } from "@/lib/data-export";
+import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
+
+// ─── Known voices catalogue ────────────────────────────────────────────────
+// Names sourced from actual iOS speechSynthesis.getVoices() output.
+// Enhanced/Premium variants kept for future-proofing; show dimmed if absent.
+const KNOWN_VOICE_LANGS: { code: string; label: string }[] = [
+  { code: "en", label: "English" },
+  { code: "ar", label: "Arabic" },
+  { code: "bg", label: "Bulgarian" },
+  { code: "bn", label: "Bengali" },
+  { code: "ca", label: "Catalan" },
+  { code: "cs", label: "Czech" },
+  { code: "da", label: "Danish" },
+  { code: "de", label: "German" },
+  { code: "el", label: "Greek" },
+  { code: "es", label: "Spanish" },
+  { code: "fi", label: "Finnish" },
+  { code: "fr", label: "French" },
+  { code: "he", label: "Hebrew" },
+  { code: "hi", label: "Hindi" },
+  { code: "hr", label: "Croatian" },
+  { code: "hu", label: "Hungarian" },
+  { code: "id", label: "Indonesian" },
+  { code: "it", label: "Italian" },
+  { code: "ja", label: "Japanese" },
+  { code: "kn", label: "Kannada" },
+  { code: "ko", label: "Korean" },
+  { code: "ms", label: "Malay" },
+  { code: "nb", label: "Norwegian" },
+  { code: "nl", label: "Dutch" },
+  { code: "pl", label: "Polish" },
+  { code: "pt", label: "Portuguese" },
+  { code: "ro", label: "Romanian" },
+  { code: "ru", label: "Russian" },
+  { code: "sk", label: "Slovak" },
+  { code: "sl", label: "Slovenian" },
+  { code: "sv", label: "Swedish" },
+  { code: "ta", label: "Tamil" },
+  { code: "te", label: "Telugu" },
+  { code: "th", label: "Thai" },
+  { code: "tr", label: "Turkish" },
+  { code: "uk", label: "Ukrainian" },
+  { code: "vi", label: "Vietnamese" },
+  { code: "yue", label: "Cantonese" },
+  { code: "zh", label: "Chinese" },
+];
+
+interface KnownVoice {
+  name: string;
+  lang: string;
+}
+const KNOWN_VOICES: KnownVoice[] = [
+  // ── iOS English ───────────────────────────────────────────────────────
+  // Note: iOS Web Speech API returns only the base name regardless of whether
+  // the standard, Enhanced, or Premium version is downloaded. The downloaded
+  // quality tier is used automatically when the voice speaks.
+  { name: "Albert", lang: "en-US" },
+  { name: "Bad News", lang: "en-US" },
+  { name: "Bahh", lang: "en-US" },
+  { name: "Bells", lang: "en-US" },
+  { name: "Boing", lang: "en-US" },
+  { name: "Bubbles", lang: "en-US" },
+  { name: "Cellos", lang: "en-US" },
+  { name: "Fred", lang: "en-US" },
+  { name: "Good News", lang: "en-US" },
+  { name: "Jester", lang: "en-US" },
+  { name: "Junior", lang: "en-US" },
+  { name: "Kathy", lang: "en-US" },
+  { name: "Organ", lang: "en-US" },
+  { name: "Ralph", lang: "en-US" },
+  { name: "Samantha", lang: "en-US" },
+  { name: "Superstar", lang: "en-US" },
+  { name: "Trinoids", lang: "en-US" },
+  { name: "Whisper", lang: "en-US" },
+  { name: "Wobble", lang: "en-US" },
+  { name: "Zarvox", lang: "en-US" },
+  { name: "Daniel", lang: "en-GB" },
+  { name: "Karen", lang: "en-AU" },
+  { name: "Moira", lang: "en-IE" },
+  { name: "Rishi", lang: "en-IN" },
+  { name: "Tessa", lang: "en-ZA" },
+  // ── Chrome / Desktop – English ────────────────────────────────────────
+  { name: "Google US English", lang: "en-US" },
+  { name: "Google UK English Female", lang: "en-GB" },
+  { name: "Google UK English Male", lang: "en-GB" },
+  // ── Windows SAPI ──────────────────────────────────────────────────────
+  { name: "Microsoft David - English (United States)", lang: "en-US" },
+  { name: "Microsoft Zira - English (United States)", lang: "en-US" },
+  { name: "Microsoft Mark - English (United States)", lang: "en-US" },
+  // ── Arabic ───────────────────────────────────────────────────────────
+  { name: "Majed", lang: "ar-001" },
+  // ── Bulgarian ────────────────────────────────────────────────────────
+  { name: "Daria", lang: "bg-BG" },
+  // ── Bengali ──────────────────────────────────────────────────────────
+  { name: "Piya", lang: "bn-IN" },
+  // ── Catalan ──────────────────────────────────────────────────────────
+  { name: "Montse", lang: "ca-ES" },
+  // ── Czech ────────────────────────────────────────────────────────────
+  { name: "Zuzana", lang: "cs-CZ" },
+  // ── Danish ───────────────────────────────────────────────────────────
+  { name: "Sara", lang: "da-DK" },
+  // ── German ───────────────────────────────────────────────────────────
+  { name: "Anna", lang: "de-DE" },
+  // ── Greek ────────────────────────────────────────────────────────────
+  { name: "Melina", lang: "el-GR" },
+  // ── Spanish ──────────────────────────────────────────────────────────
+  { name: "Mónica", lang: "es-ES" },
+  { name: "Paulina", lang: "es-MX" },
+  // ── Finnish ──────────────────────────────────────────────────────────
+  { name: "Satu", lang: "fi-FI" },
+  // ── French ───────────────────────────────────────────────────────────
+  { name: "Amélie", lang: "fr-CA" },
+  { name: "Thomas", lang: "fr-FR" },
+  // ── Hebrew ───────────────────────────────────────────────────────────
+  { name: "Carmit", lang: "he-IL" },
+  // ── Hindi ────────────────────────────────────────────────────────────
+  { name: "Lekha", lang: "hi-IN" },
+  // ── Croatian ─────────────────────────────────────────────────────────
+  { name: "Lana", lang: "hr-HR" },
+  // ── Hungarian ────────────────────────────────────────────────────────
+  { name: "Tünde", lang: "hu-HU" },
+  // ── Indonesian ───────────────────────────────────────────────────────
+  { name: "Damayanti", lang: "id-ID" },
+  // ── Italian ──────────────────────────────────────────────────────────
+  { name: "Alice", lang: "it-IT" },
+  // ── Japanese ─────────────────────────────────────────────────────────
+  { name: "Kyoko", lang: "ja-JP" },
+  // ── Kannada ──────────────────────────────────────────────────────────
+  { name: "Soumya", lang: "kn-IN" },
+  // ── Korean ───────────────────────────────────────────────────────────
+  { name: "Yuna", lang: "ko-KR" },
+  // ── Malay ────────────────────────────────────────────────────────────
+  { name: "Amira", lang: "ms-MY" },
+  // ── Norwegian ────────────────────────────────────────────────────────
+  { name: "Nora", lang: "nb-NO" },
+  // ── Dutch ────────────────────────────────────────────────────────────
+  { name: "Ellen", lang: "nl-BE" },
+  { name: "Xander", lang: "nl-NL" },
+  // ── Polish ───────────────────────────────────────────────────────────
+  { name: "Zosia", lang: "pl-PL" },
+  // ── Portuguese ───────────────────────────────────────────────────────
+  { name: "Joana", lang: "pt-PT" },
+  { name: "Luciana", lang: "pt-BR" },
+  // ── Romanian ─────────────────────────────────────────────────────────
+  { name: "Ioana", lang: "ro-RO" },
+  // ── Russian ──────────────────────────────────────────────────────────
+  { name: "Milena", lang: "ru-RU" },
+  // ── Slovak ───────────────────────────────────────────────────────────
+  { name: "Laura", lang: "sk-SK" },
+  // ── Slovenian ────────────────────────────────────────────────────────
+  { name: "Tina", lang: "sl-SI" },
+  // ── Swedish ──────────────────────────────────────────────────────────
+  { name: "Alva", lang: "sv-SE" },
+  // ── Tamil ────────────────────────────────────────────────────────────
+  { name: "Vani", lang: "ta-IN" },
+  // ── Telugu ───────────────────────────────────────────────────────────
+  { name: "Geeta", lang: "te-IN" },
+  // ── Thai ─────────────────────────────────────────────────────────────
+  { name: "Kanya", lang: "th-TH" },
+  // ── Turkish ──────────────────────────────────────────────────────────
+  { name: "Yelda", lang: "tr-TR" },
+  // ── Ukrainian ────────────────────────────────────────────────────────
+  { name: "Lesya", lang: "uk-UA" },
+  // ── Vietnamese ───────────────────────────────────────────────────────
+  { name: "Linh", lang: "vi-VN" },
+  // ── Cantonese ────────────────────────────────────────────────────────
+  { name: "Sinji", lang: "yue-HK" },
+  // ── Chinese ──────────────────────────────────────────────────────────
+  { name: "Meijia", lang: "zh-TW" },
+  { name: "Tingting", lang: "zh-CN" },
+];
+// ──────────────────────────────────────────────────────────────────────────
 
 const TTS_SETTINGS_KEY = "theater_tts_settings";
 
@@ -403,6 +575,8 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ];
 
 export function SettingsContent() {
+  const { canUseKokoro, deviceType } = useDeviceCapabilities();
+  const isIOSDevice = deviceType === "ios";
   const [activeTab, setActiveTab] = useState<SettingsTab>("voice");
   const [settings, setSettings] = useState<TTSSettings>(DEFAULT_TTS_SETTINGS);
   const [saved, setSaved] = useState(false);
@@ -428,22 +602,56 @@ export function SettingsContent() {
     const loaded = loadTTSSettings();
     return Array.isArray(loaded.voiceLangs) ? loaded.voiceLangs : [];
   });
-  const [browserVoices, setBrowserVoices] = useState(getAvailableVoices());
+  const [browserVoices, setBrowserVoices] = useState<
+    ReturnType<typeof getAvailableVoices>
+  >([]);
 
   useEffect(() => {
-    const updateVoices = () => setBrowserVoices(getAvailableVoices());
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    const updateVoices = () => {
+      // Access getVoices() directly to bypass any wrapper caching
+      const raw = synth.getVoices();
+      if (raw.length > 0) {
+        setBrowserVoices(
+          raw.map((v) => ({
+            name: v.name,
+            lang: v.lang,
+            voiceURI: v.voiceURI,
+          })),
+        );
+      }
+    };
+
+    synth.onvoiceschanged = updateVoices;
+    synth.addEventListener?.("voiceschanged", updateVoices);
+
+    // Try immediately, then at staggered intervals to catch all browser timing
     updateVoices();
-    window.speechSynthesis?.addEventListener("voiceschanged", updateVoices);
-    return () =>
-      window.speechSynthesis?.removeEventListener(
-        "voiceschanged",
-        updateVoices,
-      );
+    const timers = [
+      setTimeout(updateVoices, 100),
+      setTimeout(updateVoices, 500),
+      setTimeout(updateVoices, 1000),
+      setTimeout(updateVoices, 2500),
+    ];
+
+    return () => {
+      timers.forEach(clearTimeout);
+      synth.removeEventListener?.("voiceschanged", updateVoices);
+      // Do NOT null out onvoiceschanged here — it can wipe a handler set by
+      // another effect if this cleanup runs mid-StrictMode double-invoke.
+    };
   }, []);
 
   useEffect(() => {
     const loaded = loadTTSSettings();
-    setSettings(loaded);
+    // If this device can't run Kokoro (e.g. iOS), fall back to browser
+    const provider =
+      loaded.provider === "kokoro" && !canUseKokoro
+        ? "browser"
+        : loaded.provider;
+    setSettings({ ...loaded, provider });
     setExtraPayloadJson(JSON.stringify(loaded.extraPayload ?? {}, null, 2));
     if (loaded.previewText) setTestText(loaded.previewText);
 
@@ -550,63 +758,178 @@ export function SettingsContent() {
           {settings.provider === "browser" && (
             <div className="space-y-4 border-t border-border pt-4">
               {/* Language Filter */}
-              <div className="space-y-2 max-w-xs">
-                <label className="block text-light font-semibold">
-                  Voice Languages
-                </label>
-                <select
-                  multiple
-                  value={voiceLangs}
-                  onChange={(e) => {
-                    const selected = Array.from(e.target.selectedOptions).map(
-                      (opt) => opt.value,
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-light font-semibold">
+                    Filter by Language
+                  </label>
+                  {voiceLangs.length > 0 && (
+                    <button
+                      onClick={() => setVoiceLangs([])}
+                      className="text-xs text-muted hover:text-light"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(() => {
+                    const availableCodes = new Set(
+                      browserVoices.map((v) => v.lang.split("-")[0]),
                     );
-                    setVoiceLangs(selected);
-                  }}
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan h-32"
-                >
-                  {getAvailableLanguages().map((lang) => (
-                    <option key={lang} value={lang}>
-                      {lang}
-                    </option>
-                  ))}
-                </select>
+                    const knownCodes = new Set(
+                      KNOWN_VOICE_LANGS.map((l) => l.code),
+                    );
+                    const extraLangs = Array.from(availableCodes)
+                      .filter((c) => !knownCodes.has(c))
+                      .map((c) => ({ code: c, label: c }));
+                    return [...KNOWN_VOICE_LANGS, ...extraLangs].map((lang) => {
+                      const available = availableCodes.has(lang.code);
+                      const selected = voiceLangs.includes(lang.code);
+                      return (
+                        <button
+                          key={lang.code}
+                          onClick={() =>
+                            setVoiceLangs(
+                              selected
+                                ? voiceLangs.filter((l) => l !== lang.code)
+                                : [...voiceLangs, lang.code],
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-full text-xs border transition-all ${
+                            selected
+                              ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                              : available
+                                ? "border-border text-light hover:border-accent-cyan hover:text-accent-cyan"
+                                : "border-border/40 text-muted/50"
+                          }`}
+                        >
+                          {lang.label}
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
                 <p className="text-muted text-xs">
-                  Filter available voices by one or more language codes. Hold
-                  Ctrl/Cmd to select multiple.
+                  Tap to filter. Dimmed languages have no detected voices yet.
                 </p>
               </div>
               {/* Voice List Preview */}
               <div className="space-y-1">
-                <label className="block text-light font-semibold">
-                  Available Voices
-                </label>
-                <div className="max-h-40 overflow-y-auto border border-border rounded bg-dark-panel p-2 text-xs text-light">
-                  {(voiceLangs.length > 0
-                    ? browserVoices.filter((v) =>
-                        voiceLangs.some((lang) => v.lang.startsWith(lang)),
-                      )
-                    : browserVoices
-                  ).map((v) => (
-                    <div
-                      key={v.voiceURI || v.name}
-                      className="flex items-center gap-2 py-0.5"
-                    >
-                      <span className="font-mono">{v.name}</span>
-                      <span className="text-muted">({v.lang})</span>
-                    </div>
-                  ))}
-                  {(voiceLangs.length > 0
-                    ? browserVoices.filter((v) =>
-                        voiceLangs.some((lang) => v.lang.startsWith(lang)),
-                      )
-                    : browserVoices
-                  ).length === 0 && (
-                    <span className="text-muted">
-                      No voices found for selected language(s).
+                <div className="flex items-center justify-between">
+                  <label className="block text-light font-semibold">
+                    Available Voices
+                  </label>
+                  {browserVoices.length > 0 && (
+                    <span className="text-xs text-muted">
+                      {browserVoices.length} detected
                     </span>
                   )}
                 </div>
+                <div className="max-h-48 overflow-y-auto border border-border rounded bg-dark-panel p-2 text-xs text-light">
+                  {(() => {
+                    // Normalize voice name for comparison: lowercase + collapse whitespace
+                    const norm = (s: string) =>
+                      s.toLowerCase().replace(/\s+/g, " ").trim();
+                    const availableNamesNorm = new Set(
+                      browserVoices.map((v) => norm(v.name)),
+                    );
+                    const isAvailable = (name: string) =>
+                      availableNamesNorm.has(norm(name));
+
+                    // Filter known voices by language selection
+                    const langFiltered =
+                      voiceLangs.length > 0
+                        ? KNOWN_VOICES.filter((v) =>
+                            voiceLangs.some((l) => v.lang.startsWith(l)),
+                          )
+                        : KNOWN_VOICES;
+
+                    // Any detected voices not matched by known list
+                    const knownNamesNorm = new Set(
+                      KNOWN_VOICES.map((v) => norm(v.name)),
+                    );
+                    const extras = browserVoices
+                      .filter((v) => !knownNamesNorm.has(norm(v.name)))
+                      .filter(
+                        (v) =>
+                          voiceLangs.length === 0 ||
+                          voiceLangs.some((l) => v.lang.startsWith(l)),
+                      )
+                      .map((v) => ({
+                        name: v.name,
+                        lang: v.lang,
+                      }));
+
+                    const allVoices = [...langFiltered, ...extras];
+                    // Sort: available first, then alpha
+                    allVoices.sort((a, b) => {
+                      const aAvail = isAvailable(a.name) ? 0 : 1;
+                      const bAvail = isAvailable(b.name) ? 0 : 1;
+                      return aAvail - bAvail || a.name.localeCompare(b.name);
+                    });
+
+                    if (allVoices.length === 0)
+                      return (
+                        <span className="text-muted">
+                          No voices found for selected language(s).
+                        </span>
+                      );
+                    return allVoices.map((v) => {
+                      const available = isAvailable(v.name);
+                      return (
+                        <div
+                          key={v.name}
+                          className={`flex items-center gap-2 py-0.5 ${available ? "" : "opacity-35"}`}
+                        >
+                          <span className="font-mono">{v.name}</span>
+                          <span className="text-muted">({v.lang})</span>
+                          {!available && (
+                            <span className="ml-auto text-[10px] text-muted">
+                              not available
+                            </span>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+                {browserVoices.length === 0 && (
+                  <p className="text-muted text-xs mt-1">
+                    No voices detected yet — they may still be loading.
+                  </p>
+                )}
+                {/* DEBUG: show raw names reported by the browser */}
+                {browserVoices.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-muted cursor-pointer hover:text-light">
+                      Debug: raw voice names from browser (
+                      {browserVoices.length})
+                    </summary>
+                    <div className="mt-1 max-h-32 overflow-y-auto bg-dark-base rounded p-2 text-[10px] font-mono text-muted space-y-0.5">
+                      {browserVoices.map((v) => (
+                        <div key={v.voiceURI || v.name}>
+                          &quot;{v.name}&quot; — {v.lang}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+                {isIOSDevice && (
+                  <p className="text-muted text-xs mt-2 leading-relaxed">
+                    <span className="text-accent-cyan font-semibold">
+                      iOS tip:
+                    </span>{" "}
+                    To unlock high-quality HD voices, go to{" "}
+                    <span className="text-light">
+                      Settings → Accessibility → Spoken Content → Voices
+                    </span>
+                    , select your language, and download an{" "}
+                    <span className="text-light">Enhanced</span> or{" "}
+                    <span className="text-light">Premium</span> voice. They will
+                    appear here automatically.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -614,33 +937,37 @@ export function SettingsContent() {
             <label className="block text-light font-semibold">
               TTS Provider
             </label>
-            <div className="grid grid-cols-3 gap-3">
-              {(["browser", "kokoro", "api"] as const).map((provider) => (
-                <button
-                  key={provider}
-                  onClick={() => setSettings({ ...settings, provider })}
-                  className={`p-3 rounded border transition-all ${
-                    settings.provider === provider
-                      ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
-                      : "border-border text-muted hover:border-accent-cyan hover:text-light"
-                  }`}
-                >
-                  <div className="font-semibold">
-                    {provider === "browser"
-                      ? "Browser"
-                      : provider === "kokoro"
-                        ? "Kokoro AI"
-                        : "External API"}
-                  </div>
-                  <div className="text-xs mt-1">
-                    {provider === "browser"
-                      ? "Built-in Web Speech API"
-                      : provider === "kokoro"
-                        ? "Local AI, no API needed"
-                        : "Custom TTS service endpoint"}
-                  </div>
-                </button>
-              ))}
+            <div
+              className={`grid gap-3 ${canUseKokoro ? "grid-cols-3" : "grid-cols-2"}`}
+            >
+              {(["browser", "kokoro", "api"] as const)
+                .filter((p) => p !== "kokoro" || canUseKokoro)
+                .map((provider) => (
+                  <button
+                    key={provider}
+                    onClick={() => setSettings({ ...settings, provider })}
+                    className={`p-3 rounded border transition-all ${
+                      settings.provider === provider
+                        ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                        : "border-border text-muted hover:border-accent-cyan hover:text-light"
+                    }`}
+                  >
+                    <div className="font-semibold">
+                      {provider === "browser"
+                        ? "Browser"
+                        : provider === "kokoro"
+                          ? "Kokoro AI"
+                          : "External API"}
+                    </div>
+                    <div className="text-xs mt-1">
+                      {provider === "browser"
+                        ? "Built-in Web Speech API"
+                        : provider === "kokoro"
+                          ? "Local AI, no API needed"
+                          : "Custom TTS service endpoint"}
+                    </div>
+                  </button>
+                ))}
             </div>
           </div>
 
