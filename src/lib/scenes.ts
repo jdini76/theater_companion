@@ -318,7 +318,7 @@ export function parseCastList(
     // check (which is anchored at ^) because the leading "-" hides "SCENE".
     if (CAST_END_RE.test(name)) break;
 
-    entries.push({ text: name.toUpperCase(), indent, lineIdx: i });
+    entries.push({ text: name, indent, lineIdx: i });
   }
 
   if (entries.length === 0) return null;

@@ -1215,12 +1215,7 @@ export function extractCharacterNames(lines: DialogueLine[]): string[] {
   const characters = new Set<string>();
 
   for (const line of lines) {
-    if (
-      !line.isStageDirection &&
-      !line.isSong &&
-      line.character !== "[Narrative]" &&
-      line.character !== "[Song]"
-    ) {
+    if (!line.isStageDirection && !line.character.startsWith("[")) {
       characters.add(line.character);
     }
   }

@@ -153,11 +153,12 @@ export function matchMultiCharInLine(
   const trimmed = line.trim();
   const colonIdx = trimmed.indexOf(":");
 
-  // Handle both "NORA & ELI: dialogue" (colon) and "NORA & ELI" (standalone)
-  const hasColon = colonIdx !== -1;
-  const rawPrefix = hasColon ? trimmed.slice(0, colonIdx) : trimmed;
+  // Require a colon — standalone "NORA & ELI" (no colon) is not a multi-char header
+  if (colonIdx === -1) return null;
+  const hasColon = true;
+  const rawPrefix = trimmed.slice(0, colonIdx);
   const upperPrefix = rawPrefix.toUpperCase();
-  const afterColon = hasColon ? trimmed.slice(colonIdx + 1).trim() : null;
+  const afterColon = trimmed.slice(colonIdx + 1).trim();
 
   // Primary separators: &  /  AND
   const primaryParts = upperPrefix.split(MULTI_CHAR_SEP);
