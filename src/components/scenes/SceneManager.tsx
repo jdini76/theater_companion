@@ -56,7 +56,11 @@ export function SceneManager({
     const names = new Set<string>();
     for (const c of projectCharacters) {
       if (!c.isMyRole) continue;
-      names.add(c.characterName.toUpperCase());
+      const full = c.characterName.toUpperCase();
+      names.add(full);
+      // Also add individual words (first/last name) so abbreviated scene
+      // characters like "PHIL" match a canonical name like "PHIL CONNORS".
+      for (const word of full.split(/\s+/)) names.add(word);
       for (const alias of c.aliases ?? []) names.add(alias.toUpperCase());
     }
     return names;
@@ -71,9 +75,17 @@ export function SceneManager({
         : undefined;
     const map = new Map<string, string[]>();
     for (const scene of allScenes) {
+      // Always re-extract using the current cast so canonical (full) names are
+      // used, and changes to the cast are reflected immediately.
+      // Stored scene.characters may have abbreviated names from before the
+      // full cast was configured; merging preserves manually-added characters.
+      const extracted = extractSceneCharacters(scene.content, cast);
+      const stored = (scene.characters ?? []).map((n) => n.toUpperCase());
       map.set(
         scene.id,
-        scene.characters ?? extractSceneCharacters(scene.content, cast),
+        Array.from(
+          new Set([...extracted.map((n) => n.toUpperCase()), ...stored]),
+        ),
       );
     }
     return map;

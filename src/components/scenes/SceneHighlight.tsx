@@ -7,15 +7,29 @@ export type CharColor = { color: string; bgColor: string };
 export type LineOverride =
   | { kind: "dialogue"; char: string }
   | { kind: "header"; char: string }
+  | { kind: "multi-header"; chars: string[] }
   | { kind: "stage-direction" }
   | { kind: "group" }
   | { kind: "song-title"; text: string };
 
 // Distinct neutral color for group/ensemble lines — sits outside the hue-based palette.
-const GROUP_COLOR: CharColor = {
+export const GROUP_COLOR: CharColor = {
   color: "hsl(45, 80%, 72%)",
   bgColor: "hsla(45, 80%, 72%, 0.12)",
 };
+
+/** Character names that represent the whole group and are always highlighted. */
+export const GROUP_CHARACTER_NAMES = new Set([
+  "ALL",
+  "EVERYONE",
+  "ENSEMBLE",
+  "COMPANY",
+  "CHORUS",
+  "CAST",
+  "TOGETHER",
+  "ALL TOGETHER",
+  "ALL CAST",
+]);
 
 // Color for song-title lines — distinct gold so it stands out from group/dialogue.
 const SONG_TITLE_COLOR: CharColor = {
@@ -122,25 +136,41 @@ function tryMatchAllParts(
 const MULTI_CHAR_SEP = /\s*[&/]\s*|\s+AND\s+/i;
 
 // Detect headers with multiple characters (e.g. "ANNIE & GRACE:" or "TOM AND JERRY:").
-// Returns the canonical (uppercase) char names and any inline dialogue after the colon.
+// Also handles standalone format without a colon (e.g. "NORA & ELI" on its own line).
+// Returns the canonical (uppercase) char names, the original text parts as they appear
+// in the prefix (used for positional tokenization), any inline dialogue after the colon,
+// and hasColon so the renderer knows whether to append a ":".
 export function matchMultiCharInLine(
   line: string,
   charSet: Set<string>,
-): { chars: string[]; rawPrefix: string; dialogue: string | null } | null {
+): {
+  chars: string[];
+  textParts: string[];
+  rawPrefix: string;
+  dialogue: string | null;
+  hasColon: boolean;
+} | null {
   const trimmed = line.trim();
   const colonIdx = trimmed.indexOf(":");
-  if (colonIdx === -1) return null;
 
-  const rawPrefix = trimmed.slice(0, colonIdx);
+  // Handle both "NORA & ELI: dialogue" (colon) and "NORA & ELI" (standalone)
+  const hasColon = colonIdx !== -1;
+  const rawPrefix = hasColon ? trimmed.slice(0, colonIdx) : trimmed;
   const upperPrefix = rawPrefix.toUpperCase();
-  const afterColon = trimmed.slice(colonIdx + 1).trim();
+  const afterColon = hasColon ? trimmed.slice(colonIdx + 1).trim() : null;
 
   // Primary separators: &  /  AND
   const primaryParts = upperPrefix.split(MULTI_CHAR_SEP);
   if (primaryParts.length >= 2) {
     const matched = tryMatchAllParts(primaryParts, charSet);
     if (matched && matched.length >= 2) {
-      return { chars: matched, rawPrefix, dialogue: afterColon || null };
+      return {
+        chars: matched,
+        textParts: primaryParts.map((p) => p.trim()).filter(Boolean),
+        rawPrefix,
+        dialogue: afterColon || null,
+        hasColon,
+      };
     }
   }
 
@@ -149,7 +179,13 @@ export function matchMultiCharInLine(
   if (commaParts.length >= 2) {
     const matched = tryMatchAllParts(commaParts, charSet);
     if (matched && matched.length >= 2) {
-      return { chars: matched, rawPrefix, dialogue: afterColon || null };
+      return {
+        chars: matched,
+        textParts: commaParts.map((p) => p.trim()).filter(Boolean),
+        rawPrefix,
+        dialogue: afterColon || null,
+        hasColon,
+      };
     }
   }
 
@@ -194,27 +230,49 @@ export function LineAssignPanel({
   allCharacters = [],
   lineText = "",
 }: LineAssignPanelProps) {
-  const [mode, setMode] = useState<"dialogue" | "header" | "song-title">(
+  const [mode, setMode] = useState<
+    "dialogue" | "header" | "multi-header" | "song-title"
+  >(
     currentAssignment?.kind === "header"
       ? "header"
-      : currentAssignment?.kind === "song-title"
-        ? "song-title"
-        : "dialogue",
+      : currentAssignment?.kind === "multi-header"
+        ? "multi-header"
+        : currentAssignment?.kind === "song-title"
+          ? "song-title"
+          : "dialogue",
   );
   const [newCharInput, setNewCharInput] = useState("");
   const [dropdownValue, setDropdownValue] = useState("");
   const [songTitleInput, setSongTitleInput] = useState(
     currentAssignment?.kind === "song-title" ? currentAssignment.text : "",
   );
+  // Multi-character selection state — pre-populate from existing override
+  const [selectedChars, setSelectedChars] = useState<Set<string>>(
+    currentAssignment?.kind === "multi-header"
+      ? new Set(currentAssignment.chars.map((c) => c.toUpperCase()))
+      : new Set(),
+  );
+
   const isHeader = mode === "header";
   const isSongTitle = mode === "song-title";
+  const isMultiHeader = mode === "multi-header";
 
-  const switchMode = (newMode: "dialogue" | "header" | "song-title") => {
+  const switchMode = (
+    newMode: "dialogue" | "header" | "multi-header" | "song-title",
+  ) => {
     if (newMode === "song-title" && mode !== "song-title") {
-      // Pre-fill with the raw line text if no title is set yet
       if (!songTitleInput) setSongTitleInput(lineText);
     }
     setMode(newMode);
+  };
+
+  const toggleSelectedChar = (char: string) => {
+    setSelectedChars((prev) => {
+      const next = new Set(prev);
+      if (next.has(char)) next.delete(char);
+      else next.add(char);
+      return next;
+    });
   };
 
   const commitNew = () => {
@@ -264,6 +322,12 @@ export function LineAssignPanel({
           Character Header
         </button>
         <button
+          onClick={() => switchMode("multi-header")}
+          className={`px-2 py-0.5 rounded transition-colors ${mode === "multi-header" ? "bg-orange-500/20 text-orange-400" : "text-muted hover:text-light"}`}
+        >
+          Multi-character
+        </button>
+        <button
           onClick={() => switchMode("song-title")}
           style={
             mode === "song-title"
@@ -305,6 +369,58 @@ export function LineAssignPanel({
             Set
           </button>
         </div>
+      ) : isMultiHeader ? (
+        <>
+          <p className="text-muted">Select all speakers for this line:</p>
+          <div className="flex flex-wrap gap-1 mb-1">
+            {[
+              ...dedupedChars,
+              ...dedupedAllChars.filter((c) => !charSet.has(c)),
+            ].map((char) => {
+              const color = colorMap.get(char.toUpperCase());
+              const checked = selectedChars.has(char.toUpperCase());
+              return (
+                <button
+                  key={char}
+                  onClick={() => toggleSelectedChar(char.toUpperCase())}
+                  style={
+                    checked
+                      ? { color: color?.color, backgroundColor: color?.bgColor }
+                      : undefined
+                  }
+                  className={`px-2 py-0.5 rounded font-mono border transition-colors ${
+                    checked
+                      ? "border-current opacity-100"
+                      : "border-border text-muted hover:text-light"
+                  }`}
+                >
+                  {char}
+                </button>
+              );
+            })}
+          </div>
+          {selectedChars.size > 0 && (
+            <p className="text-muted">
+              Selected:{" "}
+              <span className="text-light font-mono">
+                {[...selectedChars].join(" & ")}
+              </span>
+            </p>
+          )}
+          <button
+            onClick={() => {
+              if (selectedChars.size >= 2)
+                onAssign({
+                  kind: "multi-header",
+                  chars: [...selectedChars],
+                });
+            }}
+            disabled={selectedChars.size < 2}
+            className="px-3 py-0.5 bg-orange-500/20 text-orange-400 rounded hover:bg-orange-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Set multi-character header
+          </button>
+        </>
       ) : (
         <>
           <p className="text-muted">
@@ -348,21 +464,19 @@ export function LineAssignPanel({
                 if (e.key === "Enter") commitNew();
               }}
               placeholder="Add character name…"
-              className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+              className="flex-1 min-w-0 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
             />
             <select
               value={dropdownValue}
               onChange={(e) => setDropdownValue(e.target.value)}
-              className="bg-background border border-border rounded px-2 py-0.5 text-light"
+              className="flex-1 min-w-0 bg-background border border-border rounded px-2 py-0.5 text-light"
             >
               <option value="">All project characters…</option>
-              {dedupedAllChars
-                .filter((c) => !charSet.has(c))
-                .map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+              {dedupedAllChars.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </select>
             <button
               onClick={commitNew}
@@ -555,6 +669,47 @@ export function HighlightedContent({
               </div>
             );
           }
+          if (override.kind === "multi-header") {
+            currentChar = null;
+            currentIsGroup = false;
+            currentMultiChars = override.chars.map((c) => c.toUpperCase());
+            return (
+              <div key={i}>
+                <div
+                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">
+                    {override.chars.map((char, ci) => {
+                      const color = colorMap.get(char.toUpperCase());
+                      return (
+                        <React.Fragment key={char}>
+                          {ci > 0 && (
+                            <span className="opacity-50"> &amp; </span>
+                          )}
+                          <span
+                            style={
+                              color
+                                ? {
+                                    color: color.color,
+                                    backgroundColor: color.bgColor,
+                                  }
+                                : undefined
+                            }
+                            className="rounded-sm px-0.5"
+                          >
+                            {char}
+                          </span>
+                        </React.Fragment>
+                      );
+                    })}
+                  </span>
+                  {editIcon}
+                </div>
+                {isActive && makePanel(i, override)}
+              </div>
+            );
+          }
           if (override.kind === "header") {
             currentIsGroup = false;
             currentChar = override.char.toUpperCase();
@@ -633,7 +788,8 @@ export function HighlightedContent({
 
         const multiMatchResult = matchMultiCharInLine(line, charSet);
         if (multiMatchResult) {
-          const { chars, rawPrefix, dialogue } = multiMatchResult;
+          const { chars, textParts, rawPrefix, dialogue, hasColon } =
+            multiMatchResult;
           currentChar = null;
           currentIsGroup = false;
 
@@ -667,20 +823,24 @@ export function HighlightedContent({
           }
 
           currentMultiChars = chars;
-          // Tokenize header: find each char name in the original text and
-          // colour it; render separators (" & ", " AND ", etc.) in muted text.
+          // Tokenize header: find each name as it appears in the original text
+          // (textParts) and colour it using the canonical name (chars) for the
+          // colorMap lookup. This handles abbreviated names like "JOHN" that
+          // resolve to a longer canonical "JOHN DOE" — searching for "JOHN DOE"
+          // in "JOHN & JANE" would fail, but searching for "JOHN" succeeds.
           const upperPrefix = rawPrefix.toUpperCase();
           const segs: { text: string; color?: CharColor }[] = [];
           let pos = 0;
-          for (const char of chars) {
-            const idx = upperPrefix.indexOf(char, pos);
+          for (let ci = 0; ci < chars.length; ci++) {
+            const part = textParts[ci] ?? chars[ci];
+            const idx = upperPrefix.indexOf(part, pos);
             if (idx === -1) continue;
             if (idx > pos) segs.push({ text: rawPrefix.slice(pos, idx) });
             segs.push({
-              text: rawPrefix.slice(idx, idx + char.length),
-              color: colorMap.get(char),
+              text: rawPrefix.slice(idx, idx + part.length),
+              color: colorMap.get(chars[ci]),
             });
-            pos = idx + char.length;
+            pos = idx + part.length;
           }
           if (pos < rawPrefix.length) segs.push({ text: rawPrefix.slice(pos) });
           return (
@@ -708,7 +868,7 @@ export function HighlightedContent({
                       </span>
                     ),
                   )}
-                  <span className="opacity-50">:</span>
+                  {hasColon && <span className="opacity-50">:</span>}
                 </span>
                 {editIcon}
               </div>

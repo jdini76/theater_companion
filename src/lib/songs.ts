@@ -42,6 +42,61 @@ export function extractSongsFromScenes(
   for (const scene of scenes) {
     if (!scene.content?.trim()) continue;
 
+    const sceneOverrides = sceneLineOverrides?.get(scene.id);
+
+    // ── Override-based extraction ──────────────────────────────────────────
+    // If the user has explicitly marked song-title lines in the scene viewer,
+    // each override defines a discrete song.  We extract the raw content lines
+    // that follow each song-title line as the lyrics (stopping at the next
+    // blank line or another song-title).  This takes priority over auto-
+    // detection so that what the user marked is always reflected here.
+    if (sceneOverrides) {
+      const songTitleEntries: Array<[number, string]> = [];
+      for (const [lineIdx, ov] of sceneOverrides) {
+        if (ov.kind === "song-title") songTitleEntries.push([lineIdx, ov.text]);
+      }
+
+      if (songTitleEntries.length > 0) {
+        songTitleEntries.sort(([a], [b]) => a - b);
+        const rawLines = scene.content.split("\n");
+
+        for (let si = 0; si < songTitleEntries.length; si++) {
+          const [lineIdx, title] = songTitleEntries[si];
+          const nextTitleIdx = songTitleEntries[si + 1]?.[0] ?? rawLines.length;
+
+          const songContent: SongLine[] = [];
+          for (
+            let j = lineIdx + 1;
+            j < nextTitleIdx && j < rawLines.length;
+            j++
+          ) {
+            const rawLine = rawLines[j].trim();
+            if (!rawLine) {
+              // A blank line ends the lyric block if we already have content.
+              if (songContent.length > 0) break;
+              continue;
+            }
+            // Stage-direction overrides are not lyrics.
+            const lineOv = sceneOverrides.get(j);
+            if (lineOv?.kind === "stage-direction") continue;
+
+            songContent.push({ character: "[Song]", text: rawLine });
+          }
+
+          results.push({
+            id: `${scene.id}_song_${lineIdx}`,
+            sceneId: scene.id,
+            sceneTitle: scene.title,
+            title,
+            lines: songContent,
+            characters: [],
+          });
+        }
+        continue; // override-based extraction done; skip auto-detection
+      }
+    }
+
+    // ── Auto-detection fallback ────────────────────────────────────────────
     const dialogueLines = parseDialogueLines(
       scene.content,
       undefined,
@@ -83,25 +138,13 @@ export function extractSongsFromScenes(
     if (current.length > 0) blocks.push(current);
 
     // Merge all blocks in this scene into a single song entry.
-    // Priority for title: (1) song-title line override, (2) explicit cue marker, (3) scene title.
+    // Priority for title: (1) explicit cue marker, (2) scene title.
     const allLines: SongLine[] = blocks.flatMap((block) =>
       block.map((l) => ({ character: l.character, text: l.dialogue })),
     );
 
-    // Check for a song-title override on any line in this scene
-    const overrideTitle = (() => {
-      const overrides = sceneLineOverrides?.get(scene.id);
-      if (!overrides) return null;
-      for (const [, ov] of overrides) {
-        if (ov.kind === "song-title") return ov.text;
-      }
-      return null;
-    })();
-
     const explicitTitle =
-      overrideTitle ??
-      blocks.flatMap((b) => b).find((l) => l.songTitle)?.songTitle ??
-      null;
+      blocks.flatMap((b) => b).find((l) => l.songTitle)?.songTitle ?? null;
     const title = explicitTitle ?? scene.title;
 
     const characters = Array.from(

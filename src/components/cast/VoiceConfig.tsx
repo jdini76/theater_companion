@@ -15,6 +15,7 @@ import { KOKORO_VOICES } from "@/lib/kokoro-tts";
 import { TTSSettings } from "@/types/voice";
 import { Button } from "@/components/ui/Button";
 import { extractSongsFromScenes } from "@/lib/songs";
+import { extractSceneCharacters } from "@/lib/scenes";
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 
 type Tab = "general" | "voice" | "scenes" | "songs";
@@ -78,10 +79,20 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
         n.toUpperCase(),
       ),
     );
-    return getProjectScenes(character.projectId).filter((scene) =>
-      (scene.characters ?? []).some((c) => allNames.has(c.toUpperCase())),
+    const projectCast = getProjectCharacters(character.projectId).map(
+      (c) => c.characterName,
     );
-  }, [character, getProjectScenes]);
+    const cast = projectCast.length > 0 ? projectCast : undefined;
+    return getProjectScenes(character.projectId).filter((scene) => {
+      // Always re-extract so abbreviated stored names resolve to canonical ones
+      const extracted = extractSceneCharacters(scene.content, cast).map((n) =>
+        n.toUpperCase(),
+      );
+      const stored = (scene.characters ?? []).map((n) => n.toUpperCase());
+      const merged = new Set([...extracted, ...stored]);
+      return [...merged].some((c) => allNames.has(c));
+    });
+  }, [character, getProjectScenes, getProjectCharacters]);
 
   const characterSongs = useMemo(() => {
     if (!character) return [];

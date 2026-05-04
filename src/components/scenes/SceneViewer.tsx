@@ -10,6 +10,8 @@ import { extractSceneCharacters } from "@/lib/scenes";
 import {
   type LineOverride,
   buildCharColorMap,
+  GROUP_COLOR,
+  GROUP_CHARACTER_NAMES,
   HighlightedContent,
 } from "./SceneHighlight";
 import {
@@ -153,16 +155,40 @@ export function SceneViewer({
 
   // allNames: canonical + alias names so HighlightedContent can match both forms.
   // When no project cast exists, fall back to scene.characters.
+  // Always include sceneChars so manually textbox-added characters appear in
+  // the colored-buttons list even when a project cast exists.
   const allNamesSet = new Set<string>();
   const allNames: string[] = [];
   const highlightSource =
     projectCast.length > 0
-      ? [...canonicalNames, ...Array.from(aliasToCanonical.keys())]
+      ? [
+          ...canonicalNames,
+          ...Array.from(aliasToCanonical.keys()),
+          // scene-only chars (textbox-added or group names not in project cast)
+          ...sceneChars
+            .map((n) => n.toUpperCase())
+            .filter((n) => !canonicalUpperSet.has(n)),
+        ]
       : sceneChars.map((n) => n.toUpperCase());
   for (const name of highlightSource) {
     if (!allNamesSet.has(name)) {
       allNamesSet.add(name);
       allNames.push(name);
+    }
+  }
+
+  // Give scene-only chars (textbox-added + group names) a color in the map.
+  // Group-named characters get GROUP_COLOR; others get hue-based colors.
+  for (const name of sceneChars.map((n) => n.toUpperCase())) {
+    if (!colorMap.has(name)) {
+      if (GROUP_CHARACTER_NAMES.has(name)) {
+        colorMap.set(name, GROUP_COLOR);
+      } else {
+        // Assign the next hue in sequence after existing entries.
+        const newMap = buildCharColorMap([...colorMap.keys(), name]);
+        const color = newMap.get(name);
+        if (color) colorMap.set(name, color);
+      }
     }
   }
 
@@ -267,9 +293,20 @@ export function SceneViewer({
     ...(c.aliases ?? []).map((a) => a.toUpperCase()),
   ]);
   const myRoleNamesSet = new Set(myRoleNames);
+  // Group characters that are NOT in the project cast should always be
+  // highlighted (they're scene-only ensemble cues). If they ARE in the cast,
+  // treat them like any other character — only highlight when "my role" is set.
+  const projectCastUpperSet = new Set(projectCast.map((n) => n.toUpperCase()));
+  const alwaysShowNames = new Set(
+    [...GROUP_CHARACTER_NAMES].filter((g) => !projectCastUpperSet.has(g)),
+  );
   const displayColorMap =
     highlightMyOnly && myRoleNames.length > 0
-      ? new Map([...colorMap].filter(([k]) => myRoleNamesSet.has(k)))
+      ? new Map(
+          [...colorMap].filter(
+            ([k]) => myRoleNamesSet.has(k) || alwaysShowNames.has(k),
+          ),
+        )
       : colorMap;
 
   const songs = scene.songs ?? [];
@@ -479,11 +516,56 @@ export function SceneViewer({
       {/* Fullscreen overlay */}
       {isFullscreen && (
         <div className="fixed inset-0 z-50 bg-dark-base flex flex-col">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
-            <h2 className="text-lg font-bold text-light truncate">
+          {/* Fullscreen header row */}
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0 gap-2">
+            <h2 className="text-lg font-bold text-light truncate min-w-0">
               {scene.title}
             </h2>
             <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Text size */}
+              {(["text-xs", "text-sm", "text-base"] as const).map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setScriptTextSize(size)}
+                  title={
+                    size === "text-xs"
+                      ? "Small"
+                      : size === "text-sm"
+                        ? "Medium"
+                        : "Large"
+                  }
+                  className={`px-1 rounded leading-none transition-colors ${
+                    scriptTextSize === size
+                      ? "text-light bg-white/15"
+                      : "text-muted hover:text-light"
+                  } ${
+                    size === "text-xs"
+                      ? "text-xs"
+                      : size === "text-sm"
+                        ? "text-sm"
+                        : "text-base"
+                  }`}
+                >
+                  A
+                </button>
+              ))}
+
+              {/* My lines only */}
+              {myRoleChars.length > 0 && (
+                <label className="flex items-center gap-1 cursor-pointer select-none ml-1">
+                  <input
+                    type="checkbox"
+                    checked={highlightMyOnly}
+                    onChange={(e) => setHighlightMyOnly(e.target.checked)}
+                    className="accent-accent-cyan w-3.5 h-3.5"
+                  />
+                  <span className="text-xs text-muted whitespace-nowrap">
+                    My lines
+                  </span>
+                </label>
+              )}
+
+              {/* Prev / Next */}
               {(onPrev || onNext) && (
                 <>
                   <button
@@ -506,6 +588,47 @@ export function SceneViewer({
                   </button>
                 </>
               )}
+
+              {/* ⋯ menu */}
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="p-1.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+                  aria-label="Scene options"
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-dark-card/70 backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20 overflow-hidden">
+                    <button
+                      onClick={handleCopyContent}
+                      className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"
+                    >
+                      {isCopied ? "Copied!" : "Copy"}
+                    </button>
+                    <button
+                      onClick={handleDownload}
+                      className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"
+                    >
+                      Download
+                    </button>
+                    {onEdit && (
+                      <button
+                        onClick={() => {
+                          onEdit();
+                          setMenuOpen(false);
+                          setIsFullscreen(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-light hover:bg-white/10 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Minimize */}
               <button
                 onClick={() => setIsFullscreen(false)}
                 title="Exit fullscreen (Esc)"
@@ -516,6 +639,61 @@ export function SceneViewer({
               </button>
             </div>
           </div>
+
+          {/* Character tags + songs */}
+          {(sceneCharacters.length > 0 || songs.length > 0) && (
+            <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-border flex-shrink-0">
+              {sceneCharacters.map((char) => {
+                const color = colorMap.get(char);
+                const projectChar = getProjectCharacters(projectId).find(
+                  (c) =>
+                    c.characterName.toUpperCase() === char ||
+                    (c.aliases ?? []).some((a) => a.toUpperCase() === char),
+                );
+                return projectChar ? (
+                  <button
+                    key={char}
+                    onClick={() => navigateToCharacter(projectChar.id)}
+                    style={{
+                      color: color?.color,
+                      backgroundColor: color?.bgColor,
+                      borderColor: color?.color
+                        ? `${color.color}40`
+                        : undefined,
+                    }}
+                    className="px-2 py-0.5 rounded-full text-xs font-mono border hover:opacity-80 transition-opacity cursor-pointer"
+                    title={`View ${char} in Cast`}
+                  >
+                    {char}
+                  </button>
+                ) : (
+                  <span
+                    key={char}
+                    style={{
+                      color: color?.color,
+                      backgroundColor: color?.bgColor,
+                      borderColor: color?.color
+                        ? `${color.color}40`
+                        : undefined,
+                    }}
+                    className="px-2 py-0.5 rounded-full text-xs font-mono border"
+                  >
+                    {char}
+                  </span>
+                );
+              })}
+              {songs.map((song) => (
+                <span
+                  key={song}
+                  className="px-2 py-0.5 bg-yellow-500/15 text-yellow-400 text-xs rounded-full border border-yellow-500/20"
+                >
+                  ♪ {song}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Content */}
           <div className="flex-1 min-h-0 p-4">
             <HighlightedContent
               content={scene.content}
