@@ -10,6 +10,8 @@ import { extractSceneCharacters } from "@/lib/scenes";
 import {
   type LineOverride,
   buildCharColorMap,
+  GROUP_COLOR,
+  GROUP_CHARACTER_NAMES,
   HighlightedContent,
 } from "./SceneHighlight";
 import {
@@ -153,16 +155,40 @@ export function SceneViewer({
 
   // allNames: canonical + alias names so HighlightedContent can match both forms.
   // When no project cast exists, fall back to scene.characters.
+  // Always include sceneChars so manually textbox-added characters appear in
+  // the colored-buttons list even when a project cast exists.
   const allNamesSet = new Set<string>();
   const allNames: string[] = [];
   const highlightSource =
     projectCast.length > 0
-      ? [...canonicalNames, ...Array.from(aliasToCanonical.keys())]
+      ? [
+          ...canonicalNames,
+          ...Array.from(aliasToCanonical.keys()),
+          // scene-only chars (textbox-added or group names not in project cast)
+          ...sceneChars
+            .map((n) => n.toUpperCase())
+            .filter((n) => !canonicalUpperSet.has(n)),
+        ]
       : sceneChars.map((n) => n.toUpperCase());
   for (const name of highlightSource) {
     if (!allNamesSet.has(name)) {
       allNamesSet.add(name);
       allNames.push(name);
+    }
+  }
+
+  // Give scene-only chars (textbox-added + group names) a color in the map.
+  // Group-named characters get GROUP_COLOR; others get hue-based colors.
+  for (const name of sceneChars.map((n) => n.toUpperCase())) {
+    if (!colorMap.has(name)) {
+      if (GROUP_CHARACTER_NAMES.has(name)) {
+        colorMap.set(name, GROUP_COLOR);
+      } else {
+        // Assign the next hue in sequence after existing entries.
+        const newMap = buildCharColorMap([...colorMap.keys(), name]);
+        const color = newMap.get(name);
+        if (color) colorMap.set(name, color);
+      }
     }
   }
 
@@ -267,9 +293,20 @@ export function SceneViewer({
     ...(c.aliases ?? []).map((a) => a.toUpperCase()),
   ]);
   const myRoleNamesSet = new Set(myRoleNames);
+  // Group characters that are NOT in the project cast should always be
+  // highlighted (they're scene-only ensemble cues). If they ARE in the cast,
+  // treat them like any other character — only highlight when "my role" is set.
+  const projectCastUpperSet = new Set(projectCast.map((n) => n.toUpperCase()));
+  const alwaysShowNames = new Set(
+    [...GROUP_CHARACTER_NAMES].filter((g) => !projectCastUpperSet.has(g)),
+  );
   const displayColorMap =
     highlightMyOnly && myRoleNames.length > 0
-      ? new Map([...colorMap].filter(([k]) => myRoleNamesSet.has(k)))
+      ? new Map(
+          [...colorMap].filter(
+            ([k]) => myRoleNamesSet.has(k) || alwaysShowNames.has(k),
+          ),
+        )
       : colorMap;
 
   const songs = scene.songs ?? [];

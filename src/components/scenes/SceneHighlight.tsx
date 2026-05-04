@@ -13,10 +13,23 @@ export type LineOverride =
   | { kind: "song-title"; text: string };
 
 // Distinct neutral color for group/ensemble lines — sits outside the hue-based palette.
-const GROUP_COLOR: CharColor = {
+export const GROUP_COLOR: CharColor = {
   color: "hsl(45, 80%, 72%)",
   bgColor: "hsla(45, 80%, 72%, 0.12)",
 };
+
+/** Character names that represent the whole group and are always highlighted. */
+export const GROUP_CHARACTER_NAMES = new Set([
+  "ALL",
+  "EVERYONE",
+  "ENSEMBLE",
+  "COMPANY",
+  "CHORUS",
+  "CAST",
+  "TOGETHER",
+  "ALL TOGETHER",
+  "ALL CAST",
+]);
 
 // Color for song-title lines — distinct gold so it stands out from group/dialogue.
 const SONG_TITLE_COLOR: CharColor = {
@@ -451,21 +464,19 @@ export function LineAssignPanel({
                 if (e.key === "Enter") commitNew();
               }}
               placeholder="Add character name…"
-              className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+              className="flex-1 min-w-0 bg-background border border-border rounded px-2 py-0.5 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
             />
             <select
               value={dropdownValue}
               onChange={(e) => setDropdownValue(e.target.value)}
-              className="bg-background border border-border rounded px-2 py-0.5 text-light"
+              className="flex-1 min-w-0 bg-background border border-border rounded px-2 py-0.5 text-light"
             >
               <option value="">All project characters…</option>
-              {dedupedAllChars
-                .filter((c) => !charSet.has(c))
-                .map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
+              {dedupedAllChars.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </select>
             <button
               onClick={commitNew}
