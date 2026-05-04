@@ -254,9 +254,12 @@ function DataManagementPanel() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const legacyFileRef = useRef<HTMLInputElement>(null);
 
-  const [summary, setSummary] = useState<ReturnType<
-    typeof getStorageSummary
-  > | null>(null);
+  const [summary, setSummary] = useState<{
+    projectCount: number;
+    sceneCount: number;
+    characterCount: number;
+    totalSizeKB: number;
+  } | null>(null);
   const [allProjects, setAllProjects] = useState<
     { id: string; name: string }[]
   >([]);
@@ -266,7 +269,7 @@ function DataManagementPanel() {
   const [legacyStatus, setLegacyStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    setSummary(getStorageSummary());
+    getStorageSummary().then(setSummary);
     const projects = getAllStoredProjects() as { id: string; name: string }[];
     setAllProjects(projects);
     setSelectedIds(new Set(projects.map((p) => p.id)));
@@ -287,9 +290,9 @@ function DataManagementPanel() {
     );
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (selectedIds.size === 0) return;
-    exportSelectedProjects(Array.from(selectedIds));
+    await exportSelectedProjects(Array.from(selectedIds));
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -313,7 +316,7 @@ function DataManagementPanel() {
     }
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (phase.kind !== "resolving") return;
     const resolved = phase.projects
       .filter((p) => phase.selected.has(p.bundle.project.id as string))
@@ -321,7 +324,7 @@ function DataManagementPanel() {
         ...p,
         name: phase.names.get(p.bundle.project.id as string) ?? p.name,
       }));
-    const count = executeImport(resolved);
+    const count = await executeImport(resolved);
     setPhase({ kind: "done", count });
   };
 
@@ -337,7 +340,7 @@ function DataManagementPanel() {
       setLegacyStatus(
         `Restored ${result.keysRestored} items from ${result.exportedAt.slice(0, 10)}. Reload the page to see changes.`,
       );
-      setSummary(getStorageSummary());
+      setSummary(await getStorageSummary());
     } catch (err) {
       setLegacyStatus(err instanceof Error ? err.message : "Restore failed.");
     }

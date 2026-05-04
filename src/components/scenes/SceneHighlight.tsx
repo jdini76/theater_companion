@@ -174,14 +174,18 @@ export function matchMultiCharInLine(
     }
   }
 
-  // Comma separator — only treat as multi-char when ALL parts match known characters
+  // Comma separator — only treat as multi-char when ALL parts match known characters.
+  // Strip a leading "AND " from each part to handle "NORA, ELI, AND MARA" style lists.
   const commaParts = upperPrefix.split(/\s*,\s*/);
   if (commaParts.length >= 2) {
-    const matched = tryMatchAllParts(commaParts, charSet);
+    const normalizedParts = commaParts.map((p) =>
+      p.replace(/^AND\s+/i, "").trim(),
+    );
+    const matched = tryMatchAllParts(normalizedParts, charSet);
     if (matched && matched.length >= 2) {
       return {
         chars: matched,
-        textParts: commaParts.map((p) => p.trim()).filter(Boolean),
+        textParts: normalizedParts.filter(Boolean),
         rawPrefix,
         dialogue: afterColon || null,
         hasColon,

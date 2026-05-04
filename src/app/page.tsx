@@ -1,13 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useProjects } from "@/contexts/ProjectContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
+import { loadSampleProduction } from "@/lib/data-export";
 
 // ─── Empty states ─────────────────────────────────────────────────────────────
 
 function NoProductions() {
+  const [sampleStatus, setSampleStatus] = useState<string | null>(null);
+
+  const handleLoadSample = async () => {
+    const result = await loadSampleProduction();
+    if (result === "already-exists") {
+      setSampleStatus("Sample Production already exists in your library.");
+    } else {
+      window.location.reload();
+    }
+  };
+
   return (
     <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <h1 className="text-3xl font-bold text-light">Dashboard</h1>
@@ -20,12 +33,21 @@ function NoProductions() {
             its scenes, cast, and rehearsal settings separate.
           </p>
         </div>
-        <Link
-          href="/projects"
-          className="inline-block px-6 py-3 bg-accent-cyan text-dark-base font-bold rounded-lg hover:bg-accent-cyan/80 transition-colors"
-        >
-          + Create a Production
-        </Link>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link
+            href="/projects"
+            className="inline-block px-6 py-3 bg-accent-cyan text-dark-base font-bold rounded-lg hover:bg-accent-cyan/80 transition-colors"
+          >
+            + Create a Production
+          </Link>
+          <button
+            onClick={handleLoadSample}
+            className="px-6 py-3 border border-border text-muted font-semibold rounded-lg hover:border-accent-cyan hover:text-light transition-colors"
+          >
+            Load Sample Production
+          </button>
+        </div>
+        {sampleStatus && <p className="text-sm text-muted">{sampleStatus}</p>}
       </div>
     </main>
   );
@@ -38,9 +60,12 @@ function NoSelection({ count }: { count: number }) {
       <div className="card text-center py-16 space-y-6">
         <div className="text-6xl">🎭</div>
         <div>
-          <h2 className="text-2xl font-bold text-light mb-2">Select a Production</h2>
+          <h2 className="text-2xl font-bold text-light mb-2">
+            Select a Production
+          </h2>
           <p className="text-muted">
-            You have {count} production{count !== 1 ? "s" : ""}. Choose one from the header dropdown or the list below.
+            You have {count} production{count !== 1 ? "s" : ""}. Choose one from
+            the header dropdown or the list below.
           </p>
         </div>
         <Link
@@ -79,7 +104,9 @@ function ActionTile({
       }`}
     >
       <div className="text-2xl mb-2">{icon}</div>
-      <div className={`font-bold text-sm mb-1 ${primary ? "text-accent-cyan" : "text-light"}`}>
+      <div
+        className={`font-bold text-sm mb-1 ${primary ? "text-accent-cyan" : "text-light"}`}
+      >
         {label}
       </div>
       <div className="text-muted text-xs leading-snug">{description}</div>
@@ -102,15 +129,17 @@ export default function Home() {
   const scenes = getProjectScenes(current.id);
   const characters = getProjectCharacters(current.id);
   const otherProductions = projects.filter((p) => p.id !== current.id);
-  const createdDate = new Date(current.createdAt).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const createdDate = new Date(current.createdAt).toLocaleDateString(
+    undefined,
+    {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    },
+  );
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-
       {/* ── Page heading ── */}
       <div>
         <h1 className="text-3xl font-bold text-light">Dashboard</h1>
@@ -123,22 +152,23 @@ export default function Home() {
 
       {/* ── Scenes & Cast expanded cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-
         {/* Scenes card */}
         <div className="card flex flex-col gap-4">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-bold text-light">Scenes</h2>
-            <span className="text-accent-cyan font-bold text-2xl">{scenes.length}</span>
+            <span className="text-accent-cyan font-bold text-2xl">
+              {scenes.length}
+            </span>
           </div>
 
           {scenes.length === 0 ? (
-            <p className="text-muted text-sm flex-1">
-              No scenes imported yet.
-            </p>
+            <p className="text-muted text-sm flex-1">No scenes imported yet.</p>
           ) : (
             <div className="space-y-1.5 flex-1">
               {scenes.slice(0, 6).map((scene, i) => {
-                const lineCount = scene.content.split("\n").filter(Boolean).length;
+                const lineCount = scene.content
+                  .split("\n")
+                  .filter(Boolean).length;
                 const charCount = scene.characters?.length ?? 0;
                 return (
                   <div key={scene.id} className="flex items-center gap-3">
@@ -162,7 +192,10 @@ export default function Home() {
             </div>
           )}
 
-          <Link href="/rehearse" className="text-accent-cyan text-xs hover:underline mt-auto">
+          <Link
+            href="/rehearse"
+            className="text-accent-cyan text-xs hover:underline mt-auto"
+          >
             {scenes.length === 0 ? "Import scenes →" : "Manage scenes →"}
           </Link>
         </div>
@@ -171,7 +204,9 @@ export default function Home() {
         <div className="card flex flex-col gap-4">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-bold text-light">Cast</h2>
-            <span className="text-accent-cyan font-bold text-2xl">{characters.length}</span>
+            <span className="text-accent-cyan font-bold text-2xl">
+              {characters.length}
+            </span>
           </div>
 
           {characters.length === 0 ? (
@@ -196,11 +231,13 @@ export default function Home() {
             </div>
           )}
 
-          <Link href="/rehearse" className="text-accent-cyan text-xs hover:underline mt-auto">
+          <Link
+            href="/rehearse"
+            className="text-accent-cyan text-xs hover:underline mt-auto"
+          >
             {characters.length === 0 ? "Set up cast →" : "Manage cast →"}
           </Link>
         </div>
-
       </div>
 
       {/* ── Quick actions ── */}
@@ -257,7 +294,8 @@ export default function Home() {
                     {p.name}
                   </span>
                   <span className="text-muted text-xs flex-shrink-0">
-                    {pScenes.length} scene{pScenes.length !== 1 ? "s" : ""} · {pChars.length} character{pChars.length !== 1 ? "s" : ""}
+                    {pScenes.length} scene{pScenes.length !== 1 ? "s" : ""} ·{" "}
+                    {pChars.length} character{pChars.length !== 1 ? "s" : ""}
                   </span>
                 </button>
               );
@@ -265,7 +303,6 @@ export default function Home() {
           </div>
         </div>
       )}
-
     </main>
   );
 }

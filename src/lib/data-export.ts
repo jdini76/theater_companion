@@ -4,6 +4,9 @@
  * v1: legacy full-backup format (restore only, no conflict handling).
  */
 
+import SAMPLE_PRODUCTION from "@/data/sample-production";
+import { idbGet, idbSet } from "@/lib/idb";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -56,15 +59,20 @@ function getId(obj: RawRecord): string {
 }
 
 // ---------------------------------------------------------------------------
-// Build a project bundle from localStorage
+// Build a project bundle (scenes read from IndexedDB)
 // ---------------------------------------------------------------------------
 
-export function buildProjectBundle(projectId: string): ProjectBundle | null {
+export async function buildProjectBundle(
+  projectId: string,
+): Promise<ProjectBundle | null> {
   const allProjects = readJson<RawRecord[]>("theater_projects", []);
   const project = allProjects.find((p) => getId(p) === projectId);
   if (!project) return null;
 
-  const allScenes = readJson<RawRecord[]>("theater_scenes", []);
+  // Scenes live in IndexedDB (useIDBStorage), not localStorage.
+  const allScenes =
+    (await idbGet<RawRecord[]>("theater_scenes")) ??
+    readJson<RawRecord[]>("theater_scenes", []);
   const scenes = allScenes.filter((s) => s.projectId === projectId);
 
   const allChars = readJson<RawRecord[]>("theater_characters", []);
@@ -128,10 +136,12 @@ export function getAllStoredProjects(): RawRecord[] {
 // Export selected projects as a v2 JSON file
 // ---------------------------------------------------------------------------
 
-export function exportSelectedProjects(projectIds: string[]): void {
-  const bundles = projectIds
-    .map(buildProjectBundle)
-    .filter((b): b is ProjectBundle => b !== null);
+export async function exportSelectedProjects(
+  projectIds: string[],
+): Promise<void> {
+  const bundles = (
+    await Promise.all(projectIds.map(buildProjectBundle))
+  ).filter((b): b is ProjectBundle => b !== null);
 
   const payload: ExportDataV2 = {
     version: 2,
@@ -208,9 +218,14 @@ export async function parseImportFile(file: File): Promise<ImportedProject[]> {
 // Execute the import — always assigns new IDs, never overwrites
 // ---------------------------------------------------------------------------
 
-export function executeImport(importedProjects: ImportedProject[]): number {
+export async function executeImport(
+  importedProjects: ImportedProject[],
+): Promise<number> {
   const existingProjects = readJson<RawRecord[]>("theater_projects", []);
-  const existingScenes = readJson<RawRecord[]>("theater_scenes", []);
+  // Scenes live in IndexedDB; fall back to localStorage for legacy data.
+  const existingScenes =
+    (await idbGet<RawRecord[]>("theater_scenes")) ??
+    readJson<RawRecord[]>("theater_scenes", []);
   const existingChars = readJson<RawRecord[]>("theater_characters", []);
   const existingVoiceConfigs = readJson<RawRecord[]>(
     "theater_voice_configs",
@@ -365,7 +380,10 @@ export function executeImport(importedProjects: ImportedProject[]): number {
   }
 
   localStorage.setItem("theater_projects", JSON.stringify(existingProjects));
-  localStorage.setItem("theater_scenes", JSON.stringify(existingScenes));
+  // Write scenes to IndexedDB (where useIDBStorage expects them).
+  await idbSet("theater_scenes", existingScenes);
+  // Remove any stale localStorage copy so the migration path doesn't re-run.
+  localStorage.removeItem("theater_scenes");
   localStorage.setItem("theater_characters", JSON.stringify(existingChars));
   localStorage.setItem(
     "theater_voice_configs",
@@ -449,12 +467,12 @@ export async function restoreLegacyBackup(
 // Storage summary (unchanged)
 // ---------------------------------------------------------------------------
 
-export function getStorageSummary(): {
+export async function getStorageSummary(): Promise<{
   projectCount: number;
   sceneCount: number;
   characterCount: number;
   totalSizeKB: number;
-} {
+}> {
   let totalSize = 0;
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
@@ -464,9 +482,13 @@ export function getStorageSummary(): {
     }
   }
 
+  const idbScenes = await idbGet<unknown[]>("theater_scenes");
+  const sceneCount =
+    idbScenes?.length ?? readJson<unknown[]>("theater_scenes", []).length;
+
   return {
     projectCount: readJson<unknown[]>("theater_projects", []).length,
-    sceneCount: readJson<unknown[]>("theater_scenes", []).length,
+    sceneCount,
     characterCount: readJson<unknown[]>("theater_characters", []).length,
     totalSizeKB: Math.round((totalSize * 2) / 1024),
   };
@@ -476,9 +498,37 @@ export function getStorageSummary(): {
 export { restoreLegacyBackup as importData };
 
 /** @deprecated — use exportSelectedProjects */
-export function exportData(): void {
+export async function exportData(): Promise<void> {
   const allProjects = getAllStoredProjects();
-  exportSelectedProjects(allProjects.map(getId));
+  await exportSelectedProjects(allProjects.map(getId));
 }
 
 void LEGACY_STATIC_KEYS; // referenced for documentation only
+
+// ---------------------------------------------------------------------------
+// Built-in sample production loader
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the bundled Sample Production into localStorage.
+ *
+ * Returns:
+ *  - "loaded"         — project was imported and the page should reload
+ *  - "already-exists" — a project named "Sample Production" already exists;
+ *                       nothing was changed
+ */
+export async function loadSampleProduction(): Promise<
+  "loaded" | "already-exists"
+> {
+  const existing = readJson<RawRecord[]>("theater_projects", []);
+  const alreadyExists = existing.some(
+    (p) => (p.name as string).toLowerCase() === "sample production",
+  );
+  if (alreadyExists) return "already-exists";
+
+  const bundle = SAMPLE_PRODUCTION.projects[0];
+  await executeImport([
+    { bundle, name: "Sample Production", hasConflict: false },
+  ]);
+  return "loaded";
+}
