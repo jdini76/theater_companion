@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, ReactNode } from "react";
 import { Scene, SceneContextType } from "@/types/scene";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useIDBStorage } from "@/hooks/useIDBStorage";
 import {
   createScene as createSceneUtil,
   updateScene as updateSceneUtil,
@@ -14,13 +14,13 @@ import {
 const SceneContext = createContext<SceneContextType | undefined>(undefined);
 
 export function SceneProvider({ children }: { children: ReactNode }) {
-  const [scenes, setScenes] = useLocalStorage<Scene[]>("theater_scenes", []);
+  const [scenes, setScenes] = useIDBStorage<Scene[]>("theater_scenes", []);
 
   const createScene = (
     projectId: string,
     title: string,
     content: string,
-    description?: string
+    description?: string,
   ): Scene => {
     const titleValidation = validateSceneTitle(title);
     if (!titleValidation.valid) {
@@ -44,7 +44,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       title,
       content,
       description,
-      maxOrder + 1
+      maxOrder + 1,
     );
     setScenes([...scenes, newScene]);
     return newScene;
@@ -52,7 +52,13 @@ export function SceneProvider({ children }: { children: ReactNode }) {
 
   const createScenes = (
     projectId: string,
-    scenesData: Array<{title: string; content: string; description?: string; characters?: string[]; songs?: string[]}>
+    scenesData: Array<{
+      title: string;
+      content: string;
+      description?: string;
+      characters?: string[];
+      songs?: string[];
+    }>,
   ): Scene[] => {
     // Validate all scenes first
     for (const sceneData of scenesData) {
@@ -81,7 +87,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
         sceneData.title,
         sceneData.content,
         sceneData.description,
-        maxOrder + 1 + index
+        maxOrder + 1 + index,
       );
       if (sceneData.characters) {
         scene.characters = sceneData.characters;
@@ -99,7 +105,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
 
   const updateScene = (
     id: string,
-    updates: Partial<Omit<Scene, "id" | "projectId" | "createdAt">>
+    updates: Partial<Omit<Scene, "id" | "projectId" | "createdAt">>,
   ): void => {
     const scene = scenes.find((s) => s.id === id);
     if (!scene) {
@@ -132,7 +138,9 @@ export function SceneProvider({ children }: { children: ReactNode }) {
 
     // Remove scene and update order for remaining scenes in the same project
     const filtered = scenes.filter((s) => s.id !== id);
-    const projectScenes = filtered.filter((s) => s.projectId === scene.projectId);
+    const projectScenes = filtered.filter(
+      (s) => s.projectId === scene.projectId,
+    );
     const otherScenes = filtered.filter((s) => s.projectId !== scene.projectId);
 
     // Reorder project scenes

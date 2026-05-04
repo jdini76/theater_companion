@@ -195,10 +195,16 @@ const CAST_HEADING_RE =
   /^(?:cast\s+(?:of\s+)?characters|characters?\s*(?:list)?|dramatis\s+personae|cast)\s*:?\s*$/i;
 
 /**
- * Patterns that signal the end of the cast list (start of actual script).
+ * Patterns that signal the end of the cast list (start of actual script or
+ * a new front-matter section that is not the character list).
+ *
+ * Added: SCENE LISTING, SONG LISTING, TABLE OF CONTENTS, SYNOPSIS,
+ * MUSICAL NUMBERS, SETTING — these are front-matter section headings that
+ * immediately follow the cast page in many published scripts.  Previously
+ * only "SCENE <digit>" was matched, which left "SCENE LISTING" unblocked.
  */
 const CAST_END_RE =
-  /^(?:#\s*\d+|ACT\s+(?:ONE|TWO|THREE|I{1,3}V?|\d+)\b|(?:SCENE|scene)\s*\d|(?:Prologue|Epilogue)\s*[:\u2014\u2013\-])/i;
+  /^(?:#\s*\d+|ACT\s+(?:ONE|TWO|THREE|I{1,3}V?|\d+)\b|(?:SCENE|scene)\s*\d|(?:Prologue|Epilogue)\s*[:\u2014\u2013\-]|SCENE\s+LISTING|SONG\s+LISTING|TABLE\s+OF\s+CONTENTS|MUSICAL\s+NUMBERS?|SYNOPSIS|SETTING\b|PLACE\b|SCENES\b|SONGS\b)/i;
 
 export interface CastMember {
   name: string;
@@ -301,6 +307,16 @@ export function parseCastList(
 
     // Skip pure numbers (page numbers leaking from TOC)
     if (/^\d+$/.test(name)) continue;
+
+    // Skip TOC dot-leader entries: "Scene 1 .............. 6"
+    // These appear when the cast section is not properly bounded and
+    // the parser runs on into a scene/song listing page.
+    if (/\.{3,}/.test(name)) continue;
+
+    // After bullet stripping, re-check for section-ending headings.
+    // Lines like "- Scene 1: The Locked Stage" pass the raw CAST_END_RE
+    // check (which is anchored at ^) because the leading "-" hides "SCENE".
+    if (CAST_END_RE.test(name)) break;
 
     entries.push({ text: name.toUpperCase(), indent, lineIdx: i });
   }

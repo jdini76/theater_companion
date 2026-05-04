@@ -245,6 +245,14 @@ const NON_CHARACTER_WORDS = new Set([
   "BLACKOUT",
   "FADEOUT",
   "INTERMISSION",
+  // Front-matter / document structure headings (table of contents, cast page, etc.)
+  // "SCENE X" is already caught by SCENE_HEADING_RE before reaching this check,
+  // so adding SCENE here only blocks non-numbered variants like "SCENE LISTING".
+  "TABLE", // TABLE OF CONTENTS
+  "CHARACTERS", // CHARACTERS (cast list page header)
+  "CAST", // CAST OF CHARACTERS, CAST LIST
+  "SCENE", // SCENE LISTING (numbered scenes caught earlier by SCENE_HEADING_RE)
+  "CONTENTS", // defensive: CONTENTS page
 ]);
 
 // ── Inline parenthetical helpers ─────────────────────────────────────────────
@@ -477,10 +485,12 @@ function isValidCharacterName(name: string): boolean {
   // like "YA DAH DAH..." are not character names)
   if (/\.{2,}/.test(name)) return false;
 
-  // Character names rarely exceed 4 words; longer ALL-CAPS lines are almost
-  // certainly song lyrics (e.g. "CAUSE THE PINSTRIPES ARE ALL THAT THEY SEE").
-  // Group names joined by &, comma, or + (e.g. "DJ 1 & DJ 2") are exempt.
+  // Reject single character names containing apostrophes — these are almost
+  // always contraction fragments from lyrics (AIN'T, BETCHA', ROUND) rather
+  // than real character names.  Multi-character labels (NORA & ELI) are
+  // exempt since the joiner is checked separately.
   const hasJoiner = /[,&+]/.test(name);
+  if (!hasJoiner && name.includes("'")) return false;
   const words = name.trim().split(/\s+/);
   if (!hasJoiner && words.length > 4) return false;
 
@@ -686,10 +696,28 @@ function isValidCharacterName(name: string): boolean {
 function isKnownCharacter(name: string, knownCharSet: Set<string>): boolean {
   const upper = name.toUpperCase();
   if (knownCharSet.has(upper)) return true;
+
+  // Single-word partial match: "PHIL" → true when "PHIL CONNORS" is known
   for (const known of knownCharSet) {
     const parts = known.split(/\s+/);
     if (parts.length > 1 && parts.includes(upper)) return true;
   }
+
+  // Multi-character label: "NORA & ELI", "NORA, ELI, AND MARA"
+  // True when every individual name in the group is known.
+  if (/[,&]/.test(upper)) {
+    const parts = upper
+      .split(/\s*[,&]\s*/)
+      .map((p) => p.replace(/^\bAND\b\s*/i, "").trim())
+      .filter((p) => p && !/^\bAND\b$/i.test(p));
+    if (
+      parts.length > 1 &&
+      parts.every((p) => isKnownCharacter(p, knownCharSet))
+    ) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -806,6 +834,20 @@ export function parseDialogueLines(
       afterBlank = true;
       // Do NOT clear pendingStandaloneChar: a stage direction or blank can
       // separate a standalone name line from its dialogue in some scripts.
+      continue;
+    }
+
+    // ── TOC / dot-leader lines ───────────────────────────────────────
+    // Lines like "Scene 1: The Locked Stage .............. 6" are table-of-
+    // contents entries; they should never be treated as characters or dialogue.
+    if (/\.{3,}/.test(trimmed)) {
+      output.push({
+        lineNumber: lineNumber++,
+        character: "[Narrative]",
+        dialogue: trimmed,
+      });
+      lastDialogueIdx = -1;
+      afterBlank = false;
       continue;
     }
 

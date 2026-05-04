@@ -1,6 +1,13 @@
 export interface DialogueLine {
   lineNumber: number;
+  /** Primary display name (may be a combined string like "NORA & ELI"). */
   character: string;
+  /**
+   * Individual speaker names when `character` covers multiple people.
+   * e.g. "NORA & ELI" → ["NORA", "ELI"].
+   * Undefined for single-speaker lines.
+   */
+  characters?: string[];
   dialogue: string;
   isUserLine?: boolean;
   isStageDirection?: boolean;

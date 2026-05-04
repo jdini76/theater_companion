@@ -35,7 +35,8 @@ type CastCategory =
   | "Individual"
   | "Group"
   | "Non-character"
-  | "Merge Characters";
+  | "Merge Characters"
+  | "Split";
 
 interface ParsedSceneData {
   title: string;
@@ -48,6 +49,19 @@ type MatchResult =
   | { kind: "exact"; canonical: string }
   | { kind: "partial"; canonical: string }
   | { kind: "new" };
+
+/**
+ * Split a combined speaker label into individual names.
+ * "NORA & ELI" → ["NORA", "ELI"]
+ * "NORA, ELI, AND MARA" → ["NORA", "ELI", "MARA"]
+ */
+function splitCastName(name: string): string[] {
+  if (!/[&,]/.test(name)) return [name];
+  return name
+    .split(/\s*[&,]\s*/)
+    .map((p) => p.replace(/^\bAND\b\s*/i, "").trim())
+    .filter((p) => p.length > 0 && !/^\bAND\b$/i.test(p));
+}
 
 function matchAgainstMaster(name: string, masterList: string[]): MatchResult {
   const upper = name.toUpperCase().trim();
@@ -287,6 +301,8 @@ export function SceneImportForm({
   const [partialMatchSuggestions, setPartialMatchSuggestions] = useState<
     Map<string, string>
   >(new Map());
+  // Whether to expand the review list to include auto-matched characters
+  const [showAllChars, setShowAllChars] = useState(false);
 
   const handleParseText = (text: string) => {
     setError(null);
@@ -327,7 +343,7 @@ export function SceneImportForm({
       // Collect all raw character names detected across scenes
       const rawDetectedSet = new Set<string>();
       for (const scene of scenes) {
-        for (const char of extractSceneCharacters(scene.content))
+        for (const char of extractSceneCharacters(scene.content, masterList))
           rawDetectedSet.add(char);
       }
 
@@ -426,6 +442,31 @@ export function SceneImportForm({
     setMergeAliases((prev) => {
       const next = new Map(prev);
       next.set(targetName, [...(next.get(targetName) ?? []), sourceName]);
+      return next;
+    });
+  };
+
+  // Confirm split: replace the combined name with the individual parts
+  const handleConfirmSplit = (combinedName: string) => {
+    const parts = splitCastName(combinedName);
+    if (parts.length < 2) return;
+    setCastNames((prev) => {
+      const without = prev.filter((n) => n !== combinedName);
+      // Add new parts that aren't already in the list (or auto-accepted)
+      const autoUpper = new Set(autoAcceptedNames.map((n) => n.toUpperCase()));
+      const toAdd = parts.filter(
+        (p) =>
+          !without.some((n) => n.toUpperCase() === p.toUpperCase()) &&
+          !autoUpper.has(p.toUpperCase()),
+      );
+      return [...without, ...toAdd].sort();
+    });
+    setCastCategories((prev) => {
+      const next = new Map(prev);
+      next.delete(combinedName);
+      for (const part of parts) {
+        if (!next.has(part)) next.set(part, "Individual");
+      }
       return next;
     });
   };
@@ -553,6 +594,7 @@ export function SceneImportForm({
     setCastImportMode("add");
     setAutoAcceptedNames([]);
     setPartialMatchSuggestions(new Map());
+    setShowAllChars(false);
   };
 
   return (
@@ -726,14 +768,23 @@ export function SceneImportForm({
           </div>
 
           {autoAcceptedNames.length > 0 && (
-            <div className="p-3 bg-accent-cyan/10 border border-accent-cyan/30 rounded text-sm flex items-center gap-2">
+            <div className="p-3 bg-accent-cyan/10 border border-accent-cyan/30 rounded text-sm flex flex-wrap items-center gap-2">
               <span className="text-accent-cyan font-semibold">
                 {autoAcceptedNames.length} character
                 {autoAcceptedNames.length !== 1 ? "s" : ""} auto-matched
               </span>
-              <span className="text-muted">
+              <span className="text-muted flex-1">
                 from the master cast list and will be imported automatically.
               </span>
+              <label className="flex items-center gap-1.5 cursor-pointer ml-auto select-none flex-shrink-0">
+                <input
+                  type="checkbox"
+                  checked={showAllChars}
+                  onChange={(e) => setShowAllChars(e.target.checked)}
+                  className="accent-accent-cyan"
+                />
+                <span className="text-muted text-xs">Show all characters</span>
+              </label>
             </div>
           )}
 
@@ -789,13 +840,29 @@ export function SceneImportForm({
             </div>
           )}
 
-          {castNames.length === 0 ? (
+          {castNames.length === 0 &&
+          !(showAllChars && autoAcceptedNames.length > 0) ? (
             <p className="text-muted text-sm italic">
               No cast names identified.
             </p>
           ) : (
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {castNames.map((name) => {
+              {(showAllChars
+                ? [
+                    ...autoAcceptedNames.map((n) => ({
+                      name: n,
+                      autoMatched: true as const,
+                    })),
+                    ...castNames.map((n) => ({
+                      name: n,
+                      autoMatched: false as const,
+                    })),
+                  ]
+                : castNames.map((n) => ({
+                    name: n,
+                    autoMatched: false as const,
+                  }))
+              ).map(({ name, autoMatched }) => {
                 const category = castCategories.get(name) ?? "Individual";
                 const mergeTarget = mergeTargets.get(name) ?? "";
                 return (
@@ -804,7 +871,9 @@ export function SceneImportForm({
                     className={`px-3 py-2 rounded border transition-colors ${
                       category === "Non-character"
                         ? "bg-background border-border opacity-50"
-                        : "bg-background border-border"
+                        : autoMatched
+                          ? "bg-background border-accent-cyan/20"
+                          : "bg-background border-border"
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -814,6 +883,11 @@ export function SceneImportForm({
                         >
                           {name}
                         </span>
+                        {autoMatched && category !== "Non-character" && (
+                          <span className="ml-2 text-xs text-accent-cyan/60">
+                            auto-matched
+                          </span>
+                        )}
                         {partialMatchSuggestions.has(name) && (
                           <p className="text-xs text-yellow-400 mt-0.5">
                             Possible match: {partialMatchSuggestions.get(name)}
@@ -842,7 +916,9 @@ export function SceneImportForm({
                               ? "border-yellow-500/50 text-yellow-400"
                               : category === "Merge Characters"
                                 ? "border-purple-500/50 text-purple-400"
-                                : "border-accent-cyan/50 text-accent-cyan"
+                                : category === "Split"
+                                  ? "border-orange-500/50 text-orange-400"
+                                  : "border-accent-cyan/50 text-accent-cyan"
                         }`}
                       >
                         <option value="Individual">Individual</option>
@@ -851,8 +927,44 @@ export function SceneImportForm({
                         <option value="Merge Characters">
                           Merge Characters
                         </option>
+                        <option value="Split">Split into individuals</option>
                       </select>
                     </div>
+
+                    {category === "Split" && (
+                      <div className="mt-2 pt-2 border-t border-border">
+                        {(() => {
+                          const parts = splitCastName(name);
+                          return parts.length > 1 ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-muted whitespace-nowrap">
+                                Split into:
+                              </span>
+                              {parts.map((p) => (
+                                <span
+                                  key={p}
+                                  className="text-xs font-mono px-2 py-0.5 rounded bg-orange-500/10 text-orange-300 border border-orange-500/30"
+                                >
+                                  {p}
+                                </span>
+                              ))}
+                              <button
+                                onClick={() => handleConfirmSplit(name)}
+                                className="ml-auto px-3 py-1 bg-orange-500/20 text-orange-400 text-xs rounded hover:bg-orange-500/30 transition-colors"
+                              >
+                                Confirm split
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted italic">
+                              Cannot split — no separator (&nbsp;
+                              <code>&amp;</code> or <code>,</code>) found in
+                              name.
+                            </p>
+                          );
+                        })()}
+                      </div>
+                    )}
 
                     {category === "Merge Characters" && (
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
