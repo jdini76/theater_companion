@@ -156,8 +156,9 @@ export default function UnifiedRehearsalPage() {
   // Rehearsal options
   const [speakNames, setSpeakNames] = useState<boolean>(false);
   const [readOwnLines, setReadOwnLines] = useState<boolean>(false);
-  const [pauseMode, setPauseMode] = useState<"manual" | "countdown">("manual");
+  const [pauseMode, setPauseMode] = useState<"manual" | "countdown" | "wpm">("manual");
   const [countdownSeconds, setCountdownSeconds] = useState<number>(4);
+  const [wordsPerMinute, setWordsPerMinute] = useState<number>(160);
   const [narratorVoiceIndex, setNarratorVoiceIndex] = useState<number>(0);
   const [skipNarration, setSkipNarration] = useState<boolean>(false);
   const [skipStageDirections, setSkipStageDirections] =
@@ -198,6 +199,7 @@ export default function UnifiedRehearsalPage() {
     setRehearsalMode("full");
     setPauseMode("manual");
     setCountdownSeconds(4);
+    setWordsPerMinute(160);
     setNarratorVoiceIndex(0);
     setTtsProvider("browser");
     setApiVoiceAssignments({});
@@ -222,9 +224,11 @@ export default function UnifiedRehearsalPage() {
     if (saved.rehearsalMode)
       setRehearsalMode(saved.rehearsalMode as "full" | "cue-only");
     if (saved.pauseMode)
-      setPauseMode(saved.pauseMode as "manual" | "countdown");
+      setPauseMode(saved.pauseMode as "manual" | "countdown" | "wpm");
     if (saved.countdownSeconds)
       setCountdownSeconds(saved.countdownSeconds as number);
+    if (typeof saved.wordsPerMinute === "number")
+      setWordsPerMinute(saved.wordsPerMinute);
     if (typeof saved.narratorVoiceIndex === "number")
       setNarratorVoiceIndex(saved.narratorVoiceIndex);
     if (saved.ttsProvider)
@@ -645,6 +649,7 @@ MOM: See? You were ready.`,
           rehearsalMode,
           pauseMode,
           countdownSeconds,
+          wordsPerMinute,
           narratorVoiceIndex,
           ttsProvider,
           apiVoiceAssignments,
@@ -667,6 +672,7 @@ MOM: See? You were ready.`,
     rehearsalMode,
     pauseMode,
     countdownSeconds,
+    wordsPerMinute,
     narratorVoiceIndex,
     ttsProvider,
     apiVoiceAssignments,
@@ -882,6 +888,26 @@ MOM: See? You were ready.`,
         }, 1000);
 
         setCountdownInterval(interval);
+      } else if (pauseMode === "wpm") {
+        // Calculate words in the line
+        const wordCount = line.dialogue.trim().split(/\s+/).length;
+        // Calculate seconds based on WPM: (words / wpm) * 60
+        const seconds = Math.max(1, Math.round((wordCount / wordsPerMinute) * 60));
+        setCurrentPrompt(`Your turn. Continuing in ${seconds}s...`);
+
+        let remaining = seconds;
+        const interval = setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            clearInterval(interval);
+            setCurrentPrompt("");
+            setRehearsal((prev) => ({ ...prev, index: prev.index + 1 }));
+          } else {
+            setCurrentPrompt(`Your turn. Continuing in ${remaining}s...`);
+          }
+        }, 1000);
+
+        setCountdownInterval(interval);
       } else {
         setRehearsal((prev) => ({ ...prev, isPaused: true }));
       }
@@ -945,6 +971,7 @@ MOM: See? You were ready.`,
     rehearsalMode,
     pauseMode,
     countdownSeconds,
+    wordsPerMinute,
     speakLine,
     ttsProvider,
     apiVoiceAssignments,
@@ -1393,12 +1420,13 @@ MOM: See? You were ready.`,
               <select
                 value={pauseMode}
                 onChange={(e) =>
-                  setPauseMode(e.target.value as "manual" | "countdown")
+                  setPauseMode(e.target.value as "manual" | "countdown" | "wpm")
                 }
                 className={inputCls}
               >
                 <option value="manual">Pause and wait</option>
                 <option value="countdown">Countdown then continue</option>
+                <option value="wpm">Words per minute</option>
               </select>
             </div>
           </div>
@@ -1439,6 +1467,26 @@ MOM: See? You were ready.`,
                       }
                       className={inputCls}
                     />
+                  </div>
+                )}
+                {pauseMode === "wpm" && (
+                  <div>
+                    <label className={labelCls}>Words Per Minute</label>
+                    <input
+                      type="number"
+                      min={50}
+                      max={400}
+                      value={wordsPerMinute}
+                      onChange={(e) =>
+                        setWordsPerMinute(
+                          Math.max(50, parseInt(e.target.value) || 160),
+                        )
+                      }
+                      className={inputCls}
+                    />
+                    <p className="text-muted text-xs mt-1">
+                      Auto-advance based on line length
+                    </p>
                   </div>
                 )}
               </div>
