@@ -151,6 +151,7 @@ export default function UnifiedRehearsalPage() {
 
   // UI panel state
   const [scenesOpen, setScenesOpen] = useState<boolean>(true);
+  const [runLinesOpen, setRunLinesOpen] = useState<boolean>(false);
 
   // Rehearsal options
   const [speakNames, setSpeakNames] = useState<boolean>(false);
@@ -174,9 +175,6 @@ export default function UnifiedRehearsalPage() {
     "Load a scene, pick your role, and press Start.",
   );
   const [currentPrompt, setCurrentPrompt] = useState<string>("");
-  const [rehearsalStatus, setRehearsalStatus] = useState<string>(
-    "Ready when you are.",
-  );
 
   // Timers
   const [countdownInterval, setCountdownInterval] =
@@ -206,7 +204,6 @@ export default function UnifiedRehearsalPage() {
     setCurrentSpeaker("");
     setCurrentDialogue("Load a scene, pick your role, and press Start.");
     setCurrentPrompt("");
-    setRehearsalStatus("Ready when you are.");
     setRehearsal({ lines: [], index: 0, isPlaying: false, isPaused: false });
 
     if (!saved) return;
@@ -279,6 +276,14 @@ export default function UnifiedRehearsalPage() {
     applySettings(loadSavedForProject(currentProjectId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-expand Run Lines and collapse Scenes Selector when scenes load
+  useEffect(() => {
+    if (scenes.length > 0) {
+      setRunLinesOpen(true);
+      setScenesOpen(false);
+    }
+  }, [scenes.length]);
 
   // Watch for project changes (from ProjectSelector dropdown or projects page)
   useEffect(() => {
@@ -372,14 +377,12 @@ export default function UnifiedRehearsalPage() {
   // Parse script
   const handleParseScript = () => {
     if (!scriptInput.trim()) {
-      setRehearsalStatus("Please enter script text.");
       return;
     }
 
     // First, parse scenes (splits by scene headers)
     const parsedScenes = parseScenes(scriptInput, { mode: sceneMode });
     if (parsedScenes.length === 0) {
-      setRehearsalStatus("No scenes detected.");
       return;
     }
 
@@ -398,7 +401,6 @@ export default function UnifiedRehearsalPage() {
     );
 
     if (scenesWithDialogue.length === 0) {
-      setRehearsalStatus("No dialogue detected. Use FORMAT: CHARACTER: line");
       return;
     }
 
@@ -407,9 +409,6 @@ export default function UnifiedRehearsalPage() {
     setCurrentSpeaker("READY");
     setCurrentDialogue("Script loaded.");
     setCurrentPrompt("");
-    setRehearsalStatus(
-      `${scenesWithDialogue.length} scene${scenesWithDialogue.length === 1 ? "" : "s"} loaded.`,
-    );
     setScenesOpen(false);
   };
 
@@ -434,15 +433,11 @@ MOM: See? You were ready.`,
   // Load scenes from the library (scenes page)
   const handleLoadFromLibrary = () => {
     if (!currentProjectId) {
-      setRehearsalStatus("Please select a project first.");
       return;
     }
 
     const libraryScenes: StoredScene[] = getProjectScenes(currentProjectId);
     if (libraryScenes.length === 0) {
-      setRehearsalStatus(
-        "No scenes found for this project. Import scenes on the Scenes page first.",
-      );
       return;
     }
 
@@ -453,13 +448,13 @@ MOM: See? You were ready.`,
         : libraryScenes;
 
     if (toLoad.length === 0) {
-      setRehearsalStatus("No scenes selected.");
       return;
     }
 
     const processedScenes: Scene[] = toLoad
       .map((s) => {
-        const dialogueLines = parseDialogueLines(s.content);
+        // Use cached lines if available, otherwise parse
+        const dialogueLines = s.lines || parseDialogueLines(s.content);
         return {
           title: s.title,
           lines: dialogueLines,
@@ -469,9 +464,6 @@ MOM: See? You were ready.`,
       .filter((s) => s.lines.length > 0);
 
     if (processedScenes.length === 0) {
-      setRehearsalStatus(
-        "Selected scenes have no dialogue. Ensure scenes use FORMAT: CHARACTER: line",
-      );
       return;
     }
 
@@ -480,9 +472,6 @@ MOM: See? You were ready.`,
     setCurrentSpeaker("READY");
     setCurrentDialogue("Scenes loaded from library.");
     setCurrentPrompt("");
-    setRehearsalStatus(
-      `${processedScenes.length} scene${processedScenes.length === 1 ? "" : "s"} loaded from library.`,
-    );
     setScenesOpen(false);
   };
 
@@ -834,7 +823,6 @@ MOM: See? You were ready.`,
     if (rehearsal.isPlaying === false || rehearsal.isPaused) return;
 
     if (rehearsal.index >= rehearsal.lines.length) {
-      setRehearsalStatus("Scene complete!");
       setCurrentSpeaker("DONE");
       setCurrentDialogue("End of scene. Nice work.");
       setCurrentPrompt("");
@@ -857,7 +845,6 @@ MOM: See? You were ready.`,
       line = rehearsal.lines[idx];
     }
     if (!line) {
-      setRehearsalStatus("Scene complete!");
       setCurrentSpeaker("DONE");
       setCurrentDialogue("End of scene. Nice work.");
       setCurrentPrompt("");
@@ -878,7 +865,6 @@ MOM: See? You were ready.`,
       setCurrentSpeaker(line.character);
       setCurrentDialogue(line.dialogue);
       setCurrentPrompt("Your turn.");
-      setRehearsalStatus("Waiting on your line.");
 
       if (pauseMode === "countdown") {
         let sec = Math.max(1, countdownSeconds);
@@ -918,7 +904,6 @@ MOM: See? You were ready.`,
     setCurrentSpeaker(line.character);
     setCurrentDialogue(line.dialogue);
     setCurrentPrompt(isMine ? "Read-through mode" : "Listening...");
-    setRehearsalStatus(`Speaking: ${line.character}`);
 
     // Pre-generate the next non-user Kokoro line in the background (if enabled)
     if (ttsProvider === "kokoro") {
@@ -983,12 +968,10 @@ MOM: See? You were ready.`,
   // Start rehearsal
   const handleStart = () => {
     if (!scenes.length) {
-      setRehearsalStatus("Please load a script first.");
       return;
     }
 
     if (!selectedCharacter) {
-      setRehearsalStatus("Please select a character.");
       return;
     }
 
@@ -1004,7 +987,6 @@ MOM: See? You were ready.`,
       isPlaying: true,
       isPaused: false,
     });
-    setRehearsalStatus(`Rehearsing: ${scene.title}`);
   };
 
   // Pause rehearsal
@@ -1014,7 +996,6 @@ MOM: See? You were ready.`,
     stopApiAudio();
     stopKokoroAudio();
     setRehearsal((prev) => ({ ...prev, isPaused: true }));
-    setRehearsalStatus("Paused.");
 
     if (countdownInterval) clearInterval(countdownInterval);
     if (nextLineTimeout) clearTimeout(nextLineTimeout);
@@ -1035,7 +1016,6 @@ MOM: See? You were ready.`,
     }
 
     setRehearsal((prev) => ({ ...prev, isPaused: false }));
-    setRehearsalStatus("Resumed.");
   };
 
   // Reset rehearsal back to beginning
@@ -1049,7 +1029,6 @@ MOM: See? You were ready.`,
     setCurrentSpeaker("");
     setCurrentDialogue("Load a scene, pick your role, and press Start.");
     setCurrentPrompt("");
-    setRehearsalStatus("Ready when you are.");
   };
 
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -1061,29 +1040,114 @@ MOM: See? You were ready.`,
   const isMyTurn = rehearsal.isPaused && currentPrompt.startsWith("Your turn");
 
   // â”€â”€ helpers for button styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const btnPrimary = "px-4 py-2 rounded-lg font-semibold text-sm bg-accent-cyan text-dark-base hover:bg-accent-cyan/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors";
-  const btnSecondary = "px-4 py-2 rounded-lg font-semibold text-sm bg-dark-input border border-border text-light hover:border-accent-cyan transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-  const btnDanger = "px-4 py-2 rounded-lg font-semibold text-sm bg-dark-input border border-border text-red-400 hover:border-red-400 transition-colors";
-  const inputCls = "w-full bg-background border border-border rounded-lg px-3 py-2 text-light text-sm focus:outline-none focus:border-accent-cyan";
-  const labelCls = "block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5";
+  const btnPrimary =
+    "px-4 py-2 rounded-lg font-semibold text-sm bg-accent-cyan text-dark-base hover:bg-accent-cyan/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors";
+  const btnSecondary =
+    "px-4 py-2 rounded-lg font-semibold text-sm bg-dark-input border border-border text-light hover:border-accent-cyan transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+  const btnDanger =
+    "px-4 py-2 rounded-lg font-semibold text-sm bg-dark-input border border-border text-red-400 hover:border-red-400 transition-colors";
+  const inputCls =
+    "w-full bg-background border border-border rounded-lg px-3 py-2 text-light text-sm focus:outline-none focus:border-accent-cyan";
+  const labelCls =
+    "block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5";
 
-  const libraryScenes = currentProjectId ? getProjectScenes(currentProjectId) : [];
-
+  const libraryScenes = currentProjectId
+    ? getProjectScenes(currentProjectId)
+    : [];
 
   return (
-    <div className="flex gap-4 items-start">
+    <div className="space-y-4">
+      {/* ── Run Lines (stays fixed) ──────────────────────────────── */}
+      <section className="card space-y-5">
+        <button
+          onClick={() => setRunLinesOpen((o) => !o)}
+          className="w-full flex items-center justify-between"
+        >
+          <h2 className="text-lg font-bold text-light">Run Lines</h2>
+          <span className="text-muted text-xs">
+            {runLinesOpen ? "▲ Hide" : "▼ Show"}
+          </span>
+        </button>
 
+        {runLinesOpen && (
+          <div className="space-y-5">
+            {scenes.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {scenes.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedSceneIndex(i)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
+                      i === selectedSceneIndex
+                        ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                        : "border-border text-muted hover:border-accent-cyan hover:text-light"
+                    }`}
+                  >
+                    {s.title}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className={`rounded-xl border p-6 min-h-[180px] flex flex-col justify-center transition-colors ${
+              isMyTurn ? "border-yellow-400/50 bg-yellow-400/5" : "border-border bg-background"
+            }`}>
+              {currentSpeaker ? (
+                <>
+                  <div className="text-xs font-bold tracking-widest uppercase text-accent-cyan mb-3">
+                    {currentSpeaker}
+                  </div>
+                  <div className="text-xl sm:text-2xl text-light leading-relaxed">
+                    {currentDialogue}
+                  </div>
+                  {currentPrompt && (
+                    <div className="text-yellow-400 font-semibold text-sm mt-4">{currentPrompt}</div>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted text-sm text-center">
+                  Load a scene, pick your character, and press Start.
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {!isActive ? (
+                <button onClick={handleStart} disabled={!scenes.length || !selectedCharacter} className={btnPrimary}>
+                  ▶ Start
+                </button>
+              ) : rehearsal.isPaused ? (
+                <button onClick={handleResume} className={btnPrimary}>▶ Continue</button>
+              ) : (
+                <button onClick={handlePause} className={btnSecondary}>⏸ Pause</button>
+              )}
+              {isActive && <button onClick={handleReset} className={btnDanger}>⏹ Stop</button>}
+              {!isActive && scenes.length > 0 && <button onClick={handleReset} className={btnSecondary}>Reset</button>}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Sidebar and other cards ─────────────────────────────── */}
+      <div className="flex gap-4 items-start">
       {/* ── Load Scenes sidebar ──────────────────────────────────── */}
-      <div className={`flex-shrink-0 transition-all duration-200 ${scenesOpen ? "w-72" : "w-8"}`}>
+      <div
+        className={`flex-shrink-0 transition-all duration-200 ${scenesOpen ? "w-72" : "w-8"}`}
+      >
         <div className="card relative overflow-hidden">
-
           {/* Toggle chevron */}
           <button
             onClick={() => setScenesOpen((v) => !v)}
             className="absolute top-3 right-2 z-10 p-0.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
-            aria-label={scenesOpen ? "Collapse scene loader" : "Expand scene loader"}
+            aria-label={
+              scenesOpen ? "Collapse scene loader" : "Expand scene loader"
+            }
           >
-            {scenesOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+            {scenesOpen ? (
+              <ChevronLeft size={14} />
+            ) : (
+              <ChevronRight size={14} />
+            )}
           </button>
 
           {/* Collapsed strip */}
@@ -1106,7 +1170,10 @@ MOM: See? You were ready.`,
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-bold text-light">Load Scenes</h2>
                 {scenes.length > 0 && (
-                  <button onClick={handleClear} className="text-xs text-muted hover:text-red-400 transition-colors">
+                  <button
+                    onClick={handleClear}
+                    className="text-xs text-muted hover:text-red-400 transition-colors"
+                  >
                     Clear
                   </button>
                 )}
@@ -1130,8 +1197,8 @@ MOM: See? You were ready.`,
               </div>
 
               {/* Library */}
-              {loadSource === "library" && (
-                libraryScenes.length === 0 ? (
+              {loadSource === "library" &&
+                (libraryScenes.length === 0 ? (
                   <p className="text-muted text-sm">
                     No scenes found. Import scenes in the{" "}
                     <span className="text-accent-cyan">Scenes</span> tab first.
@@ -1149,27 +1216,47 @@ MOM: See? You were ready.`,
                       const query = libraryFilter.trim().toLowerCase();
                       const filtered = query
                         ? libraryScenes.filter((ls) => {
-                            const chars = ls.characters ?? extractSceneCharacters(ls.content);
-                            return ls.title.toLowerCase().includes(query) ||
+                            const chars =
+                              ls.characters ??
+                              extractSceneCharacters(ls.content);
+                            return (
+                              ls.title.toLowerCase().includes(query) ||
                               ls.content.toLowerCase().includes(query) ||
-                              chars.some((c) => c.toLowerCase().includes(query));
+                              chars.some((c) => c.toLowerCase().includes(query))
+                            );
                           })
                         : libraryScenes;
-                      const allSelected = filtered.length > 0 && filtered.every((ls) => selectedLibrarySceneIds.has(ls.id));
-                      const someSelected = filtered.some((ls) => selectedLibrarySceneIds.has(ls.id));
+                      const allSelected =
+                        filtered.length > 0 &&
+                        filtered.every((ls) =>
+                          selectedLibrarySceneIds.has(ls.id),
+                        );
+                      const someSelected = filtered.some((ls) =>
+                        selectedLibrarySceneIds.has(ls.id),
+                      );
                       return (
                         <div className="border border-border rounded-lg overflow-hidden">
                           <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel border-b border-border cursor-pointer hover:bg-white/5 transition-colors">
                             <input
                               type="checkbox"
                               checked={allSelected}
-                              ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
-                              onChange={() => setSelectedLibrarySceneIds((prev) => {
-                                const next = new Set(prev);
-                                if (allSelected) filtered.forEach((ls) => next.delete(ls.id));
-                                else filtered.forEach((ls) => next.add(ls.id));
-                                return next;
-                              })}
+                              ref={(el) => {
+                                if (el)
+                                  el.indeterminate =
+                                    someSelected && !allSelected;
+                              }}
+                              onChange={() =>
+                                setSelectedLibrarySceneIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (allSelected)
+                                    filtered.forEach((ls) =>
+                                      next.delete(ls.id),
+                                    );
+                                  else
+                                    filtered.forEach((ls) => next.add(ls.id));
+                                  return next;
+                                })
+                              }
                               className="accent-accent-cyan"
                             />
                             <span className="text-xs font-semibold text-muted uppercase tracking-widest">
@@ -1177,40 +1264,72 @@ MOM: See? You were ready.`,
                             </span>
                           </label>
                           {filtered.map((ls) => {
-                            const isSelected = selectedLibrarySceneIds.has(ls.id);
-                            const chars = ls.characters ?? extractSceneCharacters(ls.content);
+                            const isSelected = selectedLibrarySceneIds.has(
+                              ls.id,
+                            );
+                            const chars =
+                              ls.characters ??
+                              extractSceneCharacters(ls.content);
                             return (
-                              <label key={ls.id} className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}>
-                                <input type="checkbox" checked={isSelected} onChange={() => toggleLibraryScene(ls.id)} className="accent-accent-cyan mt-0.5 flex-shrink-0" />
+                              <label
+                                key={ls.id}
+                                className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleLibraryScene(ls.id)}
+                                  className="accent-accent-cyan mt-0.5 flex-shrink-0"
+                                />
                                 <div className="min-w-0">
-                                  <div className="text-sm text-light font-medium truncate">{ls.title}</div>
-                                  {chars.length > 0 && <div className="text-xs text-accent-cyan mt-0.5 truncate">{chars.join(", ")}</div>}
+                                  <div className="text-sm text-light font-medium truncate">
+                                    {ls.title}
+                                  </div>
+                                  {chars.length > 0 && (
+                                    <div className="text-xs text-accent-cyan mt-0.5 truncate">
+                                      {chars.join(", ")}
+                                    </div>
+                                  )}
                                 </div>
                               </label>
                             );
                           })}
                           {filtered.length === 0 && (
-                            <div className="px-3 py-4 text-muted text-sm text-center">No matches</div>
+                            <div className="px-3 py-4 text-muted text-sm text-center">
+                              No matches
+                            </div>
                           )}
                         </div>
                       );
                     })()}
-                    <button onClick={handleLoadFromLibrary} className={btnPrimary}>
+                    <button
+                      onClick={handleLoadFromLibrary}
+                      className={btnPrimary}
+                    >
                       {selectedLibrarySceneIds.size > 0
                         ? `Load ${selectedLibrarySceneIds.size} scene${selectedLibrarySceneIds.size !== 1 ? "s" : ""}`
                         : `Load all ${libraryScenes.length}`}
                     </button>
                   </div>
-                )
-              )}
+                ))}
 
               {/* Paste */}
               {loadSource === "paste" && (
                 <div className="space-y-3">
                   <div className="flex flex-col gap-2">
                     {(["single", "multiple"] as const).map((m) => (
-                      <label key={m} className="flex items-center gap-2 text-sm text-muted cursor-pointer">
-                        <input type="radio" name="sceneMode" value={m} checked={sceneMode === m} onChange={() => setSceneMode(m)} className="accent-accent-cyan" />
+                      <label
+                        key={m}
+                        className="flex items-center gap-2 text-sm text-muted cursor-pointer"
+                      >
+                        <input
+                          type="radio"
+                          name="sceneMode"
+                          value={m}
+                          checked={sceneMode === m}
+                          onChange={() => setSceneMode(m)}
+                          className="accent-accent-cyan"
+                        />
                         {m === "single" ? "Single scene" : "Multiple scenes"}
                       </label>
                     ))}
@@ -1223,8 +1342,12 @@ MOM: See? You were ready.`,
                     className={`${inputCls} font-mono resize-y`}
                   />
                   <div className="flex flex-col gap-2">
-                    <button onClick={handleParseScript} className={btnPrimary}>Load Script</button>
-                    <button onClick={handleLoadSample} className={btnSecondary}>Load Sample</button>
+                    <button onClick={handleParseScript} className={btnPrimary}>
+                      Load Script
+                    </button>
+                    <button onClick={handleLoadSample} className={btnSecondary}>
+                      Load Sample
+                    </button>
                   </div>
                 </div>
               )}
@@ -1235,87 +1358,45 @@ MOM: See? You were ready.`,
 
       {/* ── Main content ─────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 space-y-4">
-
-        {/* Player */}
-        <section className="card space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-light">Run Lines</h2>
-            <span className="text-xs text-muted">{rehearsalStatus}</span>
-          </div>
-
-          {scenes.length > 1 && (
-            <div className="flex flex-wrap gap-2">
-              {scenes.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => setSelectedSceneIndex(i)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
-                    i === selectedSceneIndex
-                      ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
-                      : "border-border text-muted hover:border-accent-cyan hover:text-light"
-                  }`}
-                >
-                  {s.title}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className={`rounded-xl border p-6 min-h-[180px] flex flex-col justify-center transition-colors ${
-            isMyTurn ? "border-yellow-400/50 bg-yellow-400/5" : "border-border bg-background"
-          }`}>
-            {currentSpeaker ? (
-              <>
-                <div className="text-xs font-bold tracking-widest uppercase text-accent-cyan mb-3">
-                  {currentSpeaker}
-                </div>
-                <div className="text-xl sm:text-2xl text-light leading-relaxed">
-                  {currentDialogue}
-                </div>
-                {currentPrompt && (
-                  <div className="text-yellow-400 font-semibold text-sm mt-4">{currentPrompt}</div>
-                )}
-              </>
-            ) : (
-              <p className="text-muted text-sm text-center">
-                Load a scene, pick your character, and press Start.
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {!isActive ? (
-              <button onClick={handleStart} disabled={!scenes.length || !selectedCharacter} className={btnPrimary}>
-                ▶ Start
-              </button>
-            ) : rehearsal.isPaused ? (
-              <button onClick={handleResume} className={btnPrimary}>▶ Continue</button>
-            ) : (
-              <button onClick={handlePause} className={btnSecondary}>⏸ Pause</button>
-            )}
-            {isActive && <button onClick={handleReset} className={btnDanger}>⏹ Stop</button>}
-            {!isActive && scenes.length > 0 && <button onClick={handleReset} className={btnSecondary}>Reset</button>}
-          </div>
-        </section>
-
         {/* Role & Options */}
         <section className="card space-y-4">
-          <button onClick={() => setOptionsOpen((o) => !o)} className="w-full flex items-center justify-between">
-            <h2 className="text-base font-bold text-light">Role &amp; Options</h2>
-            <span className="text-muted text-xs">{optionsOpen ? "▲ Hide" : "▼ Show"}</span>
+          <button
+            onClick={() => setOptionsOpen((o) => !o)}
+            className="w-full flex items-center justify-between"
+          >
+            <h2 className="text-base font-bold text-light">
+              Role &amp; Options
+            </h2>
+            <span className="text-muted text-xs">
+              {optionsOpen ? "▲ Hide" : "▼ Show"}
+            </span>
           </button>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>My Character</label>
-              <select value={selectedCharacter} onChange={(e) => setSelectedCharacter(e.target.value)} className={inputCls}>
+              <select
+                value={selectedCharacter}
+                onChange={(e) => setSelectedCharacter(e.target.value)}
+                className={inputCls}
+              >
                 <option value="">Choose a character…</option>
-                {characters.map((char) => <option key={char} value={char}>{char}</option>)}
+                {characters.map((char) => (
+                  <option key={char} value={char}>
+                    {char}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
               <label className={labelCls}>On My Line</label>
-              <select value={pauseMode} onChange={(e) => setPauseMode(e.target.value as "manual" | "countdown")} className={inputCls}>
+              <select
+                value={pauseMode}
+                onChange={(e) =>
+                  setPauseMode(e.target.value as "manual" | "countdown")
+                }
+                className={inputCls}
+              >
                 <option value="manual">Pause and wait</option>
                 <option value="countdown">Countdown then continue</option>
               </select>
@@ -1327,28 +1408,79 @@ MOM: See? You were ready.`,
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Rehearsal Mode</label>
-                  <select value={rehearsalMode} onChange={(e) => setRehearsalMode(e.target.value as "full" | "cue-only")} className={inputCls}>
+                  <select
+                    value={rehearsalMode}
+                    onChange={(e) =>
+                      setRehearsalMode(e.target.value as "full" | "cue-only")
+                    }
+                    className={inputCls}
+                  >
                     <option value="full">Full Scene</option>
                     <option value="cue-only">Cue Only</option>
                   </select>
-                  {rehearsalMode === "cue-only" && <p className="text-muted text-xs mt-1">Only the line before yours is spoken.</p>}
+                  {rehearsalMode === "cue-only" && (
+                    <p className="text-muted text-xs mt-1">
+                      Only the line before yours is spoken.
+                    </p>
+                  )}
                 </div>
                 {pauseMode === "countdown" && (
                   <div>
                     <label className={labelCls}>Countdown Seconds</label>
-                    <input type="number" min={1} max={20} value={countdownSeconds} onChange={(e) => setCountdownSeconds(Math.max(1, parseInt(e.target.value) || 1))} className={inputCls} />
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={countdownSeconds}
+                      onChange={(e) =>
+                        setCountdownSeconds(
+                          Math.max(1, parseInt(e.target.value) || 1),
+                        )
+                      }
+                      className={inputCls}
+                    />
                   </div>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                {([
-                  { state: speakNames, set: setSpeakNames, label: "Speak names" },
-                  { state: readOwnLines, set: setReadOwnLines, label: "Read my lines" },
-                  { state: skipNarration, set: setSkipNarration, label: "Skip narration" },
-                  { state: skipStageDirections, set: setSkipStageDirections, label: "Skip stage directions" },
-                ] as { state: boolean; set: (v: boolean) => void; label: string }[]).map(({ state, set, label }) => (
-                  <label key={label} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={state} onChange={(e) => set(e.target.checked)} className="accent-accent-cyan flex-shrink-0" />
+                {(
+                  [
+                    {
+                      state: speakNames,
+                      set: setSpeakNames,
+                      label: "Speak names",
+                    },
+                    {
+                      state: readOwnLines,
+                      set: setReadOwnLines,
+                      label: "Read my lines",
+                    },
+                    {
+                      state: skipNarration,
+                      set: setSkipNarration,
+                      label: "Skip narration",
+                    },
+                    {
+                      state: skipStageDirections,
+                      set: setSkipStageDirections,
+                      label: "Skip stage directions",
+                    },
+                  ] as {
+                    state: boolean;
+                    set: (v: boolean) => void;
+                    label: string;
+                  }[]
+                ).map(({ state, set, label }) => (
+                  <label
+                    key={label}
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={state}
+                      onChange={(e) => set(e.target.checked)}
+                      className="accent-accent-cyan flex-shrink-0"
+                    />
                     <span className="text-sm text-muted">{label}</span>
                   </label>
                 ))}
@@ -1359,9 +1491,14 @@ MOM: See? You were ready.`,
 
         {/* Character Voices */}
         <section className="card space-y-4">
-          <button onClick={() => setVoicesOpen((v) => !v)} className="w-full flex items-center justify-between">
+          <button
+            onClick={() => setVoicesOpen((v) => !v)}
+            className="w-full flex items-center justify-between"
+          >
             <h2 className="text-base font-bold text-light">Character Voices</h2>
-            <span className="text-muted text-xs">{voicesOpen ? "▲ Hide" : "▼ Show"}</span>
+            <span className="text-muted text-xs">
+              {voicesOpen ? "▲ Hide" : "▼ Show"}
+            </span>
           </button>
 
           {voicesOpen && (
@@ -1372,23 +1509,55 @@ MOM: See? You were ready.`,
                   <select
                     value={ttsProvider}
                     onChange={async (e) => {
-                      const provider = e.target.value as "browser" | "api" | "kokoro";
+                      const provider = e.target.value as
+                        | "browser"
+                        | "api"
+                        | "kokoro";
                       if (provider === "api") {
                         const s = getTTSSettings();
-                        if (!s.apiUrl) { alert("Configure your TTS API URL in Settings first."); return; }
+                        if (!s.apiUrl) {
+                          alert(
+                            "Configure your TTS API URL in Settings first.",
+                          );
+                          return;
+                        }
                         setTtsProvider("api");
                         if (apiVoices.length === 0) {
-                          setApiVoicesLoading(true); setApiVoicesError(null);
-                          fetchApiVoices(s).then((v) => { setApiVoices(v); if (v.length === 0) setApiVoicesError("No voices returned."); }).catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed")).finally(() => setApiVoicesLoading(false));
+                          setApiVoicesLoading(true);
+                          setApiVoicesError(null);
+                          fetchApiVoices(s)
+                            .then((v) => {
+                              setApiVoices(v);
+                              if (v.length === 0)
+                                setApiVoicesError("No voices returned.");
+                            })
+                            .catch((err) =>
+                              setApiVoicesError(
+                                err instanceof Error ? err.message : "Failed",
+                              ),
+                            )
+                            .finally(() => setApiVoicesLoading(false));
                         }
                       } else if (provider === "kokoro") {
                         setTtsProvider("kokoro");
                         if (getKokoroLoadState() === "idle") {
                           setKokoroStatus("Loading model…");
-                          try { await loadKokoro({ device: getTTSSettings().kokoroDevice ?? "wasm" }); setKokoroStatus(null); }
-                          catch (err) { setKokoroStatus(err instanceof Error ? err.message : "Load failed"); }
+                          try {
+                            await loadKokoro({
+                              device: getTTSSettings().kokoroDevice ?? "wasm",
+                            });
+                            setKokoroStatus(null);
+                          } catch (err) {
+                            setKokoroStatus(
+                              err instanceof Error
+                                ? err.message
+                                : "Load failed",
+                            );
+                          }
                         }
-                      } else { setTtsProvider("browser"); }
+                      } else {
+                        setTtsProvider("browser");
+                      }
                     }}
                     className={`${inputCls} w-auto`}
                   >
@@ -1398,64 +1567,218 @@ MOM: See? You were ready.`,
                   </select>
                 </div>
                 {ttsProvider === "api" && (
-                  <button onClick={() => { setApiVoicesLoading(true); setApiVoicesError(null); fetchApiVoices(getTTSSettings()).then((v) => { setApiVoices(v); if (v.length === 0) setApiVoicesError("No voices returned."); }).catch((err) => setApiVoicesError(err instanceof Error ? err.message : "Failed")).finally(() => setApiVoicesLoading(false)); }} disabled={apiVoicesLoading} className={btnSecondary}>
+                  <button
+                    onClick={() => {
+                      setApiVoicesLoading(true);
+                      setApiVoicesError(null);
+                      fetchApiVoices(getTTSSettings())
+                        .then((v) => {
+                          setApiVoices(v);
+                          if (v.length === 0)
+                            setApiVoicesError("No voices returned.");
+                        })
+                        .catch((err) =>
+                          setApiVoicesError(
+                            err instanceof Error ? err.message : "Failed",
+                          ),
+                        )
+                        .finally(() => setApiVoicesLoading(false));
+                    }}
+                    disabled={apiVoicesLoading}
+                    className={btnSecondary}
+                  >
                     {apiVoicesLoading ? "Loading…" : "↻ Refresh Voices"}
                   </button>
                 )}
-                {ttsProvider === "kokoro" && kokoroStatus && <span className="text-xs text-muted">{kokoroStatus}</span>}
-                {ttsProvider === "kokoro" && getKokoroLoadState() === "ready" && !kokoroStatus && <span className="text-xs text-green-400">Model ready</span>}
-                {ttsProvider === "api" && apiVoicesError && <span className="text-xs text-red-400">{apiVoicesError}</span>}
+                {ttsProvider === "kokoro" && kokoroStatus && (
+                  <span className="text-xs text-muted">{kokoroStatus}</span>
+                )}
+                {ttsProvider === "kokoro" &&
+                  getKokoroLoadState() === "ready" &&
+                  !kokoroStatus && (
+                    <span className="text-xs text-green-400">Model ready</span>
+                  )}
+                {ttsProvider === "api" && apiVoicesError && (
+                  <span className="text-xs text-red-400">{apiVoicesError}</span>
+                )}
               </div>
 
               {speakNames && (
                 <div className="flex items-center gap-3 p-3 bg-dark-input border border-border rounded-lg">
-                  <span className="text-sm font-semibold text-light w-20 flex-shrink-0">🎙 Narrator</span>
-                  <select value={narratorVoiceIndex} onChange={(e) => setNarratorVoiceIndex(parseInt(e.target.value))} className={`${inputCls} flex-1`}>
-                    {availableVoices.length === 0 ? <option>Default browser voice</option> : availableVoices.map((v, i) => <option key={i} value={i}>{v.name} ({v.lang})</option>)}
+                  <span className="text-sm font-semibold text-light w-20 flex-shrink-0">
+                    🎙 Narrator
+                  </span>
+                  <select
+                    value={narratorVoiceIndex}
+                    onChange={(e) =>
+                      setNarratorVoiceIndex(parseInt(e.target.value))
+                    }
+                    className={`${inputCls} flex-1`}
+                  >
+                    {availableVoices.length === 0 ? (
+                      <option>Default browser voice</option>
+                    ) : (
+                      availableVoices.map((v, i) => (
+                        <option key={i} value={i}>
+                          {v.name} ({v.lang})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
               )}
 
               {characters.length === 0 ? (
-                <p className="text-muted text-sm">Load a scene to see character voices.</p>
+                <p className="text-muted text-sm">
+                  Load a scene to see character voices.
+                </p>
               ) : (
                 <div className="space-y-2">
                   {characters.map((char) => {
-                    const cfg = voiceAssignments[char] || { voiceIndex: 0, rate: 1, pitch: 1 };
+                    const cfg = voiceAssignments[char] || {
+                      voiceIndex: 0,
+                      rate: 1,
+                      pitch: 1,
+                    };
                     return (
-                      <div key={char} className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
-                        style={{ gridTemplateColumns: "6rem 1fr auto auto auto" }}>
-                        <span className="text-sm font-semibold text-light truncate">{char}</span>
+                      <div
+                        key={char}
+                        className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
+                        style={{
+                          gridTemplateColumns: "6rem 1fr auto auto auto",
+                        }}
+                      >
+                        <span className="text-sm font-semibold text-light truncate">
+                          {char}
+                        </span>
                         {ttsProvider === "browser" ? (
-                          <select value={cfg.voiceIndex} onChange={(e) => setVoiceAssignments((p) => ({ ...p, [char]: { ...cfg, voiceIndex: parseInt(e.target.value) } }))} className={inputCls}>
-                            {availableVoices.length === 0 ? <option>Default</option> : availableVoices.map((v, i) => <option key={i} value={i}>{v.name}</option>)}
+                          <select
+                            value={cfg.voiceIndex}
+                            onChange={(e) =>
+                              setVoiceAssignments((p) => ({
+                                ...p,
+                                [char]: {
+                                  ...cfg,
+                                  voiceIndex: parseInt(e.target.value),
+                                },
+                              }))
+                            }
+                            className={inputCls}
+                          >
+                            {availableVoices.length === 0 ? (
+                              <option>Default</option>
+                            ) : (
+                              availableVoices.map((v, i) => (
+                                <option key={i} value={i}>
+                                  {v.name}
+                                </option>
+                              ))
+                            )}
                           </select>
                         ) : ttsProvider === "kokoro" ? (
-                          <select value={apiVoiceAssignments[char] || ""} onChange={(e) => setApiVoiceAssignments((p) => ({ ...p, [char]: e.target.value }))} className={inputCls}>
-                            <option value="">Default ({getTTSSettings().kokoroVoice || "am_puck"})</option>
-                            {KOKORO_VOICES.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                          <select
+                            value={apiVoiceAssignments[char] || ""}
+                            onChange={(e) =>
+                              setApiVoiceAssignments((p) => ({
+                                ...p,
+                                [char]: e.target.value,
+                              }))
+                            }
+                            className={inputCls}
+                          >
+                            <option value="">
+                              Default (
+                              {getTTSSettings().kokoroVoice || "am_puck"})
+                            </option>
+                            {KOKORO_VOICES.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.name}
+                              </option>
+                            ))}
                           </select>
                         ) : (
-                          <select value={apiVoiceAssignments[char] || ""} onChange={(e) => setApiVoiceAssignments((p) => ({ ...p, [char]: e.target.value }))} className={inputCls}>
-                            <option value="">{apiVoices.length === 0 ? (apiVoicesLoading ? "Loading…" : "Refresh voices") : "Default"}</option>
-                            {apiVoices.map((v) => <option key={v.id} value={v.id}>{v.name ? `${v.name} (${v.id})` : v.id}</option>)}
+                          <select
+                            value={apiVoiceAssignments[char] || ""}
+                            onChange={(e) =>
+                              setApiVoiceAssignments((p) => ({
+                                ...p,
+                                [char]: e.target.value,
+                              }))
+                            }
+                            className={inputCls}
+                          >
+                            <option value="">
+                              {apiVoices.length === 0
+                                ? apiVoicesLoading
+                                  ? "Loading…"
+                                  : "Refresh voices"
+                                : "Default"}
+                            </option>
+                            {apiVoices.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.name ? `${v.name} (${v.id})` : v.id}
+                              </option>
+                            ))}
                           </select>
                         )}
                         <div className="flex items-center gap-1">
-                          <span className="text-xs text-muted">{ttsProvider === "browser" ? "Rate" : "Spd"}</span>
-                          <input type="number" step="0.1" min="0.5" max="2" value={cfg.rate} onChange={(e) => setVoiceAssignments((p) => ({ ...p, [char]: { ...cfg, rate: parseFloat(e.target.value) || 1 } }))} className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan" />
+                          <span className="text-xs text-muted">
+                            {ttsProvider === "browser" ? "Rate" : "Spd"}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0.5"
+                            max="2"
+                            value={cfg.rate}
+                            onChange={(e) =>
+                              setVoiceAssignments((p) => ({
+                                ...p,
+                                [char]: {
+                                  ...cfg,
+                                  rate: parseFloat(e.target.value) || 1,
+                                },
+                              }))
+                            }
+                            className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan"
+                          />
                         </div>
                         {ttsProvider === "browser" ? (
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-muted">Pitch</span>
-                            <input type="number" step="0.1" min="0" max="2" value={cfg.pitch} onChange={(e) => setVoiceAssignments((p) => ({ ...p, [char]: { ...cfg, pitch: parseFloat(e.target.value) || 1 } }))} className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan" />
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="2"
+                              value={cfg.pitch}
+                              onChange={(e) =>
+                                setVoiceAssignments((p) => ({
+                                  ...p,
+                                  [char]: {
+                                    ...cfg,
+                                    pitch: parseFloat(e.target.value) || 1,
+                                  },
+                                }))
+                              }
+                              className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan"
+                            />
                           </div>
-                        ) : <div />}
+                        ) : (
+                          <div />
+                        )}
                         <div className="flex gap-1">
-                          <button onClick={() => handlePreviewVoice(char)} className={`px-2 py-1 rounded text-xs font-semibold border transition-colors ${previewingChar === char ? "border-red-400 text-red-400 bg-red-400/10" : "border-border text-muted hover:border-accent-cyan hover:text-light"}`}>
+                          <button
+                            onClick={() => handlePreviewVoice(char)}
+                            className={`px-2 py-1 rounded text-xs font-semibold border transition-colors ${previewingChar === char ? "border-red-400 text-red-400 bg-red-400/10" : "border-border text-muted hover:border-accent-cyan hover:text-light"}`}
+                          >
                             {previewingChar === char ? "⏹" : "▶"}
                           </button>
-                          <button onClick={() => handleSaveVoiceToCast(char)} title="Save to Cast" className="px-2 py-1 rounded text-xs font-semibold border border-border text-muted hover:border-accent-cyan hover:text-light transition-colors">
+                          <button
+                            onClick={() => handleSaveVoiceToCast(char)}
+                            title="Save to Cast"
+                            className="px-2 py-1 rounded text-xs font-semibold border border-border text-muted hover:border-accent-cyan hover:text-light transition-colors"
+                          >
                             💾
                           </button>
                         </div>
@@ -1467,7 +1790,7 @@ MOM: See? You were ready.`,
             </div>
           )}
         </section>
-
+      </div>
       </div>
     </div>
   );

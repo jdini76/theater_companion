@@ -911,12 +911,17 @@ export function createScene(
   order: number = 0,
 ): Scene {
   const now = new Date().toISOString();
+
+  // Parse and cache dialogue lines
+  const lines = parseDialogueLines(content);
+
   return {
     id: generateSceneId(),
     projectId,
     title: title || "Untitled Scene",
     content,
     description,
+    lines,
     order,
     createdAt: now,
     updatedAt: now,

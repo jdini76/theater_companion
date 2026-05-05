@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const isProd = process.env.NODE_ENV === "production";
 
 const nextConfig: NextConfig = {
-  output: "export",
+  output: isProd ? "export" : undefined,
   basePath: isProd ? "/theater_companion" : "",
   allowedDevOrigins: ["192.168.1.34"],
   env: {

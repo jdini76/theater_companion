@@ -1,3 +1,5 @@
+import { DialogueLine } from "./rehearsal";
+
 export interface Scene {
   id: string;
   projectId: string;
@@ -6,6 +8,7 @@ export interface Scene {
   description?: string;
   characters?: string[];
   songs?: string[];
+  lines?: DialogueLine[]; // Cached parsed dialogue lines
   order: number;
   createdAt: string;
   updatedAt: string;
