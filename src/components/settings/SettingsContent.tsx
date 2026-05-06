@@ -209,6 +209,7 @@ const TTS_SETTINGS_KEY = "theater_tts_settings";
 
 const DEFAULT_TTS_SETTINGS: TTSSettings = {
   provider: "browser",
+  externalApiType: "custom",
   apiUrl: "",
   apiPath: "/v1/audio/speech",
   apiKey: "",
@@ -222,6 +223,11 @@ const DEFAULT_TTS_SETTINGS: TTSSettings = {
   kokoroDevice: "wasm",
   kokoroPreGenEnabled: true,
   enableAudioCache: false,
+  elevenLabsModelId: "eleven_multilingual_v2",
+  elevenLabsStability: 0.5,
+  elevenLabsSimilarityBoost: 0.75,
+  elevenLabsStyle: 0,
+  elevenLabsSpeakerBoost: true,
 };
 
 function loadTTSSettings(): TTSSettings {
@@ -1257,340 +1263,711 @@ export function SettingsContent() {
           {/* API Settings */}
           {settings.provider === "api" && (
             <div className="space-y-4 border-t border-border pt-4">
-              {/* API Base URL */}
+              {/* External API Type Dropdown */}
               <div className="space-y-2">
                 <label
                   className="block text-light font-semibold"
-                  htmlFor="apiUrl"
+                  htmlFor="externalApiType"
                 >
-                  API Base URL
+                  External TTS Provider
                 </label>
-                <input
-                  id="apiUrl"
-                  type="url"
-                  value={settings.apiUrl}
-                  onChange={(e) =>
-                    setSettings({ ...settings, apiUrl: e.target.value })
-                  }
-                  placeholder="http://localhost:8880"
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-                />
-                <p className="text-muted text-xs">
-                  The base URL of your TTS service (without the path).
-                </p>
-              </div>
-
-              {/* API Path */}
-              <div className="space-y-2">
-                <label
-                  className="block text-light font-semibold"
-                  htmlFor="apiPath"
-                >
-                  API Path
-                </label>
-                <input
-                  id="apiPath"
-                  type="text"
-                  value={settings.apiPath}
-                  onChange={(e) =>
-                    setSettings({ ...settings, apiPath: e.target.value })
-                  }
-                  placeholder="/v1/audio/speech"
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-                />
-                <p className="text-muted text-xs">
-                  The endpoint path appended to the base URL. The app will POST
-                  to this path.
-                </p>
-              </div>
-
-              {/* API Key */}
-              <div className="space-y-2">
-                <label
-                  className="block text-light font-semibold"
-                  htmlFor="apiKey"
-                >
-                  API Key{" "}
-                  <span className="text-muted font-normal">(optional)</span>
-                </label>
-                <input
-                  id="apiKey"
-                  type="password"
-                  value={settings.apiKey}
-                  onChange={(e) =>
-                    setSettings({ ...settings, apiKey: e.target.value })
-                  }
-                  placeholder="sk-..."
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-                  autoComplete="off"
-                />
-                <p className="text-muted text-xs">
-                  Sent as a Bearer token in the Authorization header. Stored
-                  locally in your browser only.
-                </p>
-              </div>
-
-              {/* Default Voice ID */}
-              <div className="space-y-2">
-                <label
-                  className="block text-light font-semibold"
-                  htmlFor="defaultVoiceId"
-                >
-                  Default Voice
-                </label>
-                <div className="flex gap-2">
-                  {apiVoices.length > 0 ? (
-                    <select
-                      id="defaultVoiceId"
-                      value={settings.defaultVoiceId}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          defaultVoiceId: e.target.value,
-                        })
-                      }
-                      className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
-                    >
-                      <option value="">Select a voice...</option>
-                      {apiVoices.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name ? `${v.name} (${v.id})` : v.id}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      id="defaultVoiceId"
-                      type="text"
-                      value={settings.defaultVoiceId}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          defaultVoiceId: e.target.value,
-                        })
-                      }
-                      placeholder="e.g. am_puck, alloy, nova..."
-                      className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
-                    />
-                  )}
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      setVoicesLoading(true);
-                      setVoicesError(null);
-                      try {
-                        const voices = await fetchApiVoices(settings);
-                        setApiVoices(voices);
-                        if (voices.length === 0) {
-                          setVoicesError("No voices returned by the API.");
-                        }
-                      } catch (err) {
-                        setVoicesError(
-                          err instanceof Error
-                            ? err.message
-                            : "Failed to load voices",
-                        );
-                      } finally {
-                        setVoicesLoading(false);
-                      }
-                    }}
-                    disabled={voicesLoading || !settings.apiUrl.trim()}
-                  >
-                    {voicesLoading ? "Loading..." : "Load Voices"}
-                  </Button>
-                </div>
-                {voicesError && (
-                  <p className="text-red-400 text-xs">{voicesError}</p>
-                )}
-                {apiVoices.length > 0 && (
-                  <p className="text-muted text-xs">
-                    {apiVoices.length} voice{apiVoices.length !== 1 ? "s" : ""}{" "}
-                    available.
-                  </p>
-                )}
-                <p className="text-muted text-xs">
-                  The voice sent in the payload when no character-specific voice
-                  is assigned. Click &quot;Load Voices&quot; to fetch available
-                  voices from {settings.apiUrl || "your API"}.
-                </p>
-              </div>
-
-              {/* Response Format */}
-              <div className="space-y-2">
-                <label
-                  className="block text-light font-semibold"
-                  htmlFor="responseFormat"
-                >
-                  Response Format
-                </label>
-                <input
-                  id="responseFormat"
-                  type="text"
-                  value={settings.responseFormat}
-                  onChange={(e) =>
-                    setSettings({ ...settings, responseFormat: e.target.value })
-                  }
-                  placeholder="mp3"
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan max-w-xs"
-                />
-                <p className="text-muted text-xs">
-                  Audio format for the response (e.g. mp3, wav, opus).
-                </p>
-              </div>
-
-              {/* Stream Toggle */}
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-light font-semibold cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.stream}
-                    onChange={(e) =>
-                      setSettings({ ...settings, stream: e.target.checked })
-                    }
-                    className="accent-accent-cyan"
-                  />
-                  Stream response
-                </label>
-                <span className="text-muted text-xs">
-                  Send stream: true in the request payload.
-                </span>
-              </div>
-
-              {/* Extra Payload */}
-              <div className="space-y-2">
-                <label className="block text-light font-semibold">
-                  Extra Payload Fields{" "}
-                  <span className="text-muted font-normal">(JSON)</span>
-                </label>
-                <textarea
-                  value={extraPayloadJson}
+                <select
+                  id="externalApiType"
+                  value={settings.externalApiType ?? "custom"}
                   onChange={(e) => {
-                    setExtraPayloadJson(e.target.value);
-                    setExtraPayloadError(null);
-                    try {
-                      const parsed = JSON.parse(e.target.value);
-                      if (
-                        typeof parsed === "object" &&
-                        parsed !== null &&
-                        !Array.isArray(parsed)
-                      ) {
-                        setSettings({ ...settings, extraPayload: parsed });
-                      } else {
-                        setExtraPayloadError("Must be a JSON object {}");
-                      }
-                    } catch {
-                      setExtraPayloadError("Invalid JSON");
+                    const val = e.target.value as "custom" | "elevenlabs";
+                    const updates: Partial<TTSSettings> = {
+                      externalApiType: val,
+                    };
+                    if (val === "elevenlabs") {
+                      updates.apiUrl = "https://api.elevenlabs.io";
+                      updates.apiPath = "/v1/text-to-speech";
+                      updates.responseFormat = "mp3";
+                      updates.stream = false;
                     }
+                    setSettings({ ...settings, ...updates });
                   }}
-                  rows={4}
-                  placeholder={
-                    '{\n  "download_format": "mp3",\n  "return_download_link": true\n}'
-                  }
-                  className={`w-full bg-background border rounded px-3 py-2 text-light placeholder-muted focus:outline-none font-mono text-sm resize-vertical ${
-                    extraPayloadError
-                      ? "border-red-500"
-                      : "border-border focus:border-accent-cyan"
-                  }`}
-                />
-                {extraPayloadError && (
-                  <p className="text-red-400 text-xs">{extraPayloadError}</p>
-                )}
-                <p className="text-muted text-xs">
-                  Additional fields merged into every TTS request. The{" "}
-                  <code className="text-accent-cyan">input</code>,{" "}
-                  <code className="text-accent-cyan">voice</code>,{" "}
-                  <code className="text-accent-cyan">speed</code>,{" "}
-                  <code className="text-accent-cyan">response_format</code>, and{" "}
-                  <code className="text-accent-cyan">stream</code> fields are
-                  set automatically.
-                </p>
+                  className="w-full max-w-xs bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                >
+                  <option value="custom">Custom API</option>
+                  <option value="elevenlabs">ElevenLabs</option>
+                </select>
               </div>
 
-              {/* Payload Preview */}
-              <div className="space-y-2">
-                <label className="block text-muted font-semibold text-sm">
-                  Payload Preview
-                </label>
-                <pre className="bg-background border border-border rounded p-3 text-xs text-muted overflow-x-auto font-mono">
-                  {JSON.stringify(
-                    {
-                      ...settings.extraPayload,
-                      input: "(your text here)",
-                      voice: settings.defaultVoiceId || "(voice id)",
-                      response_format: settings.responseFormat || "mp3",
-                      speed: 1,
-                      stream: settings.stream,
-                    },
-                    null,
-                    2,
-                  )}
-                </pre>
-              </div>
+              {/* ── ElevenLabs Form ── */}
+              {(settings.externalApiType ?? "custom") === "elevenlabs" && (
+                <div className="space-y-4 bg-dark-panel rounded-lg p-4 border border-border">
+                  <p className="text-muted text-sm">
+                    ElevenLabs provides high-quality AI voices. Enter your API
+                    key and configure your preferred voice and model.
+                  </p>
 
-              {/* Test Connection */}
-              <div className="space-y-3 border-t border-border pt-4">
-                <label className="block text-light font-semibold">
-                  Test Voice
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={testText}
-                    onChange={(e) => setTestText(e.target.value)}
-                    placeholder="Enter test text..."
-                    className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={handleTestConnection}
-                    disabled={testLoading || !settings.apiUrl.trim()}
-                  >
-                    {testLoading ? "Testing..." : "Test Connection"}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={async () => {
-                      if (testPlaying) {
-                        stopApiAudio();
-                        setTestPlaying(false);
-                        return;
+                  {/* API Key */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="elApiKey"
+                    >
+                      API Key
+                    </label>
+                    <input
+                      id="elApiKey"
+                      type="password"
+                      value={settings.apiKey}
+                      onChange={(e) =>
+                        setSettings({ ...settings, apiKey: e.target.value })
                       }
-                      setTestPlaying(true);
-                      setTestStatus(null);
-                      try {
-                        saveTTSSettings(settings);
-                        await speakTextViaApi(testText, {
-                          voice: settings.defaultVoiceId,
-                        });
-                        setTestStatus("Playback complete!");
-                      } catch (err) {
-                        setTestStatus(
-                          err instanceof Error
-                            ? err.message
-                            : "Playback failed",
-                        );
-                      } finally {
-                        setTestPlaying(false);
+                      placeholder="xi-api-key or sk-..."
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                      autoComplete="off"
+                    />
+                    <p className="text-muted text-xs">
+                      Your ElevenLabs API key. Stored locally in your browser
+                      only.
+                    </p>
+                  </div>
+
+                  {/* Voice ID */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="elVoiceId"
+                    >
+                      Voice ID
+                    </label>
+                    <div className="flex gap-2">
+                      {apiVoices.length > 0 ? (
+                        <select
+                          id="elVoiceId"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                        >
+                          <option value="">Select a voice...</option>
+                          {apiVoices.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name ? `${v.name} (${v.id})` : v.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id="elVoiceId"
+                          type="text"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. 21m00Tcm4TlvDq8ikWAM"
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                        />
+                      )}
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          setVoicesLoading(true);
+                          setVoicesError(null);
+                          try {
+                            const voices = await fetchApiVoices(settings);
+                            setApiVoices(voices);
+                            if (voices.length === 0)
+                              setVoicesError("No voices returned by the API.");
+                          } catch (err) {
+                            setVoicesError(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to load voices",
+                            );
+                          } finally {
+                            setVoicesLoading(false);
+                          }
+                        }}
+                        disabled={voicesLoading || !settings.apiKey.trim()}
+                      >
+                        {voicesLoading ? "Loading..." : "Load Voices"}
+                      </Button>
+                    </div>
+                    {voicesError && (
+                      <p className="text-red-400 text-xs">{voicesError}</p>
+                    )}
+                    {apiVoices.length > 0 && (
+                      <p className="text-muted text-xs">
+                        {apiVoices.length} voice
+                        {apiVoices.length !== 1 ? "s" : ""} available.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Model ID */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="elModel"
+                    >
+                      Model
+                    </label>
+                    <select
+                      id="elModel"
+                      value={
+                        settings.elevenLabsModelId ?? "eleven_multilingual_v2"
                       }
-                    }}
-                    disabled={!settings.apiUrl.trim() || !testText.trim()}
-                  >
-                    {testPlaying ? "⏹ Stop" : "▶ Play"}
-                  </Button>
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          elevenLabsModelId: e.target.value,
+                        })
+                      }
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan max-w-sm"
+                    >
+                      <option value="eleven_multilingual_v2">
+                        Multilingual v2 (best quality)
+                      </option>
+                      <option value="eleven_turbo_v2_5">
+                        Turbo v2.5 (fast, multilingual)
+                      </option>
+                      <option value="eleven_turbo_v2">
+                        Turbo v2 (fast, English)
+                      </option>
+                      <option value="eleven_monolingual_v1">
+                        Monolingual v1 (English)
+                      </option>
+                      <option value="eleven_multilingual_v1">
+                        Multilingual v1
+                      </option>
+                    </select>
+                  </div>
+
+                  {/* Stability */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-light font-semibold">
+                        Stability
+                      </label>
+                      <span className="text-accent-cyan font-mono text-sm">
+                        {(settings.elevenLabsStability ?? 0.5).toFixed(2)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={settings.elevenLabsStability ?? 0.5}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          elevenLabsStability: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full h-2 bg-background border border-border rounded cursor-pointer max-w-sm"
+                    />
+                    <div className="flex justify-between text-xs text-muted max-w-sm">
+                      <span>More variable (0)</span>
+                      <span>More stable (1)</span>
+                    </div>
+                  </div>
+
+                  {/* Similarity Boost */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-light font-semibold">
+                        Similarity Boost
+                      </label>
+                      <span className="text-accent-cyan font-mono text-sm">
+                        {(settings.elevenLabsSimilarityBoost ?? 0.75).toFixed(
+                          2,
+                        )}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={settings.elevenLabsSimilarityBoost ?? 0.75}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          elevenLabsSimilarityBoost: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full h-2 bg-background border border-border rounded cursor-pointer max-w-sm"
+                    />
+                    <div className="flex justify-between text-xs text-muted max-w-sm">
+                      <span>Low (0)</span>
+                      <span>High (1)</span>
+                    </div>
+                  </div>
+
+                  {/* Style */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-light font-semibold">
+                        Style Exaggeration{" "}
+                        <span className="text-muted font-normal text-xs">
+                          (v2 models only)
+                        </span>
+                      </label>
+                      <span className="text-accent-cyan font-mono text-sm">
+                        {(settings.elevenLabsStyle ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={settings.elevenLabsStyle ?? 0}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          elevenLabsStyle: parseFloat(e.target.value),
+                        })
+                      }
+                      className="w-full h-2 bg-background border border-border rounded cursor-pointer max-w-sm"
+                    />
+                    <div className="flex justify-between text-xs text-muted max-w-sm">
+                      <span>None (0)</span>
+                      <span>Strong (1)</span>
+                    </div>
+                  </div>
+
+                  {/* Speaker Boost */}
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-light font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.elevenLabsSpeakerBoost ?? true}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            elevenLabsSpeakerBoost: e.target.checked,
+                          })
+                        }
+                        className="accent-accent-cyan"
+                      />
+                      Speaker Boost
+                    </label>
+                    <span className="text-muted text-xs">
+                      Boosts similarity to the original speaker. Adds latency.
+                    </span>
+                  </div>
+
+                  {/* Test Voice */}
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <label className="block text-light font-semibold">
+                      Test Voice
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={testText}
+                        onChange={(e) => setTestText(e.target.value)}
+                        placeholder="Enter test text..."
+                        className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                      />
+                      <Button
+                        variant="primary"
+                        onClick={async () => {
+                          if (testPlaying) {
+                            stopApiAudio();
+                            setTestPlaying(false);
+                            return;
+                          }
+                          setTestPlaying(true);
+                          setTestStatus(null);
+                          try {
+                            saveTTSSettings(settings);
+                            await speakTextViaApi(testText, {
+                              voice: settings.defaultVoiceId,
+                            });
+                            setTestStatus("Playback complete!");
+                          } catch (err) {
+                            setTestStatus(
+                              err instanceof Error
+                                ? err.message
+                                : "Playback failed",
+                            );
+                          } finally {
+                            setTestPlaying(false);
+                          }
+                        }}
+                        disabled={
+                          !settings.apiKey.trim() ||
+                          !settings.defaultVoiceId.trim() ||
+                          !testText.trim()
+                        }
+                      >
+                        {testPlaying ? "⏹ Stop" : "▶ Play"}
+                      </Button>
+                    </div>
+                    {testStatus && (
+                      <span
+                        className={`text-sm block ${
+                          testStatus === "Playback complete!"
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {testStatus}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {testStatus && (
-                  <span
-                    className={`text-sm block ${
-                      testStatus.startsWith("Connection successful") ||
-                      testStatus === "Playback complete!"
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {testStatus}
-                  </span>
-                )}
-              </div>
+              )}
+
+              {/* ── Custom API Form ── */}
+              {(settings.externalApiType ?? "custom") === "custom" && (
+                <>
+                  {/* API Base URL */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="apiUrl"
+                    >
+                      API Base URL
+                    </label>
+                    <input
+                      id="apiUrl"
+                      type="url"
+                      value={settings.apiUrl}
+                      onChange={(e) =>
+                        setSettings({ ...settings, apiUrl: e.target.value })
+                      }
+                      placeholder="http://localhost:8880"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                    />
+                    <p className="text-muted text-xs">
+                      The base URL of your TTS service (without the path).
+                    </p>
+                  </div>
+
+                  {/* API Path */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="apiPath"
+                    >
+                      API Path
+                    </label>
+                    <input
+                      id="apiPath"
+                      type="text"
+                      value={settings.apiPath}
+                      onChange={(e) =>
+                        setSettings({ ...settings, apiPath: e.target.value })
+                      }
+                      placeholder="/v1/audio/speech"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                    />
+                    <p className="text-muted text-xs">
+                      The endpoint path appended to the base URL. The app will
+                      POST to this path.
+                    </p>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="apiKey"
+                    >
+                      API Key{" "}
+                      <span className="text-muted font-normal">(optional)</span>
+                    </label>
+                    <input
+                      id="apiKey"
+                      type="password"
+                      value={settings.apiKey}
+                      onChange={(e) =>
+                        setSettings({ ...settings, apiKey: e.target.value })
+                      }
+                      placeholder="sk-..."
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                      autoComplete="off"
+                    />
+                    <p className="text-muted text-xs">
+                      Sent as a Bearer token in the Authorization header. Stored
+                      locally in your browser only.
+                    </p>
+                  </div>
+
+                  {/* Default Voice ID */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="defaultVoiceId"
+                    >
+                      Default Voice
+                    </label>
+                    <div className="flex gap-2">
+                      {apiVoices.length > 0 ? (
+                        <select
+                          id="defaultVoiceId"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                        >
+                          <option value="">Select a voice...</option>
+                          {apiVoices.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name ? `${v.name} (${v.id})` : v.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id="defaultVoiceId"
+                          type="text"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. am_puck, alloy, nova..."
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                        />
+                      )}
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          setVoicesLoading(true);
+                          setVoicesError(null);
+                          try {
+                            const voices = await fetchApiVoices(settings);
+                            setApiVoices(voices);
+                            if (voices.length === 0) {
+                              setVoicesError("No voices returned by the API.");
+                            }
+                          } catch (err) {
+                            setVoicesError(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to load voices",
+                            );
+                          } finally {
+                            setVoicesLoading(false);
+                          }
+                        }}
+                        disabled={voicesLoading || !settings.apiUrl.trim()}
+                      >
+                        {voicesLoading ? "Loading..." : "Load Voices"}
+                      </Button>
+                    </div>
+                    {voicesError && (
+                      <p className="text-red-400 text-xs">{voicesError}</p>
+                    )}
+                    {apiVoices.length > 0 && (
+                      <p className="text-muted text-xs">
+                        {apiVoices.length} voice
+                        {apiVoices.length !== 1 ? "s" : ""} available.
+                      </p>
+                    )}
+                    <p className="text-muted text-xs">
+                      The voice sent in the payload when no character-specific
+                      voice is assigned. Click &quot;Load Voices&quot; to fetch
+                      available voices from {settings.apiUrl || "your API"}.
+                    </p>
+                  </div>
+
+                  {/* Response Format */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="responseFormat"
+                    >
+                      Response Format
+                    </label>
+                    <input
+                      id="responseFormat"
+                      type="text"
+                      value={settings.responseFormat}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          responseFormat: e.target.value,
+                        })
+                      }
+                      placeholder="mp3"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan max-w-xs"
+                    />
+                    <p className="text-muted text-xs">
+                      Audio format for the response (e.g. mp3, wav, opus).
+                    </p>
+                  </div>
+
+                  {/* Stream Toggle */}
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-light font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.stream}
+                        onChange={(e) =>
+                          setSettings({ ...settings, stream: e.target.checked })
+                        }
+                        className="accent-accent-cyan"
+                      />
+                      Stream response
+                    </label>
+                    <span className="text-muted text-xs">
+                      Send stream: true in the request payload.
+                    </span>
+                  </div>
+
+                  {/* Extra Payload */}
+                  <div className="space-y-2">
+                    <label className="block text-light font-semibold">
+                      Extra Payload Fields{" "}
+                      <span className="text-muted font-normal">(JSON)</span>
+                    </label>
+                    <textarea
+                      value={extraPayloadJson}
+                      onChange={(e) => {
+                        setExtraPayloadJson(e.target.value);
+                        setExtraPayloadError(null);
+                        try {
+                          const parsed = JSON.parse(e.target.value);
+                          if (
+                            typeof parsed === "object" &&
+                            parsed !== null &&
+                            !Array.isArray(parsed)
+                          ) {
+                            setSettings({ ...settings, extraPayload: parsed });
+                          } else {
+                            setExtraPayloadError("Must be a JSON object {}");
+                          }
+                        } catch {
+                          setExtraPayloadError("Invalid JSON");
+                        }
+                      }}
+                      rows={4}
+                      placeholder={
+                        '{\n  "download_format": "mp3",\n  "return_download_link": true\n}'
+                      }
+                      className={`w-full bg-background border rounded px-3 py-2 text-light placeholder-muted focus:outline-none font-mono text-sm resize-vertical ${
+                        extraPayloadError
+                          ? "border-red-500"
+                          : "border-border focus:border-accent-cyan"
+                      }`}
+                    />
+                    {extraPayloadError && (
+                      <p className="text-red-400 text-xs">
+                        {extraPayloadError}
+                      </p>
+                    )}
+                    <p className="text-muted text-xs">
+                      Additional fields merged into every TTS request. The{" "}
+                      <code className="text-accent-cyan">input</code>,{" "}
+                      <code className="text-accent-cyan">voice</code>,{" "}
+                      <code className="text-accent-cyan">speed</code>,{" "}
+                      <code className="text-accent-cyan">response_format</code>,
+                      and <code className="text-accent-cyan">stream</code>{" "}
+                      fields are set automatically.
+                    </p>
+                  </div>
+
+                  {/* Payload Preview */}
+                  <div className="space-y-2">
+                    <label className="block text-muted font-semibold text-sm">
+                      Payload Preview
+                    </label>
+                    <pre className="bg-background border border-border rounded p-3 text-xs text-muted overflow-x-auto font-mono">
+                      {JSON.stringify(
+                        {
+                          ...settings.extraPayload,
+                          input: "(your text here)",
+                          voice: settings.defaultVoiceId || "(voice id)",
+                          response_format: settings.responseFormat || "mp3",
+                          speed: 1,
+                          stream: settings.stream,
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </div>
+
+                  {/* Test Connection */}
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <label className="block text-light font-semibold">
+                      Test Voice
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={testText}
+                        onChange={(e) => setTestText(e.target.value)}
+                        placeholder="Enter test text..."
+                        className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={handleTestConnection}
+                        disabled={testLoading || !settings.apiUrl.trim()}
+                      >
+                        {testLoading ? "Testing..." : "Test Connection"}
+                      </Button>
+                      <Button
+                        variant="primary"
+                        onClick={async () => {
+                          if (testPlaying) {
+                            stopApiAudio();
+                            setTestPlaying(false);
+                            return;
+                          }
+                          setTestPlaying(true);
+                          setTestStatus(null);
+                          try {
+                            saveTTSSettings(settings);
+                            await speakTextViaApi(testText, {
+                              voice: settings.defaultVoiceId,
+                            });
+                            setTestStatus("Playback complete!");
+                          } catch (err) {
+                            setTestStatus(
+                              err instanceof Error
+                                ? err.message
+                                : "Playback failed",
+                            );
+                          } finally {
+                            setTestPlaying(false);
+                          }
+                        }}
+                        disabled={!settings.apiUrl.trim() || !testText.trim()}
+                      >
+                        {testPlaying ? "⏹ Stop" : "▶ Play"}
+                      </Button>
+                    </div>
+                    {testStatus && (
+                      <span
+                        className={`text-sm block ${
+                          testStatus.startsWith("Connection successful") ||
+                          testStatus === "Playback complete!"
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {testStatus}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 

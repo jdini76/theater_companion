@@ -56,7 +56,14 @@ export function RehearsalControls({
       return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, isPaused, isUserLine, isSpeaking_, currentLine, autoPlayNonUserLines]);
+  }, [
+    isPlaying,
+    isPaused,
+    isUserLine,
+    isSpeaking_,
+    currentLine,
+    autoPlayNonUserLines,
+  ]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const playCurrentLine = async () => {
@@ -86,13 +93,15 @@ export function RehearsalControls({
     try {
       setIsSpeaking(true);
 
-      // Kick off background pre-generation for the next line while this one plays
+      // Kick off background pre-generation for the next Kokoro line while this one plays
       if (nextLine && !nextLine.isStageDirection) {
         const s = getTTSSettings();
-        pregenerateText(nextLine.dialogue, {
-          voice: nextVoiceConfig?.apiVoiceId || s.kokoroVoice || "am_puck",
-          speed: nextVoiceConfig?.rate ?? s.kokoroSpeed ?? 1,
-        });
+        if (s.provider === "kokoro") {
+          pregenerateText(nextLine.dialogue, {
+            voice: nextVoiceConfig?.apiVoiceId || s.kokoroVoice || "am_puck",
+            speed: nextVoiceConfig?.rate ?? s.kokoroSpeed ?? 1,
+          });
+        }
       }
 
       // Speak the line
@@ -118,7 +127,10 @@ export function RehearsalControls({
   if (!currentLine) {
     return (
       <div className="flex gap-3">
-        <Button onClick={onEnd} className="flex-1 bg-gray-700 hover:bg-gray-600">
+        <Button
+          onClick={onEnd}
+          className="flex-1 bg-gray-700 hover:bg-gray-600"
+        >
           ✓ Close Rehearsal
         </Button>
       </div>
@@ -139,9 +151,7 @@ export function RehearsalControls({
               : "🎤 Your line - read when ready"}
           </p>
         )}
-        {isPaused && !isUserLine && (
-          <p className="text-gray-400">⏸️ Paused</p>
-        )}
+        {isPaused && !isUserLine && <p className="text-gray-400">⏸️ Paused</p>}
       </div>
 
       {/* Main Control Buttons */}
@@ -232,9 +242,24 @@ export function RehearsalControls({
 
       {/* Tips */}
       <div className="text-xs text-gray-500 space-y-1 pt-2 border-t border-gray-700">
-        <p>💡 <span className="text-gray-400">Auto-plays non-user character lines</span></p>
-        <p>💡 <span className="text-gray-400">Manual pause on your lines - press Next when ready</span></p>
-        <p>💡 <span className="text-gray-400">Use Previous to review earlier dialogue</span></p>
+        <p>
+          💡{" "}
+          <span className="text-gray-400">
+            Auto-plays non-user character lines
+          </span>
+        </p>
+        <p>
+          💡{" "}
+          <span className="text-gray-400">
+            Manual pause on your lines - press Next when ready
+          </span>
+        </p>
+        <p>
+          💡{" "}
+          <span className="text-gray-400">
+            Use Previous to review earlier dialogue
+          </span>
+        </p>
       </div>
     </div>
   );

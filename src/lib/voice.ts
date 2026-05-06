@@ -362,12 +362,19 @@ export async function fetchApiVoices(
     throw new Error("TTS API URL is not configured.");
   }
 
+  const isElevenLabs = (settings.externalApiType ?? "custom") === "elevenlabs";
   const baseUrl = settings.apiUrl.replace(/\/+$/, "");
-  const url = `${baseUrl}/v1/audio/voices`;
+  const url = isElevenLabs
+    ? `${baseUrl}/v1/voices`
+    : `${baseUrl}/v1/audio/voices`;
 
   const headers: Record<string, string> = {};
   if (settings.apiKey) {
-    headers["Authorization"] = `Bearer ${settings.apiKey}`;
+    if (isElevenLabs) {
+      headers["xi-api-key"] = settings.apiKey;
+    } else {
+      headers["Authorization"] = `Bearer ${settings.apiKey}`;
+    }
   }
 
   const response = await fetch(url, {
@@ -473,23 +480,40 @@ export async function speakTextViaApi(
   // Stop any currently playing audio
   cleanupAudio();
 
+  const isElevenLabs = (settings.externalApiType ?? "custom") === "elevenlabs";
+  const voiceId = options.voice || settings.defaultVoiceId;
   const baseUrl = settings.apiUrl.replace(/\/+$/, "");
-  const path = settings.apiPath || "/v1/audio/speech";
-  const url = `${baseUrl}${path}`;
+
+  let url: string;
+  let payload: Record<string, unknown>;
+  if (isElevenLabs) {
+    url = `${baseUrl}/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
+    payload = {
+      text,
+      model_id: settings.elevenLabsModelId ?? "eleven_multilingual_v2",
+      voice_settings: {
+        stability: settings.elevenLabsStability ?? 0.5,
+        similarity_boost: settings.elevenLabsSimilarityBoost ?? 0.75,
+        style: settings.elevenLabsStyle ?? 0,
+        use_speaker_boost: settings.elevenLabsSpeakerBoost ?? true,
+      },
+    };
+  } else {
+    const path = settings.apiPath || "/v1/audio/speech";
+    url = `${baseUrl}${path}`;
+    payload = buildTTSPayload(text, voiceId, options.speed ?? 1, settings);
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (settings.apiKey) {
-    headers["Authorization"] = `Bearer ${settings.apiKey}`;
+    if (isElevenLabs) {
+      headers["xi-api-key"] = settings.apiKey;
+    } else {
+      headers["Authorization"] = `Bearer ${settings.apiKey}`;
+    }
   }
-
-  const payload = buildTTSPayload(
-    text,
-    options.voice || settings.defaultVoiceId,
-    options.speed ?? 1,
-    settings,
-  );
 
   const response = await fetch(url, {
     method: "POST",

@@ -37,6 +37,7 @@ export interface VoiceOption {
 
 export interface TTSSettings {
   provider: "browser" | "api" | "kokoro";
+  externalApiType?: "custom" | "elevenlabs";
   apiUrl: string;
   apiPath: string;
   apiKey: string;
@@ -51,6 +52,12 @@ export interface TTSSettings {
   kokoroPreGenEnabled?: boolean;
   enableAudioCache?: boolean;
   voiceLangs?: string[];
+  // ElevenLabs-specific settings
+  elevenLabsModelId?: string;
+  elevenLabsStability?: number;
+  elevenLabsSimilarityBoost?: number;
+  elevenLabsStyle?: number;
+  elevenLabsSpeakerBoost?: boolean;
 }
 
 export interface CharacterImportData {

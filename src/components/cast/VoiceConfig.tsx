@@ -134,8 +134,12 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     setTtsSettings(getTTSSettings());
   }, []);
 
-  const isApiMode = ttsSettings?.provider === "api" && !!ttsSettings.apiUrl;
+  const isApiMode =
+    ttsSettings?.provider === "api" &&
+    !!(ttsSettings.apiUrl || ttsSettings.apiKey);
   const isKokoroMode = ttsSettings?.provider === "kokoro";
+  const isElevenLabs =
+    isApiMode && (ttsSettings?.externalApiType ?? "custom") === "elevenlabs";
 
   useEffect(() => {
     const synth = window.speechSynthesis;
@@ -507,9 +511,11 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               <span className="text-accent-cyan">
                 {isKokoroMode
                   ? "Kokoro AI"
-                  : isApiMode
-                    ? "API TTS"
-                    : "Browser TTS"}
+                  : isElevenLabs
+                    ? "ElevenLabs"
+                    : isApiMode
+                      ? "Custom API"
+                      : "Browser TTS"}
               </span>
               {(isApiMode || isKokoroMode) && (
                 <span className="text-muted"> — change in Settings</span>
@@ -544,7 +550,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
             ) : isApiMode ? (
               <div>
                 <label className="block text-light font-semibold mb-2">
-                  🎙️ API Voice
+                  🎙️ {isElevenLabs ? "ElevenLabs Voice" : "API Voice"}
                 </label>
                 <div className="flex gap-2">
                   <select
@@ -558,7 +564,9 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                         ? apiVoicesLoading
                           ? "Loading voices..."
                           : "Click Refresh to load"
-                        : "Default voice"}
+                        : isElevenLabs
+                          ? "Default ElevenLabs voice"
+                          : "Default voice"}
                     </option>
                     {apiVoices.map((v) => (
                       <option key={v.id} value={v.id}>
@@ -586,11 +594,21 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                         )
                         .finally(() => setApiVoicesLoading(false));
                     }}
-                    disabled={apiVoicesLoading}
+                    disabled={
+                      apiVoicesLoading ||
+                      (isElevenLabs
+                        ? !ttsSettings?.apiKey?.trim()
+                        : !ttsSettings?.apiUrl?.trim())
+                    }
                   >
                     {apiVoicesLoading ? "..." : "↻"}
                   </Button>
                 </div>
+                {isElevenLabs && !ttsSettings?.apiKey?.trim() && (
+                  <p className="text-amber-400 text-xs mt-1">
+                    Enter your ElevenLabs API key in Settings to load voices.
+                  </p>
+                )}
                 {apiVoicesError && (
                   <p className="text-red-400 text-xs mt-1">{apiVoicesError}</p>
                 )}
@@ -635,34 +653,36 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               </div>
             )}
 
-            {/* Rate */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <label className="text-light font-semibold">
-                  ⚡ {isApiMode || isKokoroMode ? "Speed" : "Speech Rate"}
-                </label>
-                <span className="text-accent-cyan font-mono">
-                  {voiceConfig.rate.toFixed(1)}x
-                </span>
+            {/* Rate — hidden for ElevenLabs (speed not supported in API) */}
+            {!isElevenLabs && (
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-light font-semibold">
+                    ⚡ {isApiMode || isKokoroMode ? "Speed" : "Speech Rate"}
+                  </label>
+                  <span className="text-accent-cyan font-mono">
+                    {voiceConfig.rate.toFixed(1)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={isApiMode || isKokoroMode ? "0.5" : "0.1"}
+                  max={isApiMode || isKokoroMode ? "2" : "10"}
+                  step="0.1"
+                  value={voiceConfig.rate}
+                  onChange={(e) => handleRateChange(parseFloat(e.target.value))}
+                  disabled={voiceConfig.muted}
+                  className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
+                />
+                <div className="flex justify-between text-xs text-muted mt-1">
+                  <span>
+                    Slow ({isApiMode || isKokoroMode ? "0.5x" : "0.1x"})
+                  </span>
+                  <span>Normal (1x)</span>
+                  <span>Fast ({isApiMode || isKokoroMode ? "2x" : "10x"})</span>
+                </div>
               </div>
-              <input
-                type="range"
-                min={isApiMode || isKokoroMode ? "0.5" : "0.1"}
-                max={isApiMode || isKokoroMode ? "2" : "10"}
-                step="0.1"
-                value={voiceConfig.rate}
-                onChange={(e) => handleRateChange(parseFloat(e.target.value))}
-                disabled={voiceConfig.muted}
-                className="w-full h-2 bg-background border border-border rounded cursor-pointer disabled:opacity-50"
-              />
-              <div className="flex justify-between text-xs text-muted mt-1">
-                <span>
-                  Slow ({isApiMode || isKokoroMode ? "0.5x" : "0.1x"})
-                </span>
-                <span>Normal (1x)</span>
-                <span>Fast ({isApiMode || isKokoroMode ? "2x" : "10x"})</span>
-              </div>
-            </div>
+            )}
 
             {/* Pitch — browser only */}
             {!isApiMode && !isKokoroMode && (
