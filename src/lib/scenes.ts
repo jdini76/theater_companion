@@ -97,7 +97,7 @@ export function extractSceneCharacters(
 
     for (const part of parts) {
       const upper = part.toUpperCase();
-      if (upper === "ALL" || upper === "EVERYONE" || upper === "ENSEMBLE") {
+      if (upper === "ALL" || upper === "EVERYONE") {
         continue;
       }
 
@@ -992,9 +992,15 @@ export function updateScene(
   // Guarantee updatedAt always advances even sub-millisecond in tests
   const updatedAt =
     newTimestamp > scene.updatedAt ? newTimestamp : scene.updatedAt + "1";
+  // If content changed, invalidate the cached parsed lines
+  const lines =
+    updates.content !== undefined && updates.content !== scene.content
+      ? undefined
+      : scene.lines;
   return {
     ...scene,
     ...updates,
+    lines,
     updatedAt,
   };
 }

@@ -221,6 +221,7 @@ const DEFAULT_TTS_SETTINGS: TTSSettings = {
   kokoroSpeed: 1,
   kokoroDevice: "wasm",
   kokoroPreGenEnabled: true,
+  enableAudioCache: false,
 };
 
 function loadTTSSettings(): TTSSettings {
@@ -973,6 +974,50 @@ export function SettingsContent() {
                 ))}
             </div>
           </div>
+
+          {/* Audio Caching — global, applies to all providers */}
+          {settings.provider !== "browser" && (
+            <div className="space-y-2 border-t border-border pt-4">
+              <div className="flex items-start gap-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={settings.enableAudioCache ?? false}
+                    onChange={(e) => {
+                      const updated = {
+                        ...settings,
+                        enableAudioCache: e.target.checked,
+                      };
+                      setSettings(updated);
+                      saveTTSSettings(updated);
+                    }}
+                    className="accent-accent-cyan w-4 h-4 mt-0.5"
+                  />
+                  <span className="text-light font-semibold">
+                    💾 Cache generated audio
+                  </span>
+                </label>
+                <p className="text-muted text-xs pt-0.5">
+                  Saves TTS audio to browser storage so repeated lines —
+                  including narration — are played back instantly without
+                  regenerating.
+                </p>
+              </div>
+              {(settings.enableAudioCache ?? false) && (
+                <button
+                  onClick={async () => {
+                    const { clearAllCachedAudio } =
+                      await import("@/lib/audio-cache");
+                    await clearAllCachedAudio();
+                    alert("Audio cache cleared.");
+                  }}
+                  className="text-xs text-muted hover:text-red-400 underline"
+                >
+                  Clear audio cache
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Kokoro Settings */}
           {settings.provider === "kokoro" && (

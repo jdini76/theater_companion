@@ -8,20 +8,20 @@
  */
 
 export const KOKORO_VOICES = [
-  { id: "af_heart",    name: "Heart (American Female)" },
-  { id: "af_bella",    name: "Bella (American Female)" },
-  { id: "af_jessica",  name: "Jessica (American Female)" },
-  { id: "af_sarah",    name: "Sarah (American Female)" },
-  { id: "af_nicole",   name: "Nicole (American Female)" },
-  { id: "af_sky",      name: "Sky (American Female)" },
-  { id: "am_adam",     name: "Adam (American Male)" },
-  { id: "am_michael",  name: "Michael (American Male)" },
-  { id: "am_puck",     name: "Puck (American Male)" },
-  { id: "am_echo",     name: "Echo (American Male)" },
-  { id: "bf_emma",     name: "Emma (British Female)" },
+  { id: "af_heart", name: "Heart (American Female)" },
+  { id: "af_bella", name: "Bella (American Female)" },
+  { id: "af_jessica", name: "Jessica (American Female)" },
+  { id: "af_sarah", name: "Sarah (American Female)" },
+  { id: "af_nicole", name: "Nicole (American Female)" },
+  { id: "af_sky", name: "Sky (American Female)" },
+  { id: "am_adam", name: "Adam (American Male)" },
+  { id: "am_michael", name: "Michael (American Male)" },
+  { id: "am_puck", name: "Puck (American Male)" },
+  { id: "am_echo", name: "Echo (American Male)" },
+  { id: "bf_emma", name: "Emma (British Female)" },
   { id: "bf_isabella", name: "Isabella (British Female)" },
-  { id: "bm_george",   name: "George (British Male)" },
-  { id: "bm_lewis",    name: "Lewis (British Male)" },
+  { id: "bm_george", name: "George (British Male)" },
+  { id: "bm_lewis", name: "Lewis (British Male)" },
 ] as const;
 
 export type KokoroVoiceId = (typeof KOKORO_VOICES)[number]["id"];
@@ -91,7 +91,9 @@ export interface LoadKokoroOptions {
   onProgress?: (msg: string) => void;
 }
 
-export async function loadKokoro(options: LoadKokoroOptions = {}): Promise<void> {
+export async function loadKokoro(
+  options: LoadKokoroOptions = {},
+): Promise<void> {
   const device: KokoroDevice = options.device ?? "wasm";
 
   if (_loadState === "ready") {
@@ -118,9 +120,7 @@ export async function loadKokoro(options: LoadKokoroOptions = {}): Promise<void>
 
       const dtype = device === "webgpu" ? "fp32" : "q8";
       const sizeHint = device === "webgpu" ? "~300 MB" : "~80 MB";
-      options.onProgress?.(
-        `Downloading model (first run only, ${sizeHint})…`,
-      );
+      options.onProgress?.(`Downloading model (first run only, ${sizeHint})…`);
 
       _instance = (await KokoroTTS.from_pretrained(
         "onnx-community/Kokoro-82M-v1.0-ONNX",
@@ -211,7 +211,13 @@ export function isKokoroPlaying(): boolean {
 
 export async function speakTextViaKokoro(
   text: string,
-  options: { voice?: string; speed?: number; volume?: number } = {},
+  options: {
+    voice?: string;
+    speed?: number;
+    volume?: number;
+    characterName?: string;
+    cacheAudio?: boolean;
+  } = {},
 ): Promise<void> {
   if (typeof window === "undefined") return;
 
@@ -236,6 +242,17 @@ export async function speakTextViaKokoro(
   }
 
   const raw = await rawPromise;
+
+  // Cache audio if enabled
+  if (options.cacheAudio && options.characterName) {
+    const { cacheKokoroAudio } = await import("./audio-cache");
+    await cacheKokoroAudio(
+      options.characterName,
+      text,
+      raw.audio,
+      raw.sampling_rate,
+    );
+  }
 
   const ctx = getAudioContext();
   if (ctx.state === "suspended") await ctx.resume();

@@ -15,6 +15,7 @@ import {
   ApiVoice,
   characterNamesMatch,
 } from "@/lib/voice";
+import { getCachedAudioFile } from "@/lib/audio-cache";
 import {
   KOKORO_VOICES,
   speakTextViaKokoro,
@@ -72,7 +73,17 @@ interface RehearsalState {
 }
 
 // Utility to extract unique character names from a scene
-function getCharacters(scene: { lines: DialogueLine[] }): string[] {
+function getCharacters(scene: {
+  lines: DialogueLine[];
+  characters?: string[];
+}): string[] {
+  // Prefer the curated list from SceneViewer/SceneHighlight (stored on the scene)
+  // which uses extractSceneCharacters and any manual overrides applied in the
+  // Scenes tab. Fall back to deriving from parsed dialogue lines only when absent.
+  if (scene.characters && scene.characters.length > 0) {
+    return scene.characters.map((c) => c.toUpperCase());
+  }
+
   const chars = new Set<string>();
   for (const line of scene.lines) {
     if (
@@ -81,7 +92,12 @@ function getCharacters(scene: { lines: DialogueLine[] }): string[] {
       line.character !== "[Stage Direction]" &&
       line.character !== "[Scene Heading]"
     ) {
-      chars.add(line.character);
+      // Split combined speakers ("MOM + JOEY", "A & B") into individuals
+      line.character
+        .split(/\s*[,&+]\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((name) => chars.add(name));
     }
   }
   return Array.from(chars);
@@ -156,7 +172,9 @@ export default function UnifiedRehearsalPage() {
   // Rehearsal options
   const [speakNames, setSpeakNames] = useState<boolean>(false);
   const [readOwnLines, setReadOwnLines] = useState<boolean>(false);
-  const [pauseMode, setPauseMode] = useState<"manual" | "countdown" | "wpm">("manual");
+  const [pauseMode, setPauseMode] = useState<"manual" | "countdown" | "wpm">(
+    "manual",
+  );
   const [countdownSeconds, setCountdownSeconds] = useState<number>(4);
   const [wordsPerMinute, setWordsPerMinute] = useState<number>(160);
   const [narratorVoiceIndex, setNarratorVoiceIndex] = useState<number>(0);
@@ -176,6 +194,7 @@ export default function UnifiedRehearsalPage() {
     "Load a scene, pick your role, and press Start.",
   );
   const [currentPrompt, setCurrentPrompt] = useState<string>("");
+  const [playedFromCache, setPlayedFromCache] = useState<boolean>(false);
 
   // Timers
   const [countdownInterval, setCountdownInterval] =
@@ -457,12 +476,19 @@ MOM: See? You were ready.`,
 
     const processedScenes: Scene[] = toLoad
       .map((s) => {
-        // Use cached lines if available, otherwise parse
-        const dialogueLines = s.lines || parseDialogueLines(s.content);
+        // Always re-parse from content so edits made in the Scenes tab are reflected
+        const dialogueLines = parseDialogueLines(s.content);
+        // Freshen the character list from content (handles stale stored lists
+        // and parser improvements after the scene was last saved). Merge with
+        // the stored list so manually-curated characters are preserved.
+        const freshChars = extractSceneCharacters(s.content);
+        const mergedChars = Array.from(
+          new Set([...(s.characters ?? []), ...freshChars]),
+        );
         return {
           title: s.title,
           lines: dialogueLines,
-          characters: s.characters,
+          characters: mergedChars.length > 0 ? mergedChars : s.characters,
         };
       })
       .filter((s) => s.lines.length > 0);
@@ -683,6 +709,7 @@ MOM: See? You were ready.`,
     (line: DialogueLine, onDone: () => void) => {
       // For combined speakers like "MOM + JOEY", use the first individual's voice
       const primarySpeaker = splitSpeaker(line.character)[0] || line.character;
+      const cacheEnabled = getTTSSettings().enableAudioCache ?? false;
 
       // â”€â”€ Kokoro TTS path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (ttsProvider === "kokoro") {
@@ -697,25 +724,75 @@ MOM: See? You were ready.`,
           voiceIndex: 0,
         };
 
-        if (speakNames) {
-          const nameUtter = new SpeechSynthesisUtterance(`${line.character}.`);
-          nameUtter.rate = 1;
-          if (availableVoices[narratorVoiceIndex])
-            nameUtter.voice = availableVoices[narratorVoiceIndex];
-          nameUtter.onend = () =>
-            speakTextViaKokoro(line.dialogue, { voice, speed: cfg.rate })
-              .then(onDone)
-              .catch(onDone);
-          nameUtter.onerror = () =>
-            speakTextViaKokoro(line.dialogue, { voice, speed: cfg.rate })
-              .then(onDone)
-              .catch(onDone);
-          window.speechSynthesis.speak(nameUtter);
-        } else {
-          speakTextViaKokoro(line.dialogue, { voice, speed: cfg.rate })
-            .then(onDone)
-            .catch(onDone);
-        }
+        const doKokoroSpeak = () =>
+          speakTextViaKokoro(line.dialogue, {
+            voice,
+            speed: cfg.rate,
+            characterName: primarySpeaker,
+            cacheAudio: cacheEnabled,
+          });
+
+        const playCachedBlob = (blob: Blob): Promise<void> =>
+          new Promise<void>((resolve) => {
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.onended = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.play().catch(() => {
+              URL.revokeObjectURL(url);
+              resolve();
+            });
+          });
+
+        (async () => {
+          if (cacheEnabled) {
+            const cached = await getCachedAudioFile(
+              primarySpeaker,
+              line.dialogue,
+            );
+            if (cached) {
+              setPlayedFromCache(true);
+              if (speakNames) {
+                const nameUtter = new SpeechSynthesisUtterance(
+                  `${line.character}.`,
+                );
+                nameUtter.rate = 1;
+                if (availableVoices[narratorVoiceIndex])
+                  nameUtter.voice = availableVoices[narratorVoiceIndex];
+                nameUtter.onend = () =>
+                  playCachedBlob(cached).then(onDone).catch(onDone);
+                nameUtter.onerror = () =>
+                  playCachedBlob(cached).then(onDone).catch(onDone);
+                window.speechSynthesis.speak(nameUtter);
+              } else {
+                playCachedBlob(cached).then(onDone).catch(onDone);
+              }
+              return;
+            }
+          }
+          setPlayedFromCache(false);
+
+          if (speakNames) {
+            const nameUtter = new SpeechSynthesisUtterance(
+              `${line.character}.`,
+            );
+            nameUtter.rate = 1;
+            if (availableVoices[narratorVoiceIndex])
+              nameUtter.voice = availableVoices[narratorVoiceIndex];
+            nameUtter.onend = () => doKokoroSpeak().then(onDone).catch(onDone);
+            nameUtter.onerror = () =>
+              doKokoroSpeak().then(onDone).catch(onDone);
+            window.speechSynthesis.speak(nameUtter);
+          } else {
+            doKokoroSpeak().then(onDone).catch(onDone);
+          }
+        })();
         return;
       }
 
@@ -728,6 +805,8 @@ MOM: See? You were ready.`,
           voiceIndex: 0,
         };
 
+        const cacheEnabledApi = cacheEnabled;
+
         console.log("[TTS API]", {
           character: line.character,
           primarySpeaker,
@@ -735,29 +814,86 @@ MOM: See? You were ready.`,
           allAssignments: { ...apiVoiceAssignments },
         });
 
-        const speakViaApi = (text: string, voice: string, speed: number) => {
-          speakTextViaApi(text, { voice, speed })
-            .then(onDone)
-            .catch(() => onDone());
-        };
+        const doApiSpeak = (text: string, voice: string, speed: number) =>
+          speakTextViaApi(text, {
+            voice,
+            speed,
+            characterName: primarySpeaker,
+            cacheAudio: cacheEnabledApi,
+          });
 
-        if (speakNames) {
-          // Narrator reads the character name via browser TTS, then API speaks the line
-          const nameUtter = new SpeechSynthesisUtterance();
-          nameUtter.text = `${line.character}.`;
-          nameUtter.rate = 1;
-          nameUtter.pitch = 1;
-          if (availableVoices.length && availableVoices[narratorVoiceIndex]) {
-            nameUtter.voice = availableVoices[narratorVoiceIndex];
+        const playCachedBlobApi = (blob: Blob): Promise<void> =>
+          new Promise<void>((resolve) => {
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.onended = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.play().catch(() => {
+              URL.revokeObjectURL(url);
+              resolve();
+            });
+          });
+
+        (async () => {
+          if (cacheEnabledApi) {
+            const cached = await getCachedAudioFile(
+              primarySpeaker,
+              line.dialogue,
+            );
+            if (cached) {
+              setPlayedFromCache(true);
+              if (speakNames) {
+                const nameUtter = new SpeechSynthesisUtterance();
+                nameUtter.text = `${line.character}.`;
+                nameUtter.rate = 1;
+                nameUtter.pitch = 1;
+                if (
+                  availableVoices.length &&
+                  availableVoices[narratorVoiceIndex]
+                )
+                  nameUtter.voice = availableVoices[narratorVoiceIndex];
+                nameUtter.onend = () =>
+                  playCachedBlobApi(cached).then(onDone).catch(onDone);
+                nameUtter.onerror = () =>
+                  playCachedBlobApi(cached).then(onDone).catch(onDone);
+                window.speechSynthesis.speak(nameUtter);
+              } else {
+                playCachedBlobApi(cached).then(onDone).catch(onDone);
+              }
+              return;
+            }
           }
-          nameUtter.onend = () =>
+          setPlayedFromCache(false);
+
+          const speakViaApi = (text: string, voice: string, speed: number) => {
+            doApiSpeak(text, voice, speed)
+              .then(onDone)
+              .catch(() => onDone());
+          };
+
+          if (speakNames) {
+            const nameUtter = new SpeechSynthesisUtterance();
+            nameUtter.text = `${line.character}.`;
+            nameUtter.rate = 1;
+            nameUtter.pitch = 1;
+            if (availableVoices.length && availableVoices[narratorVoiceIndex]) {
+              nameUtter.voice = availableVoices[narratorVoiceIndex];
+            }
+            nameUtter.onend = () =>
+              speakViaApi(line.dialogue, voiceId, cfg.rate || 1);
+            nameUtter.onerror = () =>
+              speakViaApi(line.dialogue, voiceId, cfg.rate || 1);
+            window.speechSynthesis.speak(nameUtter);
+          } else {
             speakViaApi(line.dialogue, voiceId, cfg.rate || 1);
-          nameUtter.onerror = () =>
-            speakViaApi(line.dialogue, voiceId, cfg.rate || 1);
-          window.speechSynthesis.speak(nameUtter);
-        } else {
-          speakViaApi(line.dialogue, voiceId, cfg.rate || 1);
-        }
+          }
+        })();
         return;
       }
 
@@ -892,7 +1028,10 @@ MOM: See? You were ready.`,
         // Calculate words in the line
         const wordCount = line.dialogue.trim().split(/\s+/).length;
         // Calculate seconds based on WPM: (words / wpm) * 60
-        const seconds = Math.max(1, Math.round((wordCount / wordsPerMinute) * 60));
+        const seconds = Math.max(
+          1,
+          Math.round((wordCount / wordsPerMinute) * 60),
+        );
         setCurrentPrompt(`Your turn. Continuing in ${seconds}s...`);
 
         let remaining = seconds;
@@ -1116,19 +1255,33 @@ MOM: See? You were ready.`,
               </div>
             )}
 
-            <div className={`rounded-xl border p-6 min-h-[180px] flex flex-col justify-center transition-colors ${
-              isMyTurn ? "border-yellow-400/50 bg-yellow-400/5" : "border-border bg-background"
-            }`}>
+            <div
+              className={`rounded-xl border p-6 min-h-[180px] flex flex-col justify-center transition-colors ${
+                isMyTurn
+                  ? "border-yellow-400/50 bg-yellow-400/5"
+                  : "border-border bg-background"
+              }`}
+            >
               {currentSpeaker ? (
                 <>
-                  <div className="text-xs font-bold tracking-widest uppercase text-accent-cyan mb-3">
+                  <div className="text-xs font-bold tracking-widest uppercase text-accent-cyan mb-3 flex items-center gap-1.5">
                     {currentSpeaker}
+                    {playedFromCache && (
+                      <span
+                        title="from cache"
+                        className="text-emerald-400 text-xs leading-none cursor-default"
+                      >
+                        ⚡
+                      </span>
+                    )}
                   </div>
                   <div className="text-xl sm:text-2xl text-light leading-relaxed">
                     {currentDialogue}
                   </div>
                   {currentPrompt && (
-                    <div className="text-yellow-400 font-semibold text-sm mt-4">{currentPrompt}</div>
+                    <div className="text-yellow-400 font-semibold text-sm mt-4">
+                      {currentPrompt}
+                    </div>
                   )}
                 </>
               ) : (
@@ -1140,16 +1293,32 @@ MOM: See? You were ready.`,
 
             <div className="flex flex-wrap gap-2">
               {!isActive ? (
-                <button onClick={handleStart} disabled={!scenes.length || !selectedCharacter} className={btnPrimary}>
+                <button
+                  onClick={handleStart}
+                  disabled={!scenes.length || !selectedCharacter}
+                  className={btnPrimary}
+                >
                   ▶ Start
                 </button>
               ) : rehearsal.isPaused ? (
-                <button onClick={handleResume} className={btnPrimary}>▶ Continue</button>
+                <button onClick={handleResume} className={btnPrimary}>
+                  ▶ Continue
+                </button>
               ) : (
-                <button onClick={handlePause} className={btnSecondary}>⏸ Pause</button>
+                <button onClick={handlePause} className={btnSecondary}>
+                  ⏸ Pause
+                </button>
               )}
-              {isActive && <button onClick={handleReset} className={btnDanger}>⏹ Stop</button>}
-              {!isActive && scenes.length > 0 && <button onClick={handleReset} className={btnSecondary}>Reset</button>}
+              {isActive && (
+                <button onClick={handleReset} className={btnDanger}>
+                  ⏹ Stop
+                </button>
+              )}
+              {!isActive && scenes.length > 0 && (
+                <button onClick={handleReset} className={btnSecondary}>
+                  Reset
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1157,688 +1326,710 @@ MOM: See? You were ready.`,
 
       {/* ── Sidebar and other cards ─────────────────────────────── */}
       <div className="flex gap-4 items-start">
-      {/* ── Load Scenes sidebar ──────────────────────────────────── */}
-      <div
-        className={`flex-shrink-0 transition-all duration-200 ${scenesOpen ? "w-72" : "w-8"}`}
-      >
-        <div className="card relative overflow-hidden">
-          {/* Toggle chevron */}
-          <button
-            onClick={() => setScenesOpen((v) => !v)}
-            className="absolute top-3 right-2 z-10 p-0.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
-            aria-label={
-              scenesOpen ? "Collapse scene loader" : "Expand scene loader"
-            }
-          >
-            {scenesOpen ? (
-              <ChevronLeft size={14} />
-            ) : (
-              <ChevronRight size={14} />
+        {/* ── Load Scenes sidebar ──────────────────────────────────── */}
+        <div
+          className={`flex-shrink-0 transition-all duration-200 ${scenesOpen ? "w-72" : "w-8"}`}
+        >
+          <div className="card relative overflow-hidden">
+            {/* Toggle chevron */}
+            <button
+              onClick={() => setScenesOpen((v) => !v)}
+              className="absolute top-3 right-2 z-10 p-0.5 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+              aria-label={
+                scenesOpen ? "Collapse scene loader" : "Expand scene loader"
+              }
+            >
+              {scenesOpen ? (
+                <ChevronLeft size={14} />
+              ) : (
+                <ChevronRight size={14} />
+              )}
+            </button>
+
+            {/* Collapsed strip */}
+            {!scenesOpen && (
+              <div className="flex flex-col items-center py-6 px-1 gap-2">
+                <span
+                  className="text-xs font-semibold text-muted"
+                  style={{
+                    writingMode: "vertical-rl",
+                    textOrientation: "mixed",
+                  }}
+                >
+                  {scenes.length > 0
+                    ? `${scenes.length} scene${scenes.length !== 1 ? "s" : ""}`
+                    : "Load Scenes"}
+                </span>
+              </div>
             )}
-          </button>
 
-          {/* Collapsed strip */}
-          {!scenesOpen && (
-            <div className="flex flex-col items-center py-6 px-1 gap-2">
-              <span
-                className="text-xs font-semibold text-muted"
-                style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-              >
-                {scenes.length > 0
-                  ? `${scenes.length} scene${scenes.length !== 1 ? "s" : ""}`
-                  : "Load Scenes"}
-              </span>
-            </div>
-          )}
+            {/* Expanded content */}
+            {scenesOpen && (
+              <div className="p-4 pr-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-bold text-light">
+                    Load Scenes
+                  </h2>
+                  {scenes.length > 0 && (
+                    <button
+                      onClick={handleClear}
+                      className="text-xs text-muted hover:text-red-400 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
 
-          {/* Expanded content */}
-          {scenesOpen && (
-            <div className="p-4 pr-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-bold text-light">Load Scenes</h2>
-                {scenes.length > 0 && (
-                  <button
-                    onClick={handleClear}
-                    className="text-xs text-muted hover:text-red-400 transition-colors"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+                {/* Source tabs */}
+                <div className="flex gap-1 border-b border-border">
+                  {(["library", "paste"] as const).map((src) => (
+                    <button
+                      key={src}
+                      onClick={() => setLoadSource(src)}
+                      className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${
+                        loadSource === src
+                          ? "border-accent-cyan text-accent-cyan"
+                          : "border-transparent text-muted hover:text-light"
+                      }`}
+                    >
+                      {src === "library" ? "From Library" : "Paste Script"}
+                    </button>
+                  ))}
+                </div>
 
-              {/* Source tabs */}
-              <div className="flex gap-1 border-b border-border">
-                {(["library", "paste"] as const).map((src) => (
-                  <button
-                    key={src}
-                    onClick={() => setLoadSource(src)}
-                    className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${
-                      loadSource === src
-                        ? "border-accent-cyan text-accent-cyan"
-                        : "border-transparent text-muted hover:text-light"
-                    }`}
-                  >
-                    {src === "library" ? "From Library" : "Paste Script"}
-                  </button>
-                ))}
-              </div>
-
-              {/* Library */}
-              {loadSource === "library" &&
-                (libraryScenes.length === 0 ? (
-                  <p className="text-muted text-sm">
-                    No scenes found. Import scenes in the{" "}
-                    <span className="text-accent-cyan">Scenes</span> tab first.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    <input
-                      type="text"
-                      value={libraryFilter}
-                      onChange={(e) => setLibraryFilter(e.target.value)}
-                      placeholder="Filter scenes…"
-                      className={inputCls}
-                    />
-                    {(() => {
-                      const query = libraryFilter.trim().toLowerCase();
-                      const filtered = query
-                        ? libraryScenes.filter((ls) => {
-                            const chars =
-                              ls.characters ??
-                              extractSceneCharacters(ls.content);
-                            return (
-                              ls.title.toLowerCase().includes(query) ||
-                              ls.content.toLowerCase().includes(query) ||
-                              chars.some((c) => c.toLowerCase().includes(query))
-                            );
-                          })
-                        : libraryScenes;
-                      const allSelected =
-                        filtered.length > 0 &&
-                        filtered.every((ls) =>
+                {/* Library */}
+                {loadSource === "library" &&
+                  (libraryScenes.length === 0 ? (
+                    <p className="text-muted text-sm">
+                      No scenes found. Import scenes in the{" "}
+                      <span className="text-accent-cyan">Scenes</span> tab
+                      first.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={libraryFilter}
+                        onChange={(e) => setLibraryFilter(e.target.value)}
+                        placeholder="Filter scenes…"
+                        className={inputCls}
+                      />
+                      {(() => {
+                        const query = libraryFilter.trim().toLowerCase();
+                        const filtered = query
+                          ? libraryScenes.filter((ls) => {
+                              const chars =
+                                ls.characters ??
+                                extractSceneCharacters(ls.content);
+                              return (
+                                ls.title.toLowerCase().includes(query) ||
+                                ls.content.toLowerCase().includes(query) ||
+                                chars.some((c) =>
+                                  c.toLowerCase().includes(query),
+                                )
+                              );
+                            })
+                          : libraryScenes;
+                        const allSelected =
+                          filtered.length > 0 &&
+                          filtered.every((ls) =>
+                            selectedLibrarySceneIds.has(ls.id),
+                          );
+                        const someSelected = filtered.some((ls) =>
                           selectedLibrarySceneIds.has(ls.id),
                         );
-                      const someSelected = filtered.some((ls) =>
-                        selectedLibrarySceneIds.has(ls.id),
-                      );
-                      return (
-                        <div className="border border-border rounded-lg overflow-hidden">
-                          <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel border-b border-border cursor-pointer hover:bg-white/5 transition-colors">
-                            <input
-                              type="checkbox"
-                              checked={allSelected}
-                              ref={(el) => {
-                                if (el)
-                                  el.indeterminate =
-                                    someSelected && !allSelected;
-                              }}
-                              onChange={() =>
-                                setSelectedLibrarySceneIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (allSelected)
-                                    filtered.forEach((ls) =>
-                                      next.delete(ls.id),
-                                    );
-                                  else
-                                    filtered.forEach((ls) => next.add(ls.id));
-                                  return next;
-                                })
-                              }
-                              className="accent-accent-cyan"
-                            />
-                            <span className="text-xs font-semibold text-muted uppercase tracking-widest">
-                              All{query ? ` (${filtered.length})` : ""}
-                            </span>
-                          </label>
-                          {filtered.map((ls) => {
-                            const isSelected = selectedLibrarySceneIds.has(
-                              ls.id,
-                            );
-                            const chars =
-                              ls.characters ??
-                              extractSceneCharacters(ls.content);
-                            return (
-                              <label
-                                key={ls.id}
-                                className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleLibraryScene(ls.id)}
-                                  className="accent-accent-cyan mt-0.5 flex-shrink-0"
-                                />
-                                <div className="min-w-0">
-                                  <div className="text-sm text-light font-medium truncate">
-                                    {ls.title}
-                                  </div>
-                                  {chars.length > 0 && (
-                                    <div className="text-xs text-accent-cyan mt-0.5 truncate">
-                                      {chars.join(", ")}
+                        return (
+                          <div className="border border-border rounded-lg overflow-hidden">
+                            <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel border-b border-border cursor-pointer hover:bg-white/5 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                ref={(el) => {
+                                  if (el)
+                                    el.indeterminate =
+                                      someSelected && !allSelected;
+                                }}
+                                onChange={() =>
+                                  setSelectedLibrarySceneIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (allSelected)
+                                      filtered.forEach((ls) =>
+                                        next.delete(ls.id),
+                                      );
+                                    else
+                                      filtered.forEach((ls) => next.add(ls.id));
+                                    return next;
+                                  })
+                                }
+                                className="accent-accent-cyan"
+                              />
+                              <span className="text-xs font-semibold text-muted uppercase tracking-widest">
+                                All{query ? ` (${filtered.length})` : ""}
+                              </span>
+                            </label>
+                            {filtered.map((ls) => {
+                              const isSelected = selectedLibrarySceneIds.has(
+                                ls.id,
+                              );
+                              const chars =
+                                ls.characters ??
+                                extractSceneCharacters(ls.content);
+                              return (
+                                <label
+                                  key={ls.id}
+                                  className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleLibraryScene(ls.id)}
+                                    className="accent-accent-cyan mt-0.5 flex-shrink-0"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="text-sm text-light font-medium truncate">
+                                      {ls.title}
                                     </div>
-                                  )}
-                                </div>
-                              </label>
-                            );
-                          })}
-                          {filtered.length === 0 && (
-                            <div className="px-3 py-4 text-muted text-sm text-center">
-                              No matches
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                    <button
-                      onClick={handleLoadFromLibrary}
-                      className={btnPrimary}
-                    >
-                      {selectedLibrarySceneIds.size > 0
-                        ? `Load ${selectedLibrarySceneIds.size} scene${selectedLibrarySceneIds.size !== 1 ? "s" : ""}`
-                        : `Load all ${libraryScenes.length}`}
-                    </button>
-                  </div>
-                ))}
-
-              {/* Paste */}
-              {loadSource === "paste" && (
-                <div className="space-y-3">
-                  <div className="flex flex-col gap-2">
-                    {(["single", "multiple"] as const).map((m) => (
-                      <label
-                        key={m}
-                        className="flex items-center gap-2 text-sm text-muted cursor-pointer"
-                      >
-                        <input
-                          type="radio"
-                          name="sceneMode"
-                          value={m}
-                          checked={sceneMode === m}
-                          onChange={() => setSceneMode(m)}
-                          className="accent-accent-cyan"
-                        />
-                        {m === "single" ? "Single scene" : "Multiple scenes"}
-                      </label>
-                    ))}
-                  </div>
-                  <textarea
-                    value={scriptInput}
-                    onChange={(e) => setScriptInput(e.target.value)}
-                    placeholder="SCENE 1: AUDITION ROOM&#10;MOM: You know the lines.&#10;JOEY: I always know them until..."
-                    rows={8}
-                    className={`${inputCls} font-mono resize-y`}
-                  />
-                  <div className="flex flex-col gap-2">
-                    <button onClick={handleParseScript} className={btnPrimary}>
-                      Load Script
-                    </button>
-                    <button onClick={handleLoadSample} className={btnSecondary}>
-                      Load Sample
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Main content ─────────────────────────────────────────── */}
-      <div className="flex-1 min-w-0 space-y-4">
-        {/* Role & Options */}
-        <section className="card space-y-4">
-          <button
-            onClick={() => setOptionsOpen((o) => !o)}
-            className="w-full flex items-center justify-between"
-          >
-            <h2 className="text-base font-bold text-light">
-              Role &amp; Options
-            </h2>
-            <span className="text-muted text-xs">
-              {optionsOpen ? "▲ Hide" : "▼ Show"}
-            </span>
-          </button>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>My Character</label>
-              <select
-                value={selectedCharacter}
-                onChange={(e) => setSelectedCharacter(e.target.value)}
-                className={inputCls}
-              >
-                <option value="">Choose a character…</option>
-                {characters.map((char) => (
-                  <option key={char} value={char}>
-                    {char}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>On My Line</label>
-              <select
-                value={pauseMode}
-                onChange={(e) =>
-                  setPauseMode(e.target.value as "manual" | "countdown" | "wpm")
-                }
-                className={inputCls}
-              >
-                <option value="manual">Pause and wait</option>
-                <option value="countdown">Countdown then continue</option>
-                <option value="wpm">Words per minute</option>
-              </select>
-            </div>
-          </div>
-
-          {optionsOpen && (
-            <div className="space-y-4 pt-2 border-t border-border">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>Rehearsal Mode</label>
-                  <select
-                    value={rehearsalMode}
-                    onChange={(e) =>
-                      setRehearsalMode(e.target.value as "full" | "cue-only")
-                    }
-                    className={inputCls}
-                  >
-                    <option value="full">Full Scene</option>
-                    <option value="cue-only">Cue Only</option>
-                  </select>
-                  {rehearsalMode === "cue-only" && (
-                    <p className="text-muted text-xs mt-1">
-                      Only the line before yours is spoken.
-                    </p>
-                  )}
-                </div>
-                {pauseMode === "countdown" && (
-                  <div>
-                    <label className={labelCls}>Countdown Seconds</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={countdownSeconds}
-                      onChange={(e) =>
-                        setCountdownSeconds(
-                          Math.max(1, parseInt(e.target.value) || 1),
-                        )
-                      }
-                      className={inputCls}
-                    />
-                  </div>
-                )}
-                {pauseMode === "wpm" && (
-                  <div>
-                    <label className={labelCls}>Words Per Minute</label>
-                    <input
-                      type="number"
-                      min={50}
-                      max={400}
-                      value={wordsPerMinute}
-                      onChange={(e) =>
-                        setWordsPerMinute(
-                          Math.max(50, parseInt(e.target.value) || 160),
-                        )
-                      }
-                      className={inputCls}
-                    />
-                    <p className="text-muted text-xs mt-1">
-                      Auto-advance based on line length
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {(
-                  [
-                    {
-                      state: speakNames,
-                      set: setSpeakNames,
-                      label: "Speak names",
-                    },
-                    {
-                      state: readOwnLines,
-                      set: setReadOwnLines,
-                      label: "Read my lines",
-                    },
-                    {
-                      state: skipNarration,
-                      set: setSkipNarration,
-                      label: "Skip narration",
-                    },
-                    {
-                      state: skipStageDirections,
-                      set: setSkipStageDirections,
-                      label: "Skip stage directions",
-                    },
-                  ] as {
-                    state: boolean;
-                    set: (v: boolean) => void;
-                    label: string;
-                  }[]
-                ).map(({ state, set, label }) => (
-                  <label
-                    key={label}
-                    className="flex items-center gap-2 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={state}
-                      onChange={(e) => set(e.target.checked)}
-                      className="accent-accent-cyan flex-shrink-0"
-                    />
-                    <span className="text-sm text-muted">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Character Voices */}
-        <section className="card space-y-4">
-          <button
-            onClick={() => setVoicesOpen((v) => !v)}
-            className="w-full flex items-center justify-between"
-          >
-            <h2 className="text-base font-bold text-light">Character Voices</h2>
-            <span className="text-muted text-xs">
-              {voicesOpen ? "▲ Hide" : "▼ Show"}
-            </span>
-          </button>
-
-          {voicesOpen && (
-            <div className="space-y-4 pt-2 border-t border-border">
-              <div className="flex flex-wrap items-end gap-3">
-                <div>
-                  <label className={labelCls}>TTS Provider</label>
-                  <select
-                    value={ttsProvider}
-                    onChange={async (e) => {
-                      const provider = e.target.value as
-                        | "browser"
-                        | "api"
-                        | "kokoro";
-                      if (provider === "api") {
-                        const s = getTTSSettings();
-                        if (!s.apiUrl) {
-                          alert(
-                            "Configure your TTS API URL in Settings first.",
-                          );
-                          return;
-                        }
-                        setTtsProvider("api");
-                        if (apiVoices.length === 0) {
-                          setApiVoicesLoading(true);
-                          setApiVoicesError(null);
-                          fetchApiVoices(s)
-                            .then((v) => {
-                              setApiVoices(v);
-                              if (v.length === 0)
-                                setApiVoicesError("No voices returned.");
-                            })
-                            .catch((err) =>
-                              setApiVoicesError(
-                                err instanceof Error ? err.message : "Failed",
-                              ),
-                            )
-                            .finally(() => setApiVoicesLoading(false));
-                        }
-                      } else if (provider === "kokoro") {
-                        setTtsProvider("kokoro");
-                        if (getKokoroLoadState() === "idle") {
-                          setKokoroStatus("Loading model…");
-                          try {
-                            await loadKokoro({
-                              device: getTTSSettings().kokoroDevice ?? "wasm",
-                            });
-                            setKokoroStatus(null);
-                          } catch (err) {
-                            setKokoroStatus(
-                              err instanceof Error
-                                ? err.message
-                                : "Load failed",
-                            );
-                          }
-                        }
-                      } else {
-                        setTtsProvider("browser");
-                      }
-                    }}
-                    className={`${inputCls} w-auto`}
-                  >
-                    <option value="browser">Browser</option>
-                    <option value="kokoro">Kokoro AI</option>
-                    <option value="api">External API</option>
-                  </select>
-                </div>
-                {ttsProvider === "api" && (
-                  <button
-                    onClick={() => {
-                      setApiVoicesLoading(true);
-                      setApiVoicesError(null);
-                      fetchApiVoices(getTTSSettings())
-                        .then((v) => {
-                          setApiVoices(v);
-                          if (v.length === 0)
-                            setApiVoicesError("No voices returned.");
-                        })
-                        .catch((err) =>
-                          setApiVoicesError(
-                            err instanceof Error ? err.message : "Failed",
-                          ),
-                        )
-                        .finally(() => setApiVoicesLoading(false));
-                    }}
-                    disabled={apiVoicesLoading}
-                    className={btnSecondary}
-                  >
-                    {apiVoicesLoading ? "Loading…" : "↻ Refresh Voices"}
-                  </button>
-                )}
-                {ttsProvider === "kokoro" && kokoroStatus && (
-                  <span className="text-xs text-muted">{kokoroStatus}</span>
-                )}
-                {ttsProvider === "kokoro" &&
-                  getKokoroLoadState() === "ready" &&
-                  !kokoroStatus && (
-                    <span className="text-xs text-green-400">Model ready</span>
-                  )}
-                {ttsProvider === "api" && apiVoicesError && (
-                  <span className="text-xs text-red-400">{apiVoicesError}</span>
-                )}
-              </div>
-
-              {speakNames && (
-                <div className="flex items-center gap-3 p-3 bg-dark-input border border-border rounded-lg">
-                  <span className="text-sm font-semibold text-light w-20 flex-shrink-0">
-                    🎙 Narrator
-                  </span>
-                  <select
-                    value={narratorVoiceIndex}
-                    onChange={(e) =>
-                      setNarratorVoiceIndex(parseInt(e.target.value))
-                    }
-                    className={`${inputCls} flex-1`}
-                  >
-                    {availableVoices.length === 0 ? (
-                      <option>Default browser voice</option>
-                    ) : (
-                      availableVoices.map((v, i) => (
-                        <option key={i} value={i}>
-                          {v.name} ({v.lang})
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-              )}
-
-              {characters.length === 0 ? (
-                <p className="text-muted text-sm">
-                  Load a scene to see character voices.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {characters.map((char) => {
-                    const cfg = voiceAssignments[char] || {
-                      voiceIndex: 0,
-                      rate: 1,
-                      pitch: 1,
-                    };
-                    return (
-                      <div
-                        key={char}
-                        className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
-                        style={{
-                          gridTemplateColumns: "6rem 1fr auto auto auto",
-                        }}
-                      >
-                        <span className="text-sm font-semibold text-light truncate">
-                          {char}
-                        </span>
-                        {ttsProvider === "browser" ? (
-                          <select
-                            value={cfg.voiceIndex}
-                            onChange={(e) =>
-                              setVoiceAssignments((p) => ({
-                                ...p,
-                                [char]: {
-                                  ...cfg,
-                                  voiceIndex: parseInt(e.target.value),
-                                },
-                              }))
-                            }
-                            className={inputCls}
-                          >
-                            {availableVoices.length === 0 ? (
-                              <option>Default</option>
-                            ) : (
-                              availableVoices.map((v, i) => (
-                                <option key={i} value={i}>
-                                  {v.name}
-                                </option>
-                              ))
+                                    {chars.length > 0 && (
+                                      <div className="text-xs text-accent-cyan mt-0.5 truncate">
+                                        {chars.join(", ")}
+                                      </div>
+                                    )}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                            {filtered.length === 0 && (
+                              <div className="px-3 py-4 text-muted text-sm text-center">
+                                No matches
+                              </div>
                             )}
-                          </select>
-                        ) : ttsProvider === "kokoro" ? (
-                          <select
-                            value={apiVoiceAssignments[char] || ""}
-                            onChange={(e) =>
-                              setApiVoiceAssignments((p) => ({
-                                ...p,
-                                [char]: e.target.value,
-                              }))
-                            }
-                            className={inputCls}
-                          >
-                            <option value="">
-                              Default (
-                              {getTTSSettings().kokoroVoice || "am_puck"})
-                            </option>
-                            {KOKORO_VOICES.map((v) => (
-                              <option key={v.id} value={v.id}>
-                                {v.name}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <select
-                            value={apiVoiceAssignments[char] || ""}
-                            onChange={(e) =>
-                              setApiVoiceAssignments((p) => ({
-                                ...p,
-                                [char]: e.target.value,
-                              }))
-                            }
-                            className={inputCls}
-                          >
-                            <option value="">
-                              {apiVoices.length === 0
-                                ? apiVoicesLoading
-                                  ? "Loading…"
-                                  : "Refresh voices"
-                                : "Default"}
-                            </option>
-                            {apiVoices.map((v) => (
-                              <option key={v.id} value={v.id}>
-                                {v.name ? `${v.name} (${v.id})` : v.id}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-muted">
-                            {ttsProvider === "browser" ? "Rate" : "Spd"}
-                          </span>
+                          </div>
+                        );
+                      })()}
+                      <button
+                        onClick={handleLoadFromLibrary}
+                        className={btnPrimary}
+                      >
+                        {selectedLibrarySceneIds.size > 0
+                          ? `Load ${selectedLibrarySceneIds.size} scene${selectedLibrarySceneIds.size !== 1 ? "s" : ""}`
+                          : `Load all ${libraryScenes.length}`}
+                      </button>
+                    </div>
+                  ))}
+
+                {/* Paste */}
+                {loadSource === "paste" && (
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-2">
+                      {(["single", "multiple"] as const).map((m) => (
+                        <label
+                          key={m}
+                          className="flex items-center gap-2 text-sm text-muted cursor-pointer"
+                        >
                           <input
-                            type="number"
-                            step="0.1"
-                            min="0.5"
-                            max="2"
-                            value={cfg.rate}
-                            onChange={(e) =>
-                              setVoiceAssignments((p) => ({
-                                ...p,
-                                [char]: {
-                                  ...cfg,
-                                  rate: parseFloat(e.target.value) || 1,
-                                },
-                              }))
-                            }
-                            className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan"
+                            type="radio"
+                            name="sceneMode"
+                            value={m}
+                            checked={sceneMode === m}
+                            onChange={() => setSceneMode(m)}
+                            className="accent-accent-cyan"
                           />
-                        </div>
-                        {ttsProvider === "browser" ? (
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-muted">Pitch</span>
-                            <input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="2"
-                              value={cfg.pitch}
+                          {m === "single" ? "Single scene" : "Multiple scenes"}
+                        </label>
+                      ))}
+                    </div>
+                    <textarea
+                      value={scriptInput}
+                      onChange={(e) => setScriptInput(e.target.value)}
+                      placeholder="SCENE 1: AUDITION ROOM&#10;MOM: You know the lines.&#10;JOEY: I always know them until..."
+                      rows={8}
+                      className={`${inputCls} font-mono resize-y`}
+                    />
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={handleParseScript}
+                        className={btnPrimary}
+                      >
+                        Load Script
+                      </button>
+                      <button
+                        onClick={handleLoadSample}
+                        className={btnSecondary}
+                      >
+                        Load Sample
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Main content ─────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {/* Role & Options */}
+          <section className="card space-y-4">
+            <button
+              onClick={() => setOptionsOpen((o) => !o)}
+              className="w-full flex items-center justify-between"
+            >
+              <h2 className="text-base font-bold text-light">
+                Role &amp; Options
+              </h2>
+              <span className="text-muted text-xs">
+                {optionsOpen ? "▲ Hide" : "▼ Show"}
+              </span>
+            </button>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>My Character</label>
+                <select
+                  value={selectedCharacter}
+                  onChange={(e) => setSelectedCharacter(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Choose a character…</option>
+                  {characters.map((char) => (
+                    <option key={char} value={char}>
+                      {char}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>On My Line</label>
+                <select
+                  value={pauseMode}
+                  onChange={(e) =>
+                    setPauseMode(
+                      e.target.value as "manual" | "countdown" | "wpm",
+                    )
+                  }
+                  className={inputCls}
+                >
+                  <option value="manual">Pause and wait</option>
+                  <option value="countdown">Countdown then continue</option>
+                  <option value="wpm">Words per minute</option>
+                </select>
+              </div>
+            </div>
+
+            {optionsOpen && (
+              <div className="space-y-4 pt-2 border-t border-border">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Rehearsal Mode</label>
+                    <select
+                      value={rehearsalMode}
+                      onChange={(e) =>
+                        setRehearsalMode(e.target.value as "full" | "cue-only")
+                      }
+                      className={inputCls}
+                    >
+                      <option value="full">Full Scene</option>
+                      <option value="cue-only">Cue Only</option>
+                    </select>
+                    {rehearsalMode === "cue-only" && (
+                      <p className="text-muted text-xs mt-1">
+                        Only the line before yours is spoken.
+                      </p>
+                    )}
+                  </div>
+                  {pauseMode === "countdown" && (
+                    <div>
+                      <label className={labelCls}>Countdown Seconds</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={countdownSeconds}
+                        onChange={(e) =>
+                          setCountdownSeconds(
+                            Math.max(1, parseInt(e.target.value) || 1),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </div>
+                  )}
+                  {pauseMode === "wpm" && (
+                    <div>
+                      <label className={labelCls}>Words Per Minute</label>
+                      <input
+                        type="number"
+                        min={50}
+                        max={400}
+                        value={wordsPerMinute}
+                        onChange={(e) =>
+                          setWordsPerMinute(
+                            Math.max(50, parseInt(e.target.value) || 160),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                      <p className="text-muted text-xs mt-1">
+                        Auto-advance based on line length
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {(
+                    [
+                      {
+                        state: speakNames,
+                        set: setSpeakNames,
+                        label: "Speak names",
+                      },
+                      {
+                        state: readOwnLines,
+                        set: setReadOwnLines,
+                        label: "Read my lines",
+                      },
+                      {
+                        state: skipNarration,
+                        set: setSkipNarration,
+                        label: "Skip narration",
+                      },
+                      {
+                        state: skipStageDirections,
+                        set: setSkipStageDirections,
+                        label: "Skip stage directions",
+                      },
+                    ] as {
+                      state: boolean;
+                      set: (v: boolean) => void;
+                      label: string;
+                    }[]
+                  ).map(({ state, set, label }) => (
+                    <label
+                      key={label}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={state}
+                        onChange={(e) => set(e.target.checked)}
+                        className="accent-accent-cyan flex-shrink-0"
+                      />
+                      <span className="text-sm text-muted">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Character Voices */}
+          <section className="card space-y-4">
+            <button
+              onClick={() => setVoicesOpen((v) => !v)}
+              className="w-full flex items-center justify-between"
+            >
+              <h2 className="text-base font-bold text-light">
+                Character Voices
+              </h2>
+              <span className="text-muted text-xs">
+                {voicesOpen ? "▲ Hide" : "▼ Show"}
+              </span>
+            </button>
+
+            {voicesOpen && (
+              <div className="space-y-4 pt-2 border-t border-border">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className={labelCls}>TTS Provider</label>
+                    <select
+                      value={ttsProvider}
+                      onChange={async (e) => {
+                        const provider = e.target.value as
+                          | "browser"
+                          | "api"
+                          | "kokoro";
+                        if (provider === "api") {
+                          const s = getTTSSettings();
+                          if (!s.apiUrl) {
+                            alert(
+                              "Configure your TTS API URL in Settings first.",
+                            );
+                            return;
+                          }
+                          setTtsProvider("api");
+                          if (apiVoices.length === 0) {
+                            setApiVoicesLoading(true);
+                            setApiVoicesError(null);
+                            fetchApiVoices(s)
+                              .then((v) => {
+                                setApiVoices(v);
+                                if (v.length === 0)
+                                  setApiVoicesError("No voices returned.");
+                              })
+                              .catch((err) =>
+                                setApiVoicesError(
+                                  err instanceof Error ? err.message : "Failed",
+                                ),
+                              )
+                              .finally(() => setApiVoicesLoading(false));
+                          }
+                        } else if (provider === "kokoro") {
+                          setTtsProvider("kokoro");
+                          if (getKokoroLoadState() === "idle") {
+                            setKokoroStatus("Loading model…");
+                            try {
+                              await loadKokoro({
+                                device: getTTSSettings().kokoroDevice ?? "wasm",
+                              });
+                              setKokoroStatus(null);
+                            } catch (err) {
+                              setKokoroStatus(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Load failed",
+                              );
+                            }
+                          }
+                        } else {
+                          setTtsProvider("browser");
+                        }
+                      }}
+                      className={`${inputCls} w-auto`}
+                    >
+                      <option value="browser">Browser</option>
+                      <option value="kokoro">Kokoro AI</option>
+                      <option value="api">External API</option>
+                    </select>
+                  </div>
+                  {ttsProvider === "api" && (
+                    <button
+                      onClick={() => {
+                        setApiVoicesLoading(true);
+                        setApiVoicesError(null);
+                        fetchApiVoices(getTTSSettings())
+                          .then((v) => {
+                            setApiVoices(v);
+                            if (v.length === 0)
+                              setApiVoicesError("No voices returned.");
+                          })
+                          .catch((err) =>
+                            setApiVoicesError(
+                              err instanceof Error ? err.message : "Failed",
+                            ),
+                          )
+                          .finally(() => setApiVoicesLoading(false));
+                      }}
+                      disabled={apiVoicesLoading}
+                      className={btnSecondary}
+                    >
+                      {apiVoicesLoading ? "Loading…" : "↻ Refresh Voices"}
+                    </button>
+                  )}
+                  {ttsProvider === "kokoro" && kokoroStatus && (
+                    <span className="text-xs text-muted">{kokoroStatus}</span>
+                  )}
+                  {ttsProvider === "kokoro" &&
+                    getKokoroLoadState() === "ready" &&
+                    !kokoroStatus && (
+                      <span className="text-xs text-green-400">
+                        Model ready
+                      </span>
+                    )}
+                  {ttsProvider === "api" && apiVoicesError && (
+                    <span className="text-xs text-red-400">
+                      {apiVoicesError}
+                    </span>
+                  )}
+                </div>
+
+                {speakNames && (
+                  <div className="flex items-center gap-3 p-3 bg-dark-input border border-border rounded-lg">
+                    <span className="text-sm font-semibold text-light w-20 flex-shrink-0">
+                      🎙 Narrator
+                    </span>
+                    <select
+                      value={narratorVoiceIndex}
+                      onChange={(e) =>
+                        setNarratorVoiceIndex(parseInt(e.target.value))
+                      }
+                      className={`${inputCls} flex-1`}
+                    >
+                      {availableVoices.length === 0 ? (
+                        <option>Default browser voice</option>
+                      ) : (
+                        availableVoices.map((v, i) => (
+                          <option key={i} value={i}>
+                            {v.name} ({v.lang})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                )}
+
+                {characters.length === 0 ? (
+                  <p className="text-muted text-sm">
+                    Load a scene to see character voices.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {characters.map((char) => {
+                      const cfg = voiceAssignments[char] || {
+                        voiceIndex: 0,
+                        rate: 1,
+                        pitch: 1,
+                      };
+                      return (
+                        <div
+                          key={char}
+                          className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
+                          style={{
+                            gridTemplateColumns: "6rem 1fr auto auto auto",
+                          }}
+                        >
+                          <span className="text-sm font-semibold text-light truncate">
+                            {char}
+                          </span>
+                          {ttsProvider === "browser" ? (
+                            <select
+                              value={cfg.voiceIndex}
                               onChange={(e) =>
                                 setVoiceAssignments((p) => ({
                                   ...p,
                                   [char]: {
                                     ...cfg,
-                                    pitch: parseFloat(e.target.value) || 1,
+                                    voiceIndex: parseInt(e.target.value),
+                                  },
+                                }))
+                              }
+                              className={inputCls}
+                            >
+                              {availableVoices.length === 0 ? (
+                                <option>Default</option>
+                              ) : (
+                                availableVoices.map((v, i) => (
+                                  <option key={i} value={i}>
+                                    {v.name}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          ) : ttsProvider === "kokoro" ? (
+                            <select
+                              value={apiVoiceAssignments[char] || ""}
+                              onChange={(e) =>
+                                setApiVoiceAssignments((p) => ({
+                                  ...p,
+                                  [char]: e.target.value,
+                                }))
+                              }
+                              className={inputCls}
+                            >
+                              <option value="">
+                                Default (
+                                {getTTSSettings().kokoroVoice || "am_puck"})
+                              </option>
+                              {KOKORO_VOICES.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                  {v.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <select
+                              value={apiVoiceAssignments[char] || ""}
+                              onChange={(e) =>
+                                setApiVoiceAssignments((p) => ({
+                                  ...p,
+                                  [char]: e.target.value,
+                                }))
+                              }
+                              className={inputCls}
+                            >
+                              <option value="">
+                                {apiVoices.length === 0
+                                  ? apiVoicesLoading
+                                    ? "Loading…"
+                                    : "Refresh voices"
+                                  : "Default"}
+                              </option>
+                              {apiVoices.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                  {v.name ? `${v.name} (${v.id})` : v.id}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-muted">
+                              {ttsProvider === "browser" ? "Rate" : "Spd"}
+                            </span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0.5"
+                              max="2"
+                              value={cfg.rate}
+                              onChange={(e) =>
+                                setVoiceAssignments((p) => ({
+                                  ...p,
+                                  [char]: {
+                                    ...cfg,
+                                    rate: parseFloat(e.target.value) || 1,
                                   },
                                 }))
                               }
                               className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan"
                             />
                           </div>
-                        ) : (
-                          <div />
-                        )}
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => handlePreviewVoice(char)}
-                            className={`px-2 py-1 rounded text-xs font-semibold border transition-colors ${previewingChar === char ? "border-red-400 text-red-400 bg-red-400/10" : "border-border text-muted hover:border-accent-cyan hover:text-light"}`}
-                          >
-                            {previewingChar === char ? "⏹" : "▶"}
-                          </button>
-                          <button
-                            onClick={() => handleSaveVoiceToCast(char)}
-                            title="Save to Cast"
-                            className="px-2 py-1 rounded text-xs font-semibold border border-border text-muted hover:border-accent-cyan hover:text-light transition-colors"
-                          >
-                            💾
-                          </button>
+                          {ttsProvider === "browser" ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted">Pitch</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="2"
+                                value={cfg.pitch}
+                                onChange={(e) =>
+                                  setVoiceAssignments((p) => ({
+                                    ...p,
+                                    [char]: {
+                                      ...cfg,
+                                      pitch: parseFloat(e.target.value) || 1,
+                                    },
+                                  }))
+                                }
+                                className="w-14 bg-background border border-border rounded px-2 py-1 text-light text-xs focus:outline-none focus:border-accent-cyan"
+                              />
+                            </div>
+                          ) : (
+                            <div />
+                          )}
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handlePreviewVoice(char)}
+                              className={`px-2 py-1 rounded text-xs font-semibold border transition-colors ${previewingChar === char ? "border-red-400 text-red-400 bg-red-400/10" : "border-border text-muted hover:border-accent-cyan hover:text-light"}`}
+                            >
+                              {previewingChar === char ? "⏹" : "▶"}
+                            </button>
+                            <button
+                              onClick={() => handleSaveVoiceToCast(char)}
+                              title="Save to Cast"
+                              className="px-2 py-1 rounded text-xs font-semibold border border-border text-muted hover:border-accent-cyan hover:text-light transition-colors"
+                            >
+                              💾
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );

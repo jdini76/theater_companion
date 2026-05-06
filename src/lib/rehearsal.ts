@@ -494,9 +494,17 @@ function isValidCharacterName(name: string): boolean {
   const words = name.trim().split(/\s+/);
   if (!hasJoiner && words.length > 4) return false;
 
-  // Reject known production-direction prefixes
+  // Reject known production-direction prefixes.
+  // Exception: "THE" used as a definite article before a proper noun
+  // ("THE NARRATOR", "THE GHOST") is a valid character-name pattern.
+  // Let "THE <something>" fall through to the allCommon check below,
+  // which will reject it only if all words are common English words.
   const firstWord = words[0].toUpperCase();
-  if (NON_CHARACTER_WORDS.has(firstWord)) return false;
+  if (
+    NON_CHARACTER_WORDS.has(firstWord) &&
+    !(firstWord === "THE" && words.length > 1)
+  )
+    return false;
 
   // Reject if ALL words are common English words (likely a lyric phrase)
   // but allow if it's a single word ≥ 3 chars (could be a name like "FRED")

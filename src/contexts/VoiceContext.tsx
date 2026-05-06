@@ -57,7 +57,12 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       throw new Error(validation.errors.join(", "));
     }
 
+    console.log(
+      `[VoiceContext] Updating config: ${config.characterName}`,
+      updates,
+    );
     const updated = updateVoiceConfigUtil(config, updates);
+    console.log(`[VoiceContext] Updated config:`, updated);
     setVoiceConfigs((prev) => prev.map((c) => (c.id === id ? updated : c)));
   };
 

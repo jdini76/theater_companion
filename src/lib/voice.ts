@@ -4,6 +4,7 @@ import {
   VoiceOption,
   TTSSettings,
 } from "@/types/voice";
+import { getCachedAudioFile, cacheAudioFile } from "@/lib/audio-cache";
 
 const TTS_SETTINGS_KEY = "theater_tts_settings";
 
@@ -20,6 +21,7 @@ const DEFAULT_TTS_SETTINGS: TTSSettings = {
   kokoroVoice: "am_puck",
   kokoroSpeed: 1,
   kokoroDevice: "wasm",
+  enableAudioCache: false,
 };
 
 /**
@@ -456,6 +458,8 @@ export async function speakTextViaApi(
     voice?: string;
     speed?: number;
     volume?: number;
+    characterName?: string;
+    cacheAudio?: boolean;
   } = {},
 ): Promise<void> {
   const settings = getTTSSettings();
@@ -501,6 +505,12 @@ export async function speakTextViaApi(
   }
 
   const blob = await response.blob();
+
+  // Cache audio if enabled
+  if (options.cacheAudio && options.characterName) {
+    await cacheAudioFile(options.characterName, text, blob);
+  }
+
   const objectUrl = URL.createObjectURL(blob);
   currentObjectUrl = objectUrl;
 
@@ -552,6 +562,38 @@ export async function speakLine(
   if (voiceConfig?.muted) return;
 
   const settings = getTTSSettings();
+  const cacheEnabled = settings.enableAudioCache ?? false;
+  const characterName = voiceConfig?.characterName ?? "[unknown]";
+
+  // Check global cache first
+  if (cacheEnabled) {
+    const cached = await getCachedAudioFile(characterName, text);
+    if (cached) {
+      console.log(`[Audio Cache] HIT: "${characterName}"`);
+      cleanupAudio();
+      const objectUrl = URL.createObjectURL(cached);
+      currentObjectUrl = objectUrl;
+
+      const audio = new Audio(objectUrl);
+      audio.volume = voiceConfig?.volume ?? 1;
+      currentAudio = audio;
+
+      return new Promise<void>((resolve, reject) => {
+        audio.onended = () => {
+          cleanupAudio();
+          resolve();
+        };
+        audio.onerror = () => {
+          cleanupAudio();
+          reject(new Error("Audio playback failed"));
+        };
+        audio.play().catch((err) => {
+          cleanupAudio();
+          reject(err);
+        });
+      });
+    }
+  }
 
   if (settings.provider === "kokoro") {
     const { speakTextViaKokoro } = await import("./kokoro-tts");
@@ -559,14 +601,19 @@ export async function speakLine(
       voice: voiceConfig?.apiVoiceId || settings.kokoroVoice || "am_puck",
       speed: voiceConfig?.rate ?? settings.kokoroSpeed ?? 1,
       volume: voiceConfig?.volume ?? 1,
+      characterName,
+      cacheAudio: cacheEnabled,
     });
   } else if (settings.provider === "api") {
     await speakTextViaApi(text, {
       voice: voiceConfig?.apiVoiceId || settings.defaultVoiceId,
       speed: voiceConfig?.rate ?? 1,
       volume: voiceConfig?.volume ?? 1,
+      characterName,
+      cacheAudio: cacheEnabled,
     });
   } else {
+    console.log(`[Audio] Using Browser TTS (caching not supported)`);
     if (voiceConfig) {
       await speakText(text, voiceConfig);
     } else {
