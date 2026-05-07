@@ -217,6 +217,7 @@ export async function speakTextViaKokoro(
     volume?: number;
     characterName?: string;
     cacheAudio?: boolean;
+    voiceSignature?: string;
   } = {},
 ): Promise<void> {
   if (typeof window === "undefined") return;
@@ -251,6 +252,7 @@ export async function speakTextViaKokoro(
       text,
       raw.audio,
       raw.sampling_rate,
+      options.voiceSignature,
     );
   }
 

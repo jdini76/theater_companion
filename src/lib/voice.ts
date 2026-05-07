@@ -355,6 +355,22 @@ export interface ApiVoice {
  * Fetch available voices from the TTS API.
  * GET {apiUrl}/v1/audio/voices
  */
+// Deepgram Aura voices (hardcoded — no public list endpoint needed)
+const DEEPGRAM_VOICES: ApiVoice[] = [
+  { id: "aura-asteria-en", name: "Asteria (Female, US)" },
+  { id: "aura-luna-en", name: "Luna (Female, US)" },
+  { id: "aura-stella-en", name: "Stella (Female, US)" },
+  { id: "aura-athena-en", name: "Athena (Female, British)" },
+  { id: "aura-hera-en", name: "Hera (Female, US)" },
+  { id: "aura-orion-en", name: "Orion (Male, US)" },
+  { id: "aura-arcas-en", name: "Arcas (Male, US)" },
+  { id: "aura-perseus-en", name: "Perseus (Male, US)" },
+  { id: "aura-angus-en", name: "Angus (Male, Irish)" },
+  { id: "aura-orpheus-en", name: "Orpheus (Male, US)" },
+  { id: "aura-helios-en", name: "Helios (Male, British)" },
+  { id: "aura-zeus-en", name: "Zeus (Male, US)" },
+];
+
 export async function fetchApiVoices(
   settings: TTSSettings,
 ): Promise<ApiVoice[]> {
@@ -362,18 +378,27 @@ export async function fetchApiVoices(
     throw new Error("TTS API URL is not configured.");
   }
 
-  const isElevenLabs = (settings.externalApiType ?? "custom") === "elevenlabs";
+  const apiType = settings.externalApiType ?? "custom";
+  const isElevenLabs = apiType === "elevenlabs";
+  const isDeepgram = apiType === "deepgram";
+
+  // Deepgram voices are a fixed set — return locally rather than fetching
+  if (isDeepgram) return DEEPGRAM_VOICES;
+
   const baseUrl = settings.apiUrl.replace(/\/+$/, "");
   const url = isElevenLabs
     ? `${baseUrl}/v1/voices`
     : `${baseUrl}/v1/audio/voices`;
 
   const headers: Record<string, string> = {};
-  if (settings.apiKey) {
+  const effectiveKey = isElevenLabs
+    ? settings.elevenLabsApiKey || settings.apiKey
+    : settings.apiKey;
+  if (effectiveKey) {
     if (isElevenLabs) {
-      headers["xi-api-key"] = settings.apiKey;
+      headers["xi-api-key"] = effectiveKey;
     } else {
-      headers["Authorization"] = `Bearer ${settings.apiKey}`;
+      headers["Authorization"] = `Bearer ${effectiveKey}`;
     }
   }
 
@@ -480,7 +505,9 @@ export async function speakTextViaApi(
   // Stop any currently playing audio
   cleanupAudio();
 
-  const isElevenLabs = (settings.externalApiType ?? "custom") === "elevenlabs";
+  const apiType = settings.externalApiType ?? "custom";
+  const isElevenLabs = apiType === "elevenlabs";
+  const isDeepgram = apiType === "deepgram";
   const voiceId = options.voice || settings.defaultVoiceId;
   const baseUrl = settings.apiUrl.replace(/\/+$/, "");
 
@@ -498,6 +525,10 @@ export async function speakTextViaApi(
         use_speaker_boost: settings.elevenLabsSpeakerBoost ?? true,
       },
     };
+  } else if (isDeepgram) {
+    const model = encodeURIComponent(voiceId || "aura-asteria-en");
+    url = `${baseUrl}/v1/speak?model=${model}`;
+    payload = { text };
   } else {
     const path = settings.apiPath || "/v1/audio/speech";
     url = `${baseUrl}${path}`;
@@ -507,11 +538,18 @@ export async function speakTextViaApi(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (settings.apiKey) {
+  const effectiveKey = isElevenLabs
+    ? settings.elevenLabsApiKey || settings.apiKey
+    : isDeepgram
+      ? settings.deepgramApiKey || settings.apiKey
+      : settings.apiKey;
+  if (effectiveKey) {
     if (isElevenLabs) {
-      headers["xi-api-key"] = settings.apiKey;
+      headers["xi-api-key"] = effectiveKey;
+    } else if (isDeepgram) {
+      headers["Authorization"] = `Token ${effectiveKey}`;
     } else {
-      headers["Authorization"] = `Bearer ${settings.apiKey}`;
+      headers["Authorization"] = `Bearer ${effectiveKey}`;
     }
   }
 
@@ -532,7 +570,8 @@ export async function speakTextViaApi(
 
   // Cache audio if enabled
   if (options.cacheAudio && options.characterName) {
-    await cacheAudioFile(options.characterName, text, blob);
+    const voiceSig = `${apiType}:${voiceId}`;
+    await cacheAudioFile(options.characterName, text, blob, voiceSig);
   }
 
   const objectUrl = URL.createObjectURL(blob);
@@ -591,7 +630,19 @@ export async function speakLine(
 
   // Check global cache first
   if (cacheEnabled) {
-    const cached = await getCachedAudioFile(characterName, text);
+    const apiType = settings.externalApiType ?? "custom";
+    const voiceId =
+      voiceConfig?.apiVoiceId ||
+      settings.defaultVoiceId ||
+      settings.kokoroVoice ||
+      "";
+    const voiceSig =
+      settings.provider === "api"
+        ? `${apiType}:${voiceId}`
+        : settings.provider === "kokoro"
+          ? `kokoro:${voiceId}`
+          : undefined;
+    const cached = await getCachedAudioFile(characterName, text, voiceSig);
     if (cached) {
       console.log(`[Audio Cache] HIT: "${characterName}"`);
       cleanupAudio();
@@ -621,16 +672,20 @@ export async function speakLine(
 
   if (settings.provider === "kokoro") {
     const { speakTextViaKokoro } = await import("./kokoro-tts");
+    const kokoroVoice =
+      voiceConfig?.apiVoiceId || settings.kokoroVoice || "am_puck";
     await speakTextViaKokoro(text, {
-      voice: voiceConfig?.apiVoiceId || settings.kokoroVoice || "am_puck",
+      voice: kokoroVoice,
       speed: voiceConfig?.rate ?? settings.kokoroSpeed ?? 1,
       volume: voiceConfig?.volume ?? 1,
       characterName,
       cacheAudio: cacheEnabled,
+      voiceSignature: `kokoro:${kokoroVoice}`,
     });
   } else if (settings.provider === "api") {
+    const apiVoice = voiceConfig?.apiVoiceId || settings.defaultVoiceId;
     await speakTextViaApi(text, {
-      voice: voiceConfig?.apiVoiceId || settings.defaultVoiceId,
+      voice: apiVoice,
       speed: voiceConfig?.rate ?? 1,
       volume: voiceConfig?.volume ?? 1,
       characterName,

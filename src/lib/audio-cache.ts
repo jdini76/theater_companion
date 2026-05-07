@@ -6,7 +6,7 @@ const DB_NAME = "theater_audio_cache";
 const DB_VERSION = 1;
 const STORE_NAME = "audio_files";
 
-interface CachedAudio {
+export interface CachedAudio {
   key: string;
   characterName: string;
   text: string;
@@ -44,11 +44,18 @@ async function getDB(): Promise<IDBDatabase> {
 /**
  * Generate a cache key for a line of dialogue.
  * Uses a djb2-style hash that safely handles Unicode characters.
+ * voiceSignature (e.g. "elevenlabs:SAz9YHcvj6GT2YYXdXww") is included so
+ * switching providers or voices produces a different key.
  */
-export function generateCacheKey(characterName: string, text: string): string {
+export function generateCacheKey(
+  characterName: string,
+  text: string,
+  voiceSignature?: string,
+): string {
+  const input = voiceSignature ? `${voiceSignature}:${text}` : text;
   let hash = 5381;
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) + hash) ^ text.charCodeAt(i);
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash) ^ input.charCodeAt(i);
     hash = hash >>> 0; // keep as unsigned 32-bit
   }
   return `${characterName}:${hash.toString(36)}`;
@@ -61,10 +68,11 @@ export async function cacheAudioFile(
   characterName: string,
   text: string,
   blob: Blob,
+  voiceSignature?: string,
 ): Promise<void> {
   try {
     const database = await getDB();
-    const key = generateCacheKey(characterName, text);
+    const key = generateCacheKey(characterName, text, voiceSignature);
 
     const cached: CachedAudio = {
       key,
@@ -98,10 +106,11 @@ export async function cacheAudioFile(
 export async function getCachedAudioFile(
   characterName: string,
   text: string,
+  voiceSignature?: string,
 ): Promise<Blob | null> {
   try {
     const database = await getDB();
-    const key = generateCacheKey(characterName, text);
+    const key = generateCacheKey(characterName, text, voiceSignature);
 
     return new Promise((resolve, reject) => {
       const transaction = database.transaction([STORE_NAME], "readonly");
@@ -239,11 +248,46 @@ export async function cacheKokoroAudio(
   text: string,
   samples: Float32Array,
   samplingRate: number,
+  voiceSignature?: string,
 ): Promise<void> {
   try {
     const wavBlob = encodeWAV(samples, samplingRate);
-    await cacheAudioFile(characterName, text, wavBlob);
+    await cacheAudioFile(characterName, text, wavBlob, voiceSignature);
   } catch (err) {
     console.warn("Failed to cache Kokoro audio:", err);
+  }
+}
+
+/**
+ * Retrieve all cached audio entries from IndexedDB.
+ */
+export async function getAllCachedAudio(): Promise<CachedAudio[]> {
+  try {
+    const database = await getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction([STORE_NAME], "readonly");
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result as CachedAudio[]);
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Return the number of cached audio files and their combined size in bytes.
+ */
+export async function getAudioCacheStats(): Promise<{
+  count: number;
+  totalSizeBytes: number;
+}> {
+  try {
+    const entries = await getAllCachedAudio();
+    const totalSizeBytes = entries.reduce((sum, e) => sum + e.blob.size, 0);
+    return { count: entries.length, totalSizeBytes };
+  } catch {
+    return { count: 0, totalSizeBytes: 0 };
   }
 }

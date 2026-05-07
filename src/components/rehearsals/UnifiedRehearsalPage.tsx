@@ -730,6 +730,7 @@ MOM: See? You were ready.`,
             speed: cfg.rate,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
+            voiceSignature: `kokoro:${voice}`,
           });
 
         const playCachedBlob = (blob: Blob): Promise<void> =>
@@ -755,6 +756,7 @@ MOM: See? You were ready.`,
             const cached = await getCachedAudioFile(
               primarySpeaker,
               line.dialogue,
+              `kokoro:${voice}`,
             );
             if (cached) {
               setPlayedFromCache(true);
@@ -799,6 +801,9 @@ MOM: See? You were ready.`,
       // â”€â”€ API TTS path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (ttsProvider === "api") {
         const voiceId = apiVoiceAssignments[primarySpeaker] || "";
+        const ttsSettings = getTTSSettings();
+        const apiType = ttsSettings.externalApiType ?? "custom";
+        const voiceSig = `${apiType}:${voiceId}`;
         const cfg = voiceAssignments[primarySpeaker] || {
           rate: 1,
           pitch: 1,
@@ -845,6 +850,7 @@ MOM: See? You were ready.`,
             const cached = await getCachedAudioFile(
               primarySpeaker,
               line.dialogue,
+              voiceSig,
             );
             if (cached) {
               setPlayedFromCache(true);

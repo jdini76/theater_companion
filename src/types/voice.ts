@@ -37,7 +37,7 @@ export interface VoiceOption {
 
 export interface TTSSettings {
   provider: "browser" | "api" | "kokoro";
-  externalApiType?: "custom" | "elevenlabs";
+  externalApiType?: "custom" | "elevenlabs" | "deepgram";
   apiUrl: string;
   apiPath: string;
   apiKey: string;
@@ -53,11 +53,14 @@ export interface TTSSettings {
   enableAudioCache?: boolean;
   voiceLangs?: string[];
   // ElevenLabs-specific settings
+  elevenLabsApiKey?: string;
   elevenLabsModelId?: string;
   elevenLabsStability?: number;
   elevenLabsSimilarityBoost?: number;
   elevenLabsStyle?: number;
   elevenLabsSpeakerBoost?: boolean;
+  // Deepgram-specific settings
+  deepgramApiKey?: string;
 }
 
 export interface CharacterImportData {

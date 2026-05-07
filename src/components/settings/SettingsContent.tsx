@@ -32,6 +32,7 @@ import {
   getStorageSummary,
   type ImportedProject,
 } from "@/lib/data-export";
+import { VoiceCacheBackupPanel } from "@/components/settings/VoiceCacheBackupPanel";
 import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
 
 // ─── Known voices catalogue ────────────────────────────────────────────────
@@ -572,6 +573,12 @@ function DataManagementPanel() {
           className="hidden"
         />
         {legacyStatus && <p className="text-xs text-muted">{legacyStatus}</p>}
+      </div>
+
+      {/* ── Voice Cache Backup ── */}
+      <div className="border-t border-border pt-6 space-y-3">
+        <h3 className="text-light font-semibold">Voice Cache Backup</h3>
+        <VoiceCacheBackupPanel />
       </div>
     </div>
   );
@@ -1275,22 +1282,35 @@ export function SettingsContent() {
                   id="externalApiType"
                   value={settings.externalApiType ?? "custom"}
                   onChange={(e) => {
-                    const val = e.target.value as "custom" | "elevenlabs";
+                    const val = e.target.value as
+                      | "custom"
+                      | "elevenlabs"
+                      | "deepgram";
                     const updates: Partial<TTSSettings> = {
                       externalApiType: val,
                     };
                     if (val === "elevenlabs") {
-                      updates.apiUrl = "https://api.elevenlabs.io";
+                      updates.apiUrl =
+                        process.env.NEXT_PUBLIC_ELEVENLABS_API_URL ??
+                        "https://api.elevenlabs.io";
                       updates.apiPath = "/v1/text-to-speech";
                       updates.responseFormat = "mp3";
                       updates.stream = false;
+                    } else if (val === "deepgram") {
+                      updates.apiUrl =
+                        process.env.NEXT_PUBLIC_DEEPGRAM_API_URL ??
+                        "https://api.deepgram.com";
+                      updates.stream = false;
                     }
-                    setSettings({ ...settings, ...updates });
+                    const updated = { ...settings, ...updates };
+                    setSettings(updated);
+                    saveTTSSettings(updated);
                   }}
                   className="w-full max-w-xs bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
                 >
                   <option value="custom">Custom API</option>
                   <option value="elevenlabs">ElevenLabs</option>
+                  <option value="deepgram">Deepgram</option>
                 </select>
               </div>
 
@@ -1299,7 +1319,15 @@ export function SettingsContent() {
                 <div className="space-y-4 bg-dark-panel rounded-lg p-4 border border-border">
                   <p className="text-muted text-sm">
                     ElevenLabs provides high-quality AI voices. Enter your API
-                    key and configure your preferred voice and model.
+                    key and configure your preferred voice and model.{" "}
+                    <a
+                      href="https://elevenlabs.io"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-cyan hover:underline"
+                    >
+                      Visit ElevenLabs →
+                    </a>
                   </p>
 
                   {/* API Key */}
@@ -1313,10 +1341,15 @@ export function SettingsContent() {
                     <input
                       id="elApiKey"
                       type="password"
-                      value={settings.apiKey}
-                      onChange={(e) =>
-                        setSettings({ ...settings, apiKey: e.target.value })
-                      }
+                      value={settings.elevenLabsApiKey ?? ""}
+                      onChange={(e) => {
+                        const updated = {
+                          ...settings,
+                          elevenLabsApiKey: e.target.value,
+                        };
+                        setSettings(updated);
+                        saveTTSSettings(updated);
+                      }}
                       placeholder="xi-api-key or sk-..."
                       className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
                       autoComplete="off"
@@ -1390,7 +1423,10 @@ export function SettingsContent() {
                             setVoicesLoading(false);
                           }
                         }}
-                        disabled={voicesLoading || !settings.apiKey.trim()}
+                        disabled={
+                          voicesLoading ||
+                          !(settings.elevenLabsApiKey ?? "").trim()
+                        }
                       >
                         {voicesLoading ? "Loading..." : "Load Voices"}
                       </Button>
@@ -1601,7 +1637,190 @@ export function SettingsContent() {
                           }
                         }}
                         disabled={
-                          !settings.apiKey.trim() ||
+                          !(settings.elevenLabsApiKey ?? "").trim() ||
+                          !settings.defaultVoiceId.trim() ||
+                          !testText.trim()
+                        }
+                      >
+                        {testPlaying ? "⏹ Stop" : "▶ Play"}
+                      </Button>
+                    </div>
+                    {testStatus && (
+                      <span
+                        className={`text-sm block ${
+                          testStatus === "Playback complete!"
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {testStatus}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Deepgram Form ── */}
+              {settings.externalApiType === "deepgram" && (
+                <div className="space-y-4 bg-dark-panel rounded-lg p-4 border border-border">
+                  <p className="text-muted text-sm">
+                    Deepgram Aura provides fast, natural-sounding AI voices.
+                    Enter your API key and select a voice.{" "}
+                    <a
+                      href="https://deepgram.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-cyan hover:underline"
+                    >
+                      Visit Deepgram →
+                    </a>
+                  </p>
+
+                  {/* API Key */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="dgApiKey"
+                    >
+                      API Key
+                    </label>
+                    <input
+                      id="dgApiKey"
+                      type="password"
+                      value={settings.deepgramApiKey ?? ""}
+                      onChange={(e) => {
+                        const updated = {
+                          ...settings,
+                          deepgramApiKey: e.target.value,
+                        };
+                        setSettings(updated);
+                        saveTTSSettings(updated);
+                      }}
+                      placeholder="Your Deepgram API key"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                      autoComplete="off"
+                    />
+                    <p className="text-muted text-xs">
+                      Found in the Deepgram console. Stored locally in your
+                      browser only.
+                    </p>
+                  </div>
+
+                  {/* Voice */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="dgVoiceId"
+                    >
+                      Voice
+                    </label>
+                    <div className="flex gap-2">
+                      {apiVoices.length > 0 ? (
+                        <select
+                          id="dgVoiceId"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                        >
+                          <option value="">Select a voice...</option>
+                          {apiVoices.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name ? `${v.name}` : v.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id="dgVoiceId"
+                          type="text"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. aura-asteria-en"
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                        />
+                      )}
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          setVoicesLoading(true);
+                          setVoicesError(null);
+                          try {
+                            const voices = await fetchApiVoices(settings);
+                            setApiVoices(voices);
+                          } catch (err) {
+                            setVoicesError(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to load voices",
+                            );
+                          } finally {
+                            setVoicesLoading(false);
+                          }
+                        }}
+                        disabled={
+                          voicesLoading ||
+                          !(settings.deepgramApiKey ?? "").trim()
+                        }
+                      >
+                        {voicesLoading ? "Loading..." : "Load Voices"}
+                      </Button>
+                    </div>
+                    {voicesError && (
+                      <p className="text-red-400 text-xs">{voicesError}</p>
+                    )}
+                  </div>
+
+                  {/* Test Voice */}
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <label className="block text-light font-semibold">
+                      Test Voice
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={testText}
+                        onChange={(e) => setTestText(e.target.value)}
+                        placeholder="Enter test text..."
+                        className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                      />
+                      <Button
+                        variant="primary"
+                        onClick={async () => {
+                          if (testPlaying) {
+                            stopApiAudio();
+                            setTestPlaying(false);
+                            return;
+                          }
+                          setTestPlaying(true);
+                          setTestStatus(null);
+                          try {
+                            saveTTSSettings(settings);
+                            await speakTextViaApi(testText, {
+                              voice: settings.defaultVoiceId,
+                            });
+                            setTestStatus("Playback complete!");
+                          } catch (err) {
+                            setTestStatus(
+                              err instanceof Error
+                                ? err.message
+                                : "Playback failed",
+                            );
+                          } finally {
+                            setTestPlaying(false);
+                          }
+                        }}
+                        disabled={
+                          !(settings.deepgramApiKey ?? "").trim() ||
                           !settings.defaultVoiceId.trim() ||
                           !testText.trim()
                         }
@@ -1687,9 +1906,11 @@ export function SettingsContent() {
                       id="apiKey"
                       type="password"
                       value={settings.apiKey}
-                      onChange={(e) =>
-                        setSettings({ ...settings, apiKey: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const updated = { ...settings, apiKey: e.target.value };
+                        setSettings(updated);
+                        saveTTSSettings(updated);
+                      }}
                       placeholder="sk-..."
                       className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
                       autoComplete="off"
