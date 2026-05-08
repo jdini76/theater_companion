@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
+import { useProjects } from "@/contexts/ProjectContext";
 import {
   getAvailableVoices,
   getTTSSettings,
@@ -37,10 +38,16 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     setMyRole,
   } = useVoice();
   const { getProjectScenes } = useScenes();
+  const { getCurrentProject } = useProjects();
   const { navigateToScene } = useRehearsalNav();
 
   const charId = characterId || currentCharacterId;
   const character = charId ? characters.find((c) => c.id === charId) : null;
+  const currentProject = getCurrentProject();
+  const productionType =
+    currentProject && currentProject.id === character?.projectId
+      ? currentProject.productionType
+      : undefined;
   const voiceConfig =
     character && character.voiceConfigId
       ? getVoiceConfig(character.voiceConfigId)
@@ -85,14 +92,16 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     const cast = projectCast.length > 0 ? projectCast : undefined;
     return getProjectScenes(character.projectId).filter((scene) => {
       // Always re-extract so abbreviated stored names resolve to canonical ones
-      const extracted = extractSceneCharacters(scene.content, cast).map((n) =>
-        n.toUpperCase(),
-      );
+      const extracted = extractSceneCharacters(
+        scene.content,
+        cast,
+        productionType,
+      ).map((n) => n.toUpperCase());
       const stored = (scene.characters ?? []).map((n) => n.toUpperCase());
       const merged = new Set([...extracted, ...stored]);
       return [...merged].some((c) => allNames.has(c));
     });
-  }, [character, getProjectScenes, getProjectCharacters]);
+  }, [character, getProjectScenes, getProjectCharacters, productionType]);
 
   const characterSongs = useMemo(() => {
     if (!character) return [];
@@ -275,6 +284,11 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
             <h2 className="text-2xl font-semibold text-light">
               {character.characterName}
             </h2>
+            {character.description && (
+              <p className="text-muted text-sm mt-0.5 max-w-2xl">
+                {character.description}
+              </p>
+            )}
             {character.actorName && (
               <p className="text-muted text-sm mt-0.5">{character.actorName}</p>
             )}

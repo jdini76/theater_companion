@@ -3,15 +3,15 @@
 import React, { useState } from "react";
 import { useProjects } from "@/contexts/ProjectContext";
 import { Button } from "@/components/ui/Button";
+import type { ProductionType } from "@/types/project";
 
-export function CreateProjectForm({
-  onSuccess,
-}: {
-  onSuccess?: () => void;
-}) {
+const PRODUCTION_TYPES: ProductionType[] = ["Play", "Musical", "Film"];
+
+export function CreateProjectForm({ onSuccess }: { onSuccess?: () => void }) {
   const { createProject } = useProjects();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [productionType, setProductionType] = useState<ProductionType>("Play");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -21,9 +21,10 @@ export function CreateProjectForm({
     setIsLoading(true);
 
     try {
-      createProject(name, description);
+      createProject(name, description, productionType);
       setName("");
       setDescription("");
+      setProductionType("Play");
       onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
@@ -47,6 +48,35 @@ export function CreateProjectForm({
           disabled={isLoading}
           required
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-light mb-2">
+          Production Type
+        </label>
+        <div className="flex gap-3">
+          {PRODUCTION_TYPES.map((type) => (
+            <label
+              key={type}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                productionType === type
+                  ? "border-accent-cyan bg-accent-cyan/10 text-accent-cyan"
+                  : "border-dark text-muted hover:border-muted hover:text-light"
+              }`}
+            >
+              <input
+                type="radio"
+                name="productionType"
+                value={type}
+                checked={productionType === type}
+                onChange={() => setProductionType(type)}
+                className="sr-only"
+                disabled={isLoading}
+              />
+              {type}
+            </label>
+          ))}
+        </div>
       </div>
 
       <div>

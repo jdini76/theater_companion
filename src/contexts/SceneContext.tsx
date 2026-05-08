@@ -21,6 +21,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
     title: string,
     content: string,
     description?: string,
+    productionType?: import("@/types/project").ProductionType,
   ): Scene => {
     const titleValidation = validateSceneTitle(title);
     if (!titleValidation.valid) {
@@ -45,6 +46,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       content,
       description,
       maxOrder + 1,
+      productionType,
     );
     setScenes([...scenes, newScene]);
     return newScene;
@@ -58,7 +60,9 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       description?: string;
       characters?: string[];
       songs?: string[];
+      lines?: import("@/types/rehearsal").DialogueLine[];
     }>,
+    productionType?: import("@/types/project").ProductionType,
   ): Scene[] => {
     // Validate all scenes first
     for (const sceneData of scenesData) {
@@ -88,12 +92,17 @@ export function SceneProvider({ children }: { children: ReactNode }) {
         sceneData.content,
         sceneData.description,
         maxOrder + 1 + index,
+        productionType,
       );
       if (sceneData.characters) {
         scene.characters = sceneData.characters;
       }
       if (sceneData.songs) {
         scene.songs = sceneData.songs;
+      }
+      // Use pre-parsed lines when provided (avoids a duplicate parse pass)
+      if (sceneData.lines && sceneData.lines.length > 0) {
+        scene.lines = sceneData.lines;
       }
       return scene;
     });

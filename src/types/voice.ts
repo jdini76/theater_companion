@@ -67,6 +67,7 @@ export interface CharacterImportData {
   name: string;
   category?: string;
   aliases?: string[];
+  description?: string;
 }
 
 export interface VoiceContextType {
@@ -100,6 +101,7 @@ export interface VoiceContextType {
     updates: Partial<Omit<CharacterRole, "id" | "projectId" | "createdAt">>,
   ) => void;
   deleteCharacter: (id: string) => void;
+  deleteCharacters: (ids: string[]) => void;
   getProjectCharacters: (projectId: string) => CharacterRole[];
   importCastCharacters: (
     projectId: string,

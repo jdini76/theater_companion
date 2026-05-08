@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { Scene } from "@/types/scene";
+import type { ProductionType } from "@/types/project";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -16,6 +17,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 interface SceneManagerProps {
   projectId: string;
   projectName?: string;
+  productionType?: ProductionType;
   initialSceneId?: string | null;
   onSceneNavigated?: () => void;
 }
@@ -23,6 +25,7 @@ interface SceneManagerProps {
 export function SceneManager({
   projectId,
   projectName = "Project",
+  productionType,
   initialSceneId,
   onSceneNavigated,
 }: SceneManagerProps) {
@@ -75,21 +78,32 @@ export function SceneManager({
         : undefined;
     const map = new Map<string, string[]>();
     for (const scene of allScenes) {
-      // Always re-extract using the current cast so canonical (full) names are
-      // used, and changes to the cast are reflected immediately.
-      // Stored scene.characters may have abbreviated names from before the
-      // full cast was configured; merging preserves manually-added characters.
-      const extracted = extractSceneCharacters(scene.content, cast);
+      // Use pre-parsed lines when available to avoid re-parsing content.
+      // Fall back to extractSceneCharacters for scenes without cached lines.
+      const lineChars =
+        scene.lines && scene.lines.length > 0
+          ? Array.from(
+              new Set(
+                scene.lines
+                  .filter(
+                    (l) => !l.isStageDirection && !l.character.startsWith("["),
+                  )
+                  .flatMap((l) =>
+                    l.character
+                      .split(/\s*[,&+]\s*/)
+                      .map((n) => n.trim().toUpperCase())
+                      .filter(Boolean),
+                  ),
+              ),
+            )
+          : extractSceneCharacters(scene.content, cast, productionType).map(
+              (n) => n.toUpperCase(),
+            );
       const stored = (scene.characters ?? []).map((n) => n.toUpperCase());
-      map.set(
-        scene.id,
-        Array.from(
-          new Set([...extracted.map((n) => n.toUpperCase()), ...stored]),
-        ),
-      );
+      map.set(scene.id, Array.from(new Set([...lineChars, ...stored])));
     }
     return map;
-  }, [allScenes, projectCharacters]);
+  }, [allScenes, projectCharacters, productionType]);
 
   const scenes = useMemo(() => {
     let result = allScenes;
@@ -166,6 +180,7 @@ export function SceneManager({
         <div className="mb-6">
           <SceneImportForm
             projectId={projectId}
+            productionType={productionType}
             onSuccess={() => setShowImportForm(false)}
           />
         </div>
@@ -247,12 +262,14 @@ export function SceneManager({
           {selectedScene && isEditingScene ? (
             <SceneEditor
               scene={selectedScene}
+              productionType={productionType}
               onClose={() => setIsEditingScene(false)}
             />
           ) : selectedScene ? (
             <SceneViewer
               scene={selectedScene}
               projectId={projectId}
+              productionType={productionType}
               onEdit={() => setIsEditingScene(true)}
               onPrev={handlePrevScene}
               onNext={handleNextScene}

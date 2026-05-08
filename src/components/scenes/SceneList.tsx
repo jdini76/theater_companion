@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { Scene } from "@/types/scene";
+import type { ProductionType } from "@/types/project";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { extractSceneCharacters } from "@/lib/scenes";
@@ -9,6 +10,7 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 
 interface SceneListProps {
   projectId: string;
+  productionType?: ProductionType;
   filteredScenes: Scene[];
   selectedSceneId: string | null;
   onSelectScene: (scene: Scene) => void;
@@ -19,6 +21,7 @@ interface SceneListProps {
 
 export function SceneList({
   projectId,
+  productionType,
   filteredScenes,
   selectedSceneId,
   onSelectScene,
@@ -46,11 +49,12 @@ export function SceneList({
     for (const scene of allScenes) {
       map.set(
         scene.id,
-        scene.characters ?? extractSceneCharacters(scene.content, cast),
+        scene.characters ??
+          extractSceneCharacters(scene.content, cast, productionType),
       );
     }
     return map;
-  }, [allScenes, knownCast]);
+  }, [allScenes, knownCast, productionType]);
 
   const scenes = filteredScenes;
 

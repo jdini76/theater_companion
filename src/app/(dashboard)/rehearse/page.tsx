@@ -62,6 +62,7 @@ export default function RehearsePage() {
             <SceneManager
               projectId={currentProject.id}
               projectName={currentProject.name}
+              productionType={currentProject.productionType}
               initialSceneId={pendingSceneId}
               onSceneNavigated={() => setPendingSceneId(null)}
             />

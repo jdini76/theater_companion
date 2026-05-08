@@ -2,6 +2,16 @@
 
 import React, { useState } from "react";
 
+const DEBUG_SCENE_LOGS = process.env.NODE_ENV !== "production";
+
+function debugSceneLog(
+  path: string,
+  details: Record<string, unknown> = {},
+): void {
+  if (!DEBUG_SCENE_LOGS) return;
+  console.log("[SceneHighlight]", path, details);
+}
+
 export type CharColor = { color: string; bgColor: string };
 
 export type LineOverride =
@@ -84,8 +94,13 @@ export function matchCharInLine(
   line: string,
   charSet: Set<string>,
 ): { char: string; prefix: string } | null {
-  const upper = line.trim().toUpperCase();
+  const trimmed = line.trim();
+  const upper = trimmed.toUpperCase();
   if (!upper) return null;
+
+  // This helper is only for colon-style dialogue lines. Bare prose should be
+  // handled by the standalone or narrative branches instead.
+  if (!trimmed.includes(":")) return null;
 
   const isMatch = (u: string, name: string) =>
     u === name ||
@@ -134,6 +149,32 @@ function tryMatchAllParts(
 }
 
 const MULTI_CHAR_SEP = /\s*[&/]\s*|\s+AND\s+/i;
+
+const SCREENPLAY_SCENE_HEADING_RE =
+  /^(?:#\s*\d+\s*[-\u2013\u2014]\s*\S|ACT\s+(?:ONE|TWO|THREE|I{1,3}V?|\d+)\b|(?:SCENE|scene)\s*\d+[a-z]?\b|(?:Prologue|Epilogue|Interlude)\s*:|(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.)/i;
+
+const SCREENPLAY_TRANSITION_RE =
+  /^(?:CUT\s+TO|DISSOLVE\s+TO|SMASH\s+CUT(?:\s+TO)?|MATCH\s+CUT(?:\s+TO)?|FADE\s+IN|WIPE\s+TO|IRIS\s+(?:IN|OUT))\s*:?\s*$/i;
+
+const SCREENPLAY_STAGE_DIR_RE =
+  /^(?:SETTING|AT\s+RISE|AT\s+CURTAIN|TIME|PLACE)\s*:/i;
+
+const SCREENPLAY_MOVEMENT_DIR_RE = /^(?:Enter|Exit|Exeunt)\b/i;
+
+const FOUNTAIN_CHAR_RE = /^@?([A-Z][A-Z0-9\s\-'.&,+]+?)(?:\^)?\s*$/;
+
+function isStandaloneCueLine(candidate: string, name: string): boolean {
+  const upperCandidate = candidate.toUpperCase().trim();
+  const upperName = name.toUpperCase().trim();
+  if (!upperCandidate || !upperName) return false;
+  if (upperCandidate === upperName) return true;
+  if (!upperCandidate.startsWith(upperName)) return false;
+
+  const suffix = upperCandidate.slice(upperName.length).trim();
+  if (!suffix) return true;
+
+  return /^((\([^)]*\)|\[[^\]]*\])(\s*(\([^)]*\)|\[[^\]]*\]))*)$/.test(suffix);
+}
 
 // Detect headers with multiple characters (e.g. "ANNIE & GRACE:" or "TOM AND JERRY:").
 // Also handles standalone format without a colon (e.g. "NORA & ELI" on its own line).
@@ -191,6 +232,86 @@ export function matchMultiCharInLine(
         dialogue: afterColon || null,
         hasColon,
       };
+    }
+  }
+
+  return null;
+}
+
+export function matchStandaloneHeaderInLine(
+  line: string,
+  charSet: Set<string>,
+):
+  | { kind: "single"; char: string; prefix: string }
+  | { kind: "multi"; chars: string[]; textParts: string[]; rawPrefix: string }
+  | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (
+    SCREENPLAY_SCENE_HEADING_RE.test(trimmed) ||
+    SCREENPLAY_TRANSITION_RE.test(trimmed) ||
+    SCREENPLAY_STAGE_DIR_RE.test(trimmed) ||
+    SCREENPLAY_MOVEMENT_DIR_RE.test(trimmed) ||
+    trimmed.startsWith(">")
+  ) {
+    return null;
+  }
+
+  // Standalone speaker headers are expected to be all-caps cues.
+  // Mixed-case prose lines should stay out of the header path even when they
+  // share a leading token with a known character name.
+  if (/[a-z]/.test(trimmed)) {
+    return null;
+  }
+
+  const fountainMatch = FOUNTAIN_CHAR_RE.exec(trimmed);
+  const upperCandidate = fountainMatch
+    ? fountainMatch[1].trim().toUpperCase()
+    : trimmed.toUpperCase();
+
+  const primaryParts = upperCandidate.split(MULTI_CHAR_SEP);
+  if (primaryParts.length >= 2) {
+    const matched = tryMatchAllParts(primaryParts, charSet);
+    if (matched && matched.length >= 2) {
+      return {
+        kind: "multi",
+        chars: matched,
+        textParts: primaryParts.map((p) => p.trim()).filter(Boolean),
+        rawPrefix: trimmed,
+      };
+    }
+  }
+
+  const commaParts = upperCandidate.split(/\s*,\s*/);
+  if (commaParts.length >= 2) {
+    const normalizedParts = commaParts.map((p) =>
+      p.replace(/^AND\s+/i, "").trim(),
+    );
+    const matched = tryMatchAllParts(normalizedParts, charSet);
+    if (matched && matched.length >= 2) {
+      return {
+        kind: "multi",
+        chars: matched,
+        textParts: normalizedParts.filter(Boolean),
+        rawPrefix: trimmed,
+      };
+    }
+  }
+
+  for (const char of charSet) {
+    if (isStandaloneCueLine(upperCandidate, char)) {
+      return { kind: "single", char, prefix: trimmed };
+    }
+  }
+
+  for (const char of charSet) {
+    const firstName = char.split(" ")[0];
+    if (
+      firstName &&
+      firstName !== char &&
+      isStandaloneCueLine(upperCandidate, firstName)
+    ) {
+      return { kind: "single", char, prefix: trimmed };
     }
   }
 
@@ -540,6 +661,7 @@ interface HighlightedContentProps {
   onAssign?: (lineIdx: number, assignment: LineOverride | undefined) => void;
   maxHeight?: string;
   textSize?: string;
+  allowColonHeaders?: boolean;
   assignPanelProps?: {
     sceneCharacters: string[];
     allCharacters: string[];
@@ -554,6 +676,7 @@ export function HighlightedContent({
   onAssign,
   maxHeight = "max-h-80",
   textSize = "text-xs",
+  allowColonHeaders = true,
   assignPanelProps,
 }: HighlightedContentProps) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
@@ -562,6 +685,8 @@ export function HighlightedContent({
   let currentChar: string | null = null;
   let currentIsGroup = false;
   let currentMultiChars: string[] = [];
+  let afterBlank = true;
+  let sceneHeadingGraceLines = 0;
 
   const parenStageLines = new Set<number>();
   {
@@ -608,10 +733,16 @@ export function HighlightedContent({
     >
       {lines.map((line, i) => {
         const trimmed = line.trim();
+        const debugLine = (
+          path: string,
+          details: Record<string, unknown> = {},
+        ) => debugSceneLog(path, { lineIndex: i, trimmed, ...details });
         if (!trimmed) {
           currentChar = null;
           currentIsGroup = false;
           currentMultiChars = [];
+          afterBlank = true;
+          debugLine("blank line");
           return <div key={i} className="h-2" />;
         }
 
@@ -621,11 +752,53 @@ export function HighlightedContent({
         const toggle = () => onAssign && setActiveLine(isActive ? null : i);
         const clickClass = onAssign ? "cursor-pointer" : "";
 
+        if (SCREENPLAY_SCENE_HEADING_RE.test(trimmed)) {
+          sceneHeadingGraceLines = 2;
+          afterBlank = false;
+          debugLine("scene heading");
+          return (
+            <div key={i}>
+              <div
+                className={`text-muted italic flex items-center gap-1 group ${clickClass}`}
+                onClick={toggle}
+              >
+                <span className="flex-1">{line}</span>
+                {editIcon}
+              </div>
+              {isActive && makePanel(i, undefined)}
+            </div>
+          );
+        }
+
+        if (sceneHeadingGraceLines > 0) {
+          sceneHeadingGraceLines -= 1;
+          currentChar = null;
+          currentIsGroup = false;
+          currentMultiChars = [];
+          afterBlank = false;
+          debugLine("scene heading grace line", {
+            remainingGraceLines: sceneHeadingGraceLines,
+          });
+          return (
+            <div key={i}>
+              <div
+                className={`text-muted italic flex items-center gap-1 group ${clickClass}`}
+                onClick={toggle}
+              >
+                <span className="flex-1">{line}</span>
+                {editIcon}
+              </div>
+              {isActive && makePanel(i, undefined)}
+            </div>
+          );
+        }
+
         if (hasOverride && override) {
           if (override.kind === "song-title") {
             currentChar = null;
             currentIsGroup = false;
             currentMultiChars = [];
+            debugLine("override: song-title");
             return (
               <div key={i}>
                 <div
@@ -644,11 +817,58 @@ export function HighlightedContent({
               </div>
             );
           }
+
+          if (
+            SCREENPLAY_SCENE_HEADING_RE.test(trimmed) ||
+            /^\s*\d{1,3}\.?\s*$/.test(trimmed)
+          ) {
+            currentChar = null;
+            currentIsGroup = false;
+            currentMultiChars = [];
+            afterBlank = false;
+            debugLine("override: scene heading or page number");
+            return (
+              <div key={i}>
+                <div
+                  className={`text-muted italic flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">{line}</span>
+                  {editIcon}
+                </div>
+                {isActive && makePanel(i, undefined)}
+              </div>
+            );
+          }
+
+          if (
+            SCREENPLAY_TRANSITION_RE.test(trimmed) ||
+            SCREENPLAY_STAGE_DIR_RE.test(trimmed) ||
+            SCREENPLAY_MOVEMENT_DIR_RE.test(trimmed) ||
+            /^>\s*\S/.test(trimmed)
+          ) {
+            afterBlank = false;
+            debugLine("override: stage direction or transition");
+            return (
+              <div key={i}>
+                <div
+                  className={`text-muted italic flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">{line}</span>
+                  {editIcon}
+                </div>
+                {isActive && makePanel(i, undefined)}
+              </div>
+            );
+          }
           if (override.kind === "group") {
             currentChar = null;
+            afterBlank = false;
             currentIsGroup = true;
             currentMultiChars = [];
             const { header, dialogue } = splitAtColon("", trimmed);
+            debugLine("override: group");
             return (
               <div key={i}>
                 <div
@@ -678,6 +898,9 @@ export function HighlightedContent({
             currentChar = null;
             currentIsGroup = false;
             currentMultiChars = override.chars.map((c) => c.toUpperCase());
+            debugLine("override: multi-header", {
+              chars: currentMultiChars,
+            });
             return (
               <div key={i}>
                 <div
@@ -721,6 +944,7 @@ export function HighlightedContent({
             currentMultiChars = [];
             const color = colorMap.get(override.char.toUpperCase());
             const { header, dialogue } = splitAtColon(override.char, trimmed);
+            debugLine("override: header", { char: currentChar });
             return (
               <div key={i}>
                 <div
@@ -748,6 +972,9 @@ export function HighlightedContent({
           }
           if (override.kind === "dialogue") {
             const color = colorMap.get(override.char.toUpperCase());
+            debugLine("override: dialogue", {
+              char: override.char.toUpperCase(),
+            });
             return (
               <div key={i}>
                 <div
@@ -762,6 +989,9 @@ export function HighlightedContent({
               </div>
             );
           }
+          debugLine("override: fallback narrative", {
+            kind: override.kind,
+          });
           return (
             <div key={i}>
               <div
@@ -777,6 +1007,7 @@ export function HighlightedContent({
         }
 
         if (parenStageLines.has(i)) {
+          debugLine("parenthetical stage direction");
           return (
             <div key={i}>
               <div
@@ -808,6 +1039,7 @@ export function HighlightedContent({
           if (!anyColored) {
             currentMultiChars = [];
             currentChar = "\x00"; // sentinel: truthy, never in colorMap
+            debugLine("multi-header without colors", { chars });
             return (
               <div key={i}>
                 <div
@@ -828,6 +1060,7 @@ export function HighlightedContent({
           }
 
           currentMultiChars = chars;
+          debugLine("multi-header", { chars });
           // Tokenize header: find each name as it appears in the original text
           // (textParts) and colour it using the canonical name (chars) for the
           // colorMap lookup. This handles abbreviated names like "JOHN" that
@@ -890,38 +1123,182 @@ export function HighlightedContent({
           );
         }
 
-        const matchResult = matchCharInLine(line, charSet);
-        if (matchResult) {
-          const { char: matched, prefix } = matchResult;
-          currentIsGroup = false;
-          currentChar = matched;
-          currentMultiChars = [];
-          const color = colorMap.get(matched);
-          const { header, dialogue } = splitAtColon(prefix, trimmed);
-          return (
-            <div key={i}>
-              <div
-                style={{ color: color?.color, backgroundColor: color?.bgColor }}
-                className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
-                onClick={toggle}
-              >
-                <span className="flex-1">{header}</span>
-                {editIcon}
-              </div>
-              {dialogue && (
-                <div
-                  style={{ color: color?.color, opacity: 0.8 }}
-                  className="pl-3"
-                >
-                  {dialogue}
-                </div>
-              )}
-              {isActive && makePanel(i, undefined)}
-            </div>
+        let allowStandaloneHeader = afterBlank;
+        if (!allowStandaloneHeader) {
+          for (let j = i + 1; j < lines.length; j++) {
+            const peek = lines[j].trim();
+            if (
+              !peek ||
+              parenStageLines.has(j) ||
+              SCREENPLAY_TRANSITION_RE.test(peek) ||
+              SCREENPLAY_STAGE_DIR_RE.test(peek) ||
+              SCREENPLAY_MOVEMENT_DIR_RE.test(peek) ||
+              SCREENPLAY_SCENE_HEADING_RE.test(peek) ||
+              /^>\s*\S/.test(peek)
+            ) {
+              continue;
+            }
+            allowStandaloneHeader = /[a-z]/.test(peek);
+            break;
+          }
+        }
+
+        if (allowStandaloneHeader) {
+          const standaloneMatchResult = matchStandaloneHeaderInLine(
+            line,
+            charSet,
           );
+          if (standaloneMatchResult) {
+            afterBlank = false;
+            if (standaloneMatchResult.kind === "multi") {
+              const { chars, textParts, rawPrefix } = standaloneMatchResult;
+              currentChar = null;
+              currentIsGroup = false;
+              currentMultiChars = chars;
+
+              const anyColored = chars.some((c) => colorMap.has(c));
+              if (!anyColored) {
+                currentMultiChars = [];
+                currentChar = "\x00";
+                debugLine("standalone multi-header without colors", {
+                  chars,
+                });
+                return (
+                  <div key={i}>
+                    <div
+                      className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                      onClick={toggle}
+                    >
+                      <span className="flex-1">{rawPrefix}</span>
+                      {editIcon}
+                    </div>
+                    {isActive && makePanel(i, undefined)}
+                  </div>
+                );
+              }
+
+              const upperPrefix = rawPrefix.toUpperCase();
+              debugLine("standalone multi-header", { chars, rawPrefix });
+              const segs: { text: string; color?: CharColor }[] = [];
+              let pos = 0;
+              for (let ci = 0; ci < chars.length; ci++) {
+                const part = textParts[ci] ?? chars[ci];
+                const idx = upperPrefix.indexOf(part, pos);
+                if (idx === -1) continue;
+                if (idx > pos) segs.push({ text: rawPrefix.slice(pos, idx) });
+                segs.push({
+                  text: rawPrefix.slice(idx, idx + part.length),
+                  color: colorMap.get(chars[ci]),
+                });
+                pos = idx + part.length;
+              }
+              if (pos < rawPrefix.length)
+                segs.push({ text: rawPrefix.slice(pos) });
+              return (
+                <div key={i}>
+                  <div
+                    className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                    onClick={toggle}
+                  >
+                    <span className="flex-1">
+                      {segs.map((seg, si) =>
+                        seg.color ? (
+                          <span
+                            key={si}
+                            style={{
+                              color: seg.color.color,
+                              backgroundColor: seg.color.bgColor,
+                            }}
+                            className="rounded-sm px-0.5"
+                          >
+                            {seg.text}
+                          </span>
+                        ) : (
+                          <span key={si} className="opacity-50">
+                            {seg.text}
+                          </span>
+                        ),
+                      )}
+                    </span>
+                    {editIcon}
+                  </div>
+                  {isActive && makePanel(i, undefined)}
+                </div>
+              );
+            }
+
+            currentIsGroup = false;
+            currentChar = standaloneMatchResult.char;
+            currentMultiChars = [];
+            const color = colorMap.get(standaloneMatchResult.char);
+            debugLine("standalone header", {
+              char: standaloneMatchResult.char,
+              prefix: standaloneMatchResult.prefix,
+            });
+            return (
+              <div key={i}>
+                <div
+                  style={{
+                    color: color?.color,
+                    backgroundColor: color?.bgColor,
+                  }}
+                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">{standaloneMatchResult.prefix}</span>
+                  {editIcon}
+                </div>
+                {isActive && makePanel(i, undefined)}
+              </div>
+            );
+          }
+        }
+
+        if (allowColonHeaders) {
+          const matchResult = matchCharInLine(line, charSet);
+          if (matchResult) {
+            const { char: matched, prefix } = matchResult;
+            currentIsGroup = false;
+            currentChar = matched;
+            currentMultiChars = [];
+            const color = colorMap.get(matched);
+            const { header, dialogue } = splitAtColon(prefix, trimmed);
+            debugLine("colon header", { char: matched, prefix });
+            return (
+              <div key={i}>
+                <div
+                  style={{
+                    color: color?.color,
+                    backgroundColor: color?.bgColor,
+                  }}
+                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  onClick={toggle}
+                >
+                  <span className="flex-1">{header}</span>
+                  {editIcon}
+                </div>
+                {dialogue && (
+                  <div
+                    style={{ color: color?.color, opacity: 0.8 }}
+                    className="pl-3"
+                  >
+                    {dialogue}
+                  </div>
+                )}
+                {isActive && makePanel(i, undefined)}
+              </div>
+            );
+          }
+        } else {
+          debugLine("colon headers disabled", { text: trimmed });
         }
 
         if (currentIsGroup || currentMultiChars.length > 0) {
+          afterBlank = false;
+          debugLine("group/multi continuation", {
+            currentIsGroup,
+            currentMultiChars,
+          });
           return (
             <div key={i}>
               <div
@@ -938,7 +1315,9 @@ export function HighlightedContent({
         }
 
         if (currentChar) {
+          afterBlank = false;
           const color = colorMap.get(currentChar);
+          debugLine("current speaker continuation", { char: currentChar });
           return (
             <div key={i}>
               <div
@@ -954,6 +1333,8 @@ export function HighlightedContent({
           );
         }
 
+        afterBlank = false;
+        debugLine("fallback narrative");
         return (
           <div key={i}>
             <div

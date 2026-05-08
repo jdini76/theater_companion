@@ -14,6 +14,7 @@ const SAMPLE_PRODUCTION: ExportDataV2 = {
         id: "ff6bdd72-778f-45f2-b2a6-71733141e147",
         name: "Sample Production",
         description: "A built-in example production to explore the app.",
+        productionType: "Musical" as const,
         createdAt: "2026-05-04T01:46:30.860Z",
         updatedAt: "2026-05-04T01:46:30.860Z",
       },

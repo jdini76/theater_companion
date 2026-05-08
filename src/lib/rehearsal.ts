@@ -1,5 +1,15 @@
 import { DialogueLine } from "@/types/rehearsal";
 
+const DEBUG_PARSE_LOGS = process.env.NODE_ENV !== "production";
+
+function debugParseLog(
+  path: string,
+  details: Record<string, unknown> = {},
+): void {
+  if (!DEBUG_PARSE_LOGS) return;
+  console.log("[parseDialogueLines]", path, details);
+}
+
 // ── Module-level regex constants ────────────────────────────────────────────
 
 /**
@@ -14,7 +24,7 @@ import { DialogueLine } from "@/types/rehearsal";
  *   \s*\d+   allows no space between Scene and the digit (Annie: "Scene1")
  */
 const SCENE_HEADING_RE =
-  /^(?:#\s*\d+\s*[-\u2013\u2014]\s*\S|ACT\s+(?:ONE|TWO|THREE|I{1,3}V?|\d+)\b|(?:SCENE|scene)\s*\d+[a-z]?\b|(?:Prologue|Epilogue|Interlude)\s*:)/i;
+  /^(?:#\s*\d+\s*[-\u2013\u2014]\s*\S|ACT\s+(?:ONE|TWO|THREE|I{1,3}V?|\d+)\b|(?:SCENE|scene)\s*\d+[a-z]?\b|(?:Prologue|Epilogue|Interlude)\s*:|(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.)/i;
 
 /**
  * Scene-end and production-end markers (AACT / standard play format).
@@ -27,6 +37,41 @@ const SCENE_HEADING_RE =
  */
 const SCENE_END_MARKER_RE =
   /^(?:CURTAIN|BLACKOUT|LIGHTS?\s+OUT|FADE\s*(?:OUT|TO\s+(?:BLACK|DARK))|FADEOUT|INTERMISSION|(?:THE\s+)?END(?:\s+OF\s+(?:ACT|PLAY|SCENE)(?:\s+[IVX\d]+)?|\.)?|BLACKOUT\s+AND\s+END(?:\s+OF\s+(?:ACT|PLAY))?)\s*$/i;
+
+/**
+ * Non-parenthetical scene-setting headers found in published play scripts.
+ * These appear at the left margin and introduce a scene's location/time.
+ *
+ * Examples:
+ *   SETTING: A kitchen in Brooklyn, 1977.
+ *   AT RISE: JOHN is seated at the table reading a newspaper.
+ *   AT CURTAIN: The stage is empty.
+ *   TIME: The present.
+ *   PLACE: A small town in Pennsylvania.
+ */
+const PROSE_STAGE_DIR_RE =
+  /^(?:SETTING|AT\s+RISE|AT\s+CURTAIN|TIME|PLACE)\s*:/i;
+
+/**
+ * Screenplay transition lines — appear alone before a slug line.
+ *
+ * Examples:
+ *   CUT TO:   DISSOLVE TO:   SMASH CUT TO:   MATCH CUT TO:
+ *   FADE IN:  WIPE TO:       IRIS IN:        IRIS OUT:
+ */
+const SCREENPLAY_TRANSITION_RE =
+  /^(?:CUT\s+TO|DISSOLVE\s+TO|SMASH\s+CUT(?:\s+TO)?|MATCH\s+CUT(?:\s+TO)?|FADE\s+IN|WIPE\s+TO|IRIS\s+(?:IN|OUT))\s*:?\s*$/i;
+
+/**
+ * Classical theatrical movement directions (not enclosed in parentheses).
+ * These are the full line (or open a line) in standard play format.
+ *
+ * Examples:
+ *   Enter JOHN from stage right.
+ *   Exit MARY, weeping.
+ *   Exeunt all but HAMLET.
+ */
+const STAGE_ENTRY_EXIT_RE = /^(?:Enter|Exit|Exeunt)\b/i;
 
 /**
  * ALL-CAPS character name on its own line (no colon) — screenplay / CMIYC style.
@@ -87,6 +132,14 @@ const MODERN_SONG_CUE_RE =
   /^\((?:(?:she|he|they|we|i|all)\s+)?sing(?:s|ing)?(?:\s+(?:the\s+following|along|and\s+danc(?:es?|ing)))?\s*\.?\)$/i;
 
 /**
+ * Heuristic for whether a dialogue fragment has ended a sentence.
+ * Used to keep wrapped screenplay dialogue together until punctuation.
+ */
+function hasTerminalPunctuation(text: string): boolean {
+  return /[.!?…]["')\]]*\s*$/.test(text.trim());
+}
+
+/**
  * Matches a line that is entirely uppercase — used by the post-parse pass
  * to identify song lyric lines that were not caught by active state.
  * Allows letters, digits, whitespace, and common lyric punctuation.
@@ -125,6 +178,12 @@ const INLINE_CHAR_RE =
   /^((?:[A-Z][A-Z0-9\-'.&,+]+)(?:\s+(?:[A-Z][A-Z0-9\-'.&,+]+))*)\s+(I\s.+|(?=[A-Z]*[a-z])\S.+|\(.+)$/;
 
 /**
+ * Fountain character cue: optional leading @ and optional trailing ^ for
+ * dual dialogue.
+ */
+const FOUNTAIN_CHAR_RE = /^@?([A-Z][A-Z0-9\s\-'.&,+]+?)(?:\^)?\s*$/;
+
+/**
  * Words that are never the first word of a character name.
  * Covers production cues (SFX, VFX, …) and common English function words /
  * pronouns that frequently start song lyric lines and would otherwise be
@@ -134,16 +193,31 @@ const INLINE_CHAR_RE =
 const NON_CHARACTER_WORDS = new Set([
   // Production / technical cues
   "SFX",
+  "FX",
   "SFZ",
   "SPX",
   "VFX",
+  "SOUND",
   "NOTE",
   "NOTES",
   "INT",
   "EXT",
   "CUT",
+  "ANGLE",
+  "CAMERA",
+  "DOLLY",
+  "INSERT",
+  "MONTAGE",
   "SONG",
   "MUSIC",
+  "PAN",
+  "PUSH",
+  "SHOT",
+  "SUPER",
+  "TITLE",
+  "TRACK",
+  "TRANSITION",
+  "ZOOM",
   // Personal pronouns (common lyric starters)
   "HE",
   "SHE",
@@ -263,6 +337,35 @@ const NON_CHARACTER_WORDS = new Set([
  */
 const INLINE_PARENTHETICAL_RE = /(\([^)]*\)|\[[^\]]*\])/g;
 
+function isLikelyInlineStageDirection(segment: string): boolean {
+  const trimmed = segment.trim();
+  if (!trimmed) return false;
+
+  // Bracketed annotations are always treated as stage directions.
+  if (trimmed.startsWith("[")) return true;
+  if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) return false;
+
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner) return false;
+
+  // Descriptive parentheticals such as ages or appositive notes should stay
+  // inside the spoken line instead of being split out as stage directions.
+  if (/^\d/.test(inner)) return false;
+
+  // Cue-like parentheticals are usually lowercase performance notes or a
+  // short stage cue phrase.
+  if (/^[a-z]/.test(inner)) return true;
+  if (
+    /^(?:to\s+camera|off(?:\s+camera)?|on\s+camera|overlapping|aside|whispering|speaking|spoken|sings?|singing|sung|laughing|crying|shouting|pause|beat|continu(?:e|ed|ing)|music|song|song\s+ends?|music\s+(?:ends?|out|stops?))\b/i.test(
+      inner,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Split a dialogue string into alternating text and parenthetical segments.
  * Returns an array of `{ text, isParenthetical }` objects.
@@ -288,7 +391,12 @@ function splitParentheticals(
     if (before) {
       segments.push({ text: before, isParenthetical: false });
     }
-    segments.push({ text: match[0], isParenthetical: true });
+    const parenthetical = match[0];
+    if (isLikelyInlineStageDirection(parenthetical)) {
+      segments.push({ text: parenthetical, isParenthetical: true });
+    } else {
+      segments.push({ text: parenthetical, isParenthetical: false });
+    }
     lastIndex = re.lastIndex;
   }
 
@@ -298,6 +406,22 @@ function splitParentheticals(
   }
 
   return segments;
+}
+
+function looksLikeNarrativeProseLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  // Narrative prose should not be forced through the dialogue continuation
+  // path just because it appears after a speaker.
+  if (!/[a-z]/.test(trimmed)) return false;
+  if (!/\([^)]+\)/.test(trimmed)) return false;
+  if (!/\b\d{1,3}s\b/i.test(trimmed)) return false;
+  if (!/^["'“”]*(?:the|a|an|this|that|these|those)\b/i.test(trimmed)) {
+    return false;
+  }
+
+  return /[.!?…]["')\]]*\s*$/.test(trimmed);
 }
 
 /**
@@ -367,7 +491,12 @@ function expandInlineParentheticals(lines: DialogueLine[]): DialogueLine[] {
  *                (Catch Me If You Can / screenplay style)
  *   mixed      – both patterns found in the same script
  */
-export type ScriptFormat = "colon" | "standalone" | "inline" | "mixed";
+export type ScriptFormat =
+  | "colon"
+  | "standalone"
+  | "screenplay"
+  | "inline"
+  | "mixed";
 
 /**
  * Heuristically detect the dominant dialogue format of a pasted script by
@@ -392,6 +521,15 @@ export function detectScriptFormat(content: string): ScriptFormat {
     const cm = CHAR_LINE_RE.exec(t);
     if (cm && isValidCharacterName(cm[1].trim()) && cm[2].trim()) {
       colonScore++;
+    }
+
+    // Fountain format: @CHARACTER or CHARACTER^ cue line followed by prose.
+    const fountainMatch = FOUNTAIN_CHAR_RE.exec(t);
+    if (fountainMatch) {
+      const fountainName = fountainMatch[1].trim();
+      if (isValidCharacterName(fountainName) && next && /[a-z]/.test(next)) {
+        standaloneScore++;
+      }
     }
 
     // Standalone format: ALL-CAPS-only name line followed by mixed-case prose.
@@ -827,12 +965,20 @@ export function parseDialogueLines(
       : new Set();
 
   const fmt = formatHint ?? detectScriptFormat(sceneContent);
-  const useStandalone = fmt === "standalone" || fmt === "mixed";
+  const useColon = fmt === "colon" || fmt === "standalone" || fmt === "mixed";
+  const useStandalone =
+    fmt === "standalone" || fmt === "screenplay" || fmt === "mixed";
   const useInline = fmt === "inline" || fmt === "mixed";
 
   const allLines = sceneContent.split("\n");
   for (let i = 0; i < allLines.length; i++) {
     const trimmed = allLines[i].trim();
+    const debugParse = (
+      path: string,
+      details: Record<string, unknown> = {},
+    ): void => {
+      debugParseLog(path, { lineIndex: i, lineNumber, trimmed, ...details });
+    };
 
     // ── Blank line ──────────────────────────────────────────────────
     if (!trimmed) {
@@ -842,6 +988,7 @@ export function parseDialogueLines(
       afterBlank = true;
       // Do NOT clear pendingStandaloneChar: a stage direction or blank can
       // separate a standalone name line from its dialogue in some scripts.
+      debugParse("blank line");
       continue;
     }
 
@@ -849,6 +996,7 @@ export function parseDialogueLines(
     // Lines like "Scene 1: The Locked Stage .............. 6" are table-of-
     // contents entries; they should never be treated as characters or dialogue.
     if (/\.{3,}/.test(trimmed)) {
+      debugParse("table of contents / dot leader", { text: trimmed });
       output.push({
         lineNumber: lineNumber++,
         character: "[Narrative]",
@@ -861,6 +1009,7 @@ export function parseDialogueLines(
 
     // ── Scene heading ───────────────────────────────────────────────
     if (SCENE_HEADING_RE.test(trimmed)) {
+      debugParse("scene heading", { text: trimmed });
       output.push({
         lineNumber: lineNumber++,
         character: "[Scene Heading]",
@@ -869,7 +1018,7 @@ export function parseDialogueLines(
       });
       lastCharacter = null;
       lastDialogueIdx = -1;
-      afterBlank = false;
+      afterBlank = true;
       pendingStandaloneChar = null;
       // Scene headings always end any active song block.
       inSongBlock = false;
@@ -882,6 +1031,7 @@ export function parseDialogueLines(
     // their own line to close a scene. Emit as a stage direction rather
     // than accidentally treating them as character names.
     if (SCENE_END_MARKER_RE.test(trimmed)) {
+      debugParse("scene end marker", { text: trimmed });
       output.push({
         lineNumber: lineNumber++,
         character: "[Stage Direction]",
@@ -897,8 +1047,32 @@ export function parseDialogueLines(
       continue;
     }
 
+    // ── Non-parenthetical play / screenplay stage direction ─────────
+    // SETTING:, AT RISE:, TIME:, PLACE:  — scene-setting front-matter
+    // CUT TO:, DISSOLVE TO:, FADE IN:    — screenplay transitions
+    // Enter / Exit / Exeunt              — classical theatrical movement
+    if (
+      PROSE_STAGE_DIR_RE.test(trimmed) ||
+      SCREENPLAY_TRANSITION_RE.test(trimmed) ||
+      /^>\s*\S/.test(trimmed) ||
+      STAGE_ENTRY_EXIT_RE.test(trimmed)
+    ) {
+      debugParse("stage direction", { text: trimmed });
+      output.push({
+        lineNumber: lineNumber++,
+        character: "[Stage Direction]",
+        dialogue: trimmed,
+        isStageDirection: true,
+      });
+      // These directions don't change speaker context or song state —
+      // a playwright may write "Enter JOHN." between two of MARY's lines.
+      afterBlank = false;
+      continue;
+    }
+
     // ── Standalone stage direction ──────────────────────────────────
     if (STANDALONE_STAGE_DIR_RE.test(trimmed)) {
+      debugParse("standalone stage direction", { text: trimmed });
       output.push({
         lineNumber: lineNumber++,
         character: "[Stage Direction]",
@@ -941,59 +1115,84 @@ export function parseDialogueLines(
     }
 
     // ── Colon format character line ─────────────────────────────────
-    // Always checked first; colon format takes precedence over standalone.
-    const charMatch = CHAR_LINE_RE.exec(trimmed);
-    if (charMatch) {
-      const character = charMatch[1].trim();
-      const dialogue = charMatch[2].trim();
+    // Only active in colon/mixed modes; Film forces standalone parsing.
+    if (useColon) {
+      const charMatch = CHAR_LINE_RE.exec(trimmed);
+      if (charMatch) {
+        const character = charMatch[1].trim();
+        const dialogue = charMatch[2].trim();
 
-      if (isValidCharacterName(character)) {
-        pendingStandaloneChar = null;
-        // When the character starts speaking with lowercase dialogue, exit song mode.
-        if (inSongBlock && dialogue && /[a-z]/.test(dialogue)) {
-          inSongBlock = false;
-          currentSongTitle = null;
-        }
-        if (dialogue) {
-          const idx = output.length;
-          const entry: DialogueLine = {
-            lineNumber: lineNumber++,
+        if (isValidCharacterName(character)) {
+          debugParse("colon character line", {
             character,
             dialogue,
-          };
-          if (inSongBlock) {
-            entry.isSong = true;
-            if (currentSongTitle) entry.songTitle = currentSongTitle;
+            inSongBlock,
+          });
+          pendingStandaloneChar = null;
+          // When the character starts speaking with lowercase dialogue, exit song mode.
+          if (inSongBlock && dialogue && /[a-z]/.test(dialogue)) {
+            inSongBlock = false;
+            currentSongTitle = null;
           }
-          output.push(entry);
-          lastCharacter = character;
-          lastDialogueIdx = idx;
-        } else {
-          // Song/verse mode: CHARACTER: with no inline text.
-          // The empty cue header signals that lyrics follow.
-          lastCharacter = character;
-          lastDialogueIdx = -1;
-          inSongBlock = true;
-        }
-        afterBlank = false;
-        continue;
-      }
-
-      // Name matched the regex but failed validation.
-      // If we have an active speaker AND the line is ALL-CAPS (no lowercase),
-      // this is almost certainly a song lyric that happens to contain a colon,
-      // e.g. "THAT FOLKS 'ROUND HERE ALWAYS SAY:".
-      // Treat as continuation rather than breaking the current speaker.
-      // If the line has lowercase (e.g. "SFX: Hat squeak"), it's a production
-      // cue or prose — fall through to narrative.
-      const lineIsAllCaps = !/[a-z]/.test(trimmed);
-      if (lastCharacter !== null && lineIsAllCaps) {
-        if (lastDialogueIdx >= 0) {
-          // Append to existing entry (hard-wrapped continuation)
-          if (!afterBlank) {
-            output[lastDialogueIdx].dialogue += " " + trimmed;
-            if (inSongBlock) output[lastDialogueIdx].isSong = true;
+          if (dialogue) {
+            const idx = output.length;
+            const entry: DialogueLine = {
+              lineNumber: lineNumber++,
+              character,
+              dialogue,
+            };
+            if (inSongBlock) {
+              entry.isSong = true;
+              if (currentSongTitle) entry.songTitle = currentSongTitle;
+            }
+            output.push(entry);
+            lastCharacter = character;
+            lastDialogueIdx = idx;
           } else {
+            // Song/verse mode: CHARACTER: with no inline text.
+            // The empty cue header signals that lyrics follow.
+            lastCharacter = character;
+            lastDialogueIdx = -1;
+            inSongBlock = true;
+          }
+          afterBlank = false;
+          continue;
+        }
+
+        // Name matched the regex but failed validation.
+        // If we have an active speaker AND the line is ALL-CAPS (no lowercase),
+        // this is almost certainly a song lyric that happens to contain a colon,
+        // e.g. "THAT FOLKS 'ROUND HERE ALWAYS SAY:".
+        // Treat as continuation rather than breaking the current speaker.
+        // If the line has lowercase (e.g. "SFX: Hat squeak"), it's a production
+        // cue or prose — fall through to narrative.
+        const lineIsAllCaps = !/[a-z]/.test(trimmed);
+        if (lastCharacter !== null && lineIsAllCaps) {
+          debugParse("colon all-caps continuation", {
+            lastCharacter,
+            inSongBlock,
+          });
+          if (lastDialogueIdx >= 0) {
+            // Append to existing entry (hard-wrapped continuation)
+            if (!afterBlank) {
+              output[lastDialogueIdx].dialogue += " " + trimmed;
+              if (inSongBlock) output[lastDialogueIdx].isSong = true;
+            } else {
+              const idx = output.length;
+              const entry: DialogueLine = {
+                lineNumber: lineNumber++,
+                character: lastCharacter,
+                dialogue: trimmed,
+              };
+              if (inSongBlock) {
+                entry.isSong = true;
+                if (currentSongTitle) entry.songTitle = currentSongTitle;
+              }
+              output.push(entry);
+              lastDialogueIdx = idx;
+            }
+          } else {
+            // Song mode: first lyric line
             const idx = output.length;
             const entry: DialogueLine = {
               lineNumber: lineNumber++,
@@ -1007,36 +1206,23 @@ export function parseDialogueLines(
             output.push(entry);
             lastDialogueIdx = idx;
           }
-        } else {
-          // Song mode: first lyric line
-          const idx = output.length;
-          const entry: DialogueLine = {
-            lineNumber: lineNumber++,
-            character: lastCharacter,
-            dialogue: trimmed,
-          };
-          if (inSongBlock) {
-            entry.isSong = true;
-            if (currentSongTitle) entry.songTitle = currentSongTitle;
-          }
-          output.push(entry);
-          lastDialogueIdx = idx;
+          afterBlank = false;
+          continue;
         }
+
+        // No active speaker: treat as narrative and break speaker context.
+        output.push({
+          lineNumber: lineNumber++,
+          character: "[Narrative]",
+          dialogue: trimmed,
+        });
+        debugParse("colon fallback narrative", { text: trimmed });
+        lastCharacter = null;
+        lastDialogueIdx = -1;
+        pendingStandaloneChar = null;
         afterBlank = false;
         continue;
       }
-
-      // No active speaker: treat as narrative and break speaker context.
-      output.push({
-        lineNumber: lineNumber++,
-        character: "[Narrative]",
-        dialogue: trimmed,
-      });
-      lastCharacter = null;
-      lastDialogueIdx = -1;
-      pendingStandaloneChar = null;
-      afterBlank = false;
-      continue;
     }
 
     // ── Modern format: indented ALL-CAPS lyrics ──────────────────────
@@ -1047,6 +1233,7 @@ export function parseDialogueLines(
     if (inSongBlock) {
       const leadingSpaces = allLines[i].length - allLines[i].trimStart().length;
       if (leadingSpaces >= 4 && ALL_CAPS_LYRIC_RE.test(trimmed)) {
+        debugParse("indented all-caps lyric", { leadingSpaces });
         const idx = output.length;
         const entry: DialogueLine = {
           lineNumber: lineNumber++,
@@ -1070,8 +1257,13 @@ export function parseDialogueLines(
     // being mistaken for character names after a bare "CHARACTER:" header.
     if (useStandalone) {
       const sm = STANDALONE_CHAR_NAME_RE.exec(trimmed);
-      if (sm && isValidCharacterName(sm[1].trim())) {
-        const nameCandidate = sm[1].trim();
+      const fountainMatch = FOUNTAIN_CHAR_RE.exec(trimmed);
+      const fountainName = fountainMatch ? fountainMatch[1].trim() : null;
+      if (
+        (sm && isValidCharacterName(sm[1].trim())) ||
+        (fountainName && isValidCharacterName(fountainName))
+      ) {
+        const nameCandidate = sm ? sm[1].trim() : fountainName!;
         let acceptAsCharacter = afterBlank;
         if (!acceptAsCharacter && lastDialogueIdx >= 0) {
           // Lookahead: find the next non-empty, non-stage-direction line.
@@ -1095,6 +1287,9 @@ export function parseDialogueLines(
           knownCharSet.size > 0 &&
           !isKnownCharacter(nameCandidate, knownCharSet)
         ) {
+          debugParse("standalone candidate treated as song", {
+            nameCandidate,
+          });
           inSongBlock = true;
           const idx = output.length;
           const entry: DialogueLine = {
@@ -1112,14 +1307,24 @@ export function parseDialogueLines(
         }
 
         if (acceptAsCharacter) {
+          debugParse("standalone character accepted", {
+            nameCandidate,
+            trailingNote: sm?.[2]?.trim() ?? null,
+          });
           pendingStandaloneChar = nameCandidate;
           // Emit trailing parenthetical as stage direction:
           //   DOLLAR (overlapping) → stage direction "(overlapping)"
-          if (sm[2]) {
+          const trailingNote = sm?.[2]?.trim();
+          if (
+            trailingNote &&
+            !/^\(\s*(?:v\.o\.|o\.s\.|o\.c\.|off(?:\s+camera)?|on\s+camera|cont['’]?d|continued)\s*\)$/i.test(
+              trailingNote,
+            )
+          ) {
             output.push({
               lineNumber: lineNumber++,
               character: "[Stage Direction]",
-              dialogue: sm[2].trim(),
+              dialogue: trailingNote,
               isStageDirection: true,
             });
           }
@@ -1138,6 +1343,9 @@ export function parseDialogueLines(
     if (useInline) {
       const im = INLINE_CHAR_RE.exec(trimmed);
       if (im && isValidCharacterName(im[1].trim())) {
+        debugParse("inline character + dialogue", {
+          character: im[1].trim(),
+        });
         const character = im[1].trim();
         const dialogue = im[2].trim();
         pendingStandaloneChar = null;
@@ -1153,6 +1361,9 @@ export function parseDialogueLines(
     // ── Consume pending standalone character ────────────────────────
     // This line is the first dialogue line for the speaker named above.
     if (pendingStandaloneChar !== null) {
+      debugParse("pending standalone character consumed", {
+        pendingStandaloneChar,
+      });
       lastCharacter = pendingStandaloneChar;
       pendingStandaloneChar = null;
       const idx = output.length;
@@ -1168,12 +1379,79 @@ export function parseDialogueLines(
 
     // ── Continuation / lyric line ───────────────────────────────────
     if (lastCharacter !== null) {
-      if (!afterBlank && lastDialogueIdx >= 0) {
+      if (looksLikeNarrativeProseLine(trimmed)) {
+        debugParse("narrative prose override", {
+          currentCharacter: lastCharacter,
+          text: trimmed,
+        });
+        output.push({
+          lineNumber: lineNumber++,
+          character: "[Narrative]",
+          dialogue: trimmed,
+        });
+        lastCharacter = null;
+        lastDialogueIdx = -1;
+        pendingStandaloneChar = null;
+        afterBlank = false;
+        continue;
+      }
+
+      const dialogueText =
+        lastDialogueIdx >= 0 ? output[lastDialogueIdx].dialogue : "";
+      const dialogueEndsSentence = hasTerminalPunctuation(dialogueText);
+      let standaloneCharLooksLikeSpeaker = false;
+      if (useStandalone) {
+        const previewMatch = STANDALONE_CHAR_NAME_RE.exec(trimmed);
+        if (previewMatch && isValidCharacterName(previewMatch[1].trim())) {
+          standaloneCharLooksLikeSpeaker = afterBlank;
+          if (!standaloneCharLooksLikeSpeaker && lastDialogueIdx >= 0) {
+            // Look ahead to see whether this ALL-CAPS line is likely a
+            // speaker label. If the next meaningful line starts lowercase,
+            // treat the current line as a speaker; otherwise let it continue
+            // as lyric/dialogue text.
+            for (let j = i + 1; j < allLines.length; j++) {
+              const peek = allLines[j].trim();
+              if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
+              standaloneCharLooksLikeSpeaker = /[a-z]/.test(peek);
+              break;
+            }
+          }
+        }
+      }
+
+      if (
+        !standaloneCharLooksLikeSpeaker &&
+        !afterBlank &&
+        lastDialogueIdx >= 0
+      ) {
         // Hard-wrapped continuation: append so TTS reads as one speech.
+        debugParse("hard-wrapped continuation", {
+          currentCharacter: lastCharacter,
+          text: trimmed,
+        });
         output[lastDialogueIdx].dialogue += " " + trimmed;
         if (inSongBlock) output[lastDialogueIdx].isSong = true;
-      } else {
+      } else if (
+        !standaloneCharLooksLikeSpeaker &&
+        lastDialogueIdx >= 0 &&
+        !inSongBlock &&
+        !dialogueEndsSentence
+      ) {
+        // Blank-separated screenplay continuation: keep flowing until the
+        // current speech actually ends with punctuation.
+        debugParse("blank-separated continuation", {
+          currentCharacter: lastCharacter,
+          text: trimmed,
+        });
+        output[lastDialogueIdx].dialogue += " " + trimmed;
+        if (inSongBlock) output[lastDialogueIdx].isSong = true;
+      } else if (!standaloneCharLooksLikeSpeaker) {
         // Verse break (blank-separated) or first lyric after CHARACTER:
+        debugParse("new continuation line", {
+          currentCharacter: lastCharacter,
+          inSongBlock,
+          text: trimmed,
+        });
         const idx = output.length;
         const entry: DialogueLine = {
           lineNumber: lineNumber++,
@@ -1194,6 +1472,7 @@ export function parseDialogueLines(
     // ── Narrative / unclassified ────────────────────────────────────
     // When inside a song block, tag as [Song] instead of [Narrative].
     {
+      debugParse("narrative fallback", { text: trimmed, inSongBlock });
       const entry: DialogueLine = {
         lineNumber: lineNumber++,
         character: inSongBlock ? "[Song]" : "[Narrative]",

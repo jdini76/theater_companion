@@ -150,6 +150,38 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteCharacters = (ids: string[]): void => {
+    const uniqueIds = Array.from(new Set(ids));
+    if (uniqueIds.length === 0) return;
+
+    const charactersToDelete = characters.filter((c) =>
+      uniqueIds.includes(c.id),
+    );
+    if (charactersToDelete.length === 0) {
+      throw new Error("No matching characters found to delete");
+    }
+
+    const configIdsToDelete = new Set(
+      charactersToDelete
+        .map((character) => character.voiceConfigId)
+        .filter(Boolean) as string[],
+    );
+
+    if (configIdsToDelete.size > 0) {
+      setVoiceConfigs((prev) =>
+        prev.filter((config) => !configIdsToDelete.has(config.id)),
+      );
+    }
+
+    setCharacters((prev) =>
+      prev.filter((character) => !uniqueIds.includes(character.id)),
+    );
+
+    if (currentCharacterId && uniqueIds.includes(currentCharacterId)) {
+      setCurrentCharacterId(null);
+    }
+  };
+
   const getProjectCharacters = (projectId: string): CharacterRole[] => {
     return characters
       .filter((c) => c.projectId === projectId)
@@ -185,6 +217,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         voiceConfigId: config.id,
         category: entry.category,
         aliases: entry.aliases,
+        description: entry.description,
       });
       newConfigs.push(config);
     }
@@ -227,6 +260,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         voiceConfigId: config.id,
         category: entry.category,
         aliases: entry.aliases,
+        description: entry.description,
       });
       newConfigs.push(config);
     }
@@ -280,6 +314,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
         createCharacter,
         updateCharacter,
         deleteCharacter,
+        deleteCharacters,
         getProjectCharacters,
         importCastCharacters,
         replaceProjectCharacters,

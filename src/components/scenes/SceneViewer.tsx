@@ -3,10 +3,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Scene } from "@/types/scene";
 // import { Button } from "@/components/ui/Button";
+import type { ProductionType } from "@/types/project";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { extractSceneCharacters } from "@/lib/scenes";
+import { extractSceneCharacters, getSceneParseFormat } from "@/lib/scenes";
+import { parseDialogueLines } from "@/lib/rehearsal";
 import {
   type LineOverride,
   buildCharColorMap,
@@ -26,6 +28,7 @@ import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 interface SceneViewerProps {
   scene: Scene;
   projectId: string;
+  productionType?: ProductionType;
   onEdit?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -90,6 +93,7 @@ function useLineOverrides(sceneId: string) {
 export function SceneViewer({
   scene,
   projectId,
+  productionType,
   onEdit,
   onPrev,
   onNext,
@@ -238,16 +242,25 @@ export function SceneViewer({
     if (assignment && "char" in assignment) {
       const newName = assignment.char.trim().toUpperCase();
       if (newName && !allNames.some((n) => n.toUpperCase() === newName)) {
+        const updatedCharacters = Array.from(
+          new Set([...sceneChars, newName]),
+        ).sort();
+        const updatedLines = parseDialogueLines(
+          scene.content,
+          getSceneParseFormat(productionType),
+          updatedCharacters,
+        );
         updateScene(scene.id, {
-          characters: [...sceneChars, newName].sort(),
+          characters: updatedCharacters,
+          lines: updatedLines,
         });
       }
     }
     assign(lineIdx, assignment);
   };
 
-  // Character tags: re-derive from scene content using the expanded cast
-  // (canonical + aliases) so merged names and abbreviations both resolve.
+  // Character tags: use pre-parsed lines when available; fall back to
+  // re-extracting from raw content for scenes that pre-date persistent lines.
   // Results are remapped to canonical names so each character appears once.
   const sceneCharSet = new Set<string>();
   const sceneCharacters: string[] = [];
@@ -255,10 +268,27 @@ export function SceneViewer({
     projectCast.length > 0
       ? [...projectCast, ...Array.from(aliasToCanonical.keys())]
       : [];
-  const rawTagNames =
-    projectCast.length > 0
-      ? extractSceneCharacters(scene.content, expandedCast)
-      : sceneChars;
+  let rawTagNames: string[];
+  if (scene.lines && scene.lines.length > 0) {
+    // Derive from parsed lines — no re-parse of content needed
+    rawTagNames = Array.from(
+      new Set(
+        scene.lines
+          .filter((l) => !l.isStageDirection && !l.character.startsWith("["))
+          .flatMap((l) =>
+            l.character
+              .split(/\s*[,&+]\s*/)
+              .map((n) => n.trim().toUpperCase())
+              .filter(Boolean),
+          ),
+      ),
+    );
+  } else {
+    rawTagNames =
+      projectCast.length > 0
+        ? extractSceneCharacters(scene.content, expandedCast, productionType)
+        : sceneChars;
+  }
   const resolvedTagNames = rawTagNames.map((name) => {
     const upper = name.toUpperCase();
     return aliasToCanonical.get(upper) ?? upper;
@@ -509,6 +539,7 @@ export function SceneViewer({
           onAssign={handleAssign}
           maxHeight="max-h-[calc(160vh-20rem)]"
           textSize={scriptTextSize}
+          allowColonHeaders={productionType !== "Film"}
           assignPanelProps={assignPanelProps}
         />
       </div>
@@ -703,6 +734,7 @@ export function SceneViewer({
               onAssign={handleAssign}
               maxHeight="max-h-[calc(100vh-5rem)]"
               textSize={scriptTextSize}
+              allowColonHeaders={productionType !== "Film"}
               assignPanelProps={assignPanelProps}
             />
           </div>

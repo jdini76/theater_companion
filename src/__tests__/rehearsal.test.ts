@@ -366,6 +366,48 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
       expect(speech).toBeDefined();
       expect(speech!.dialogue).toBe("I really should see to dinner.");
     });
+
+    it("ignores screenplay speaker suffixes like V.O. on name lines", () => {
+      const text = ["JOHN (V.O.)", "I am still here."].join("\n");
+      const result = parseDialogueLines(text, "standalone");
+      const speech = result.find(
+        (l) => l.character === "JOHN" && !l.isStageDirection,
+      );
+      expect(speech).toBeDefined();
+      expect(result.some((l) => l.dialogue === "(V.O.)")).toBe(false);
+    });
+
+    it("parses Fountain forced character cues with @ prefix", () => {
+      const text = ["@PHIL", "I am still here."].join("\n");
+      const result = parseDialogueLines(text, "standalone");
+      const speech = result.find(
+        (l) => l.character === "PHIL" && !l.isStageDirection,
+      );
+      expect(speech).toBeDefined();
+      expect(speech!.dialogue).toBe("I am still here.");
+    });
+
+    it("treats Fountain transition lines as stage directions", () => {
+      const result = parseDialogueLines("> CUT TO:");
+      expect(result[0].isStageDirection).toBe(true);
+      expect(result[0].character).toBe("[Stage Direction]");
+    });
+
+    it("keeps wrapped screenplay dialogue together until punctuation", () => {
+      const text = [
+        "MIA:",
+        "I don't know why this is happening",
+        "but I need answers.",
+      ].join("\n");
+      const result = parseDialogueLines(text, "standalone");
+      const mia = result.filter(
+        (l) => l.character === "MIA" && !l.isStageDirection,
+      );
+      expect(mia).toHaveLength(1);
+      expect(mia[0].dialogue).toBe(
+        "I don't know why this is happening but I need answers.",
+      );
+    });
   });
 
   // ── Scene headings ─────────────────────────────────────────────────────
@@ -374,6 +416,15 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
     it("recognises 'Scene N: Title' as a scene heading", () => {
       const result = parseDialogueLines(
         "Scene 1: Living Room, The Abagnale House, New Rochelle",
+        "standalone",
+      );
+      const heading = result.find((l) => l.character === "[Scene Heading]");
+      expect(heading).toBeDefined();
+    });
+
+    it("recognises screenplay slug lines as scene headings", () => {
+      const result = parseDialogueLines(
+        "INT./EXT. CAR - MOVING - DAY",
         "standalone",
       );
       const heading = result.find((l) => l.character === "[Scene Heading]");
@@ -881,6 +932,12 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
       expect(result[0].character).not.toBe("SFX");
       expect(result[0].character).toBe("[Narrative]");
     });
+
+    it("does not treat screenplay cue labels like FX as a character", () => {
+      const result = parseDialogueLines("FX: Loud crash");
+      expect(result[0].character).toBe("[Narrative]");
+      expect(result[0].isStageDirection).toBeFalsy();
+    });
   });
 
   // ── Stage directions ────────────────────────────────────────────────────
@@ -890,6 +947,26 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
       const result = parseDialogueLines("(We see PHIL in a TV studio.)");
       expect(result[0].isStageDirection).toBe(true);
       expect(result[0].character).toBe("[Stage Direction]");
+    });
+
+    it("classifies a prose scene-setting line as stage direction", () => {
+      const result = parseDialogueLines("SETTING: A kitchen in Brooklyn.");
+      expect(result[0].isStageDirection).toBe(true);
+      expect(result[0].character).toBe("[Stage Direction]");
+      expect(result[0].dialogue).toBe("SETTING: A kitchen in Brooklyn.");
+    });
+
+    it("classifies screenplay transitions as stage directions", () => {
+      const result = parseDialogueLines("CUT TO:");
+      expect(result[0].isStageDirection).toBe(true);
+      expect(result[0].character).toBe("[Stage Direction]");
+    });
+
+    it("classifies enter and exit cues as stage directions", () => {
+      const result = parseDialogueLines("Enter PHIL from stage left.");
+      expect(result[0].isStageDirection).toBe(true);
+      expect(result[0].character).toBe("[Stage Direction]");
+      expect(result[0].dialogue).toBe("Enter PHIL from stage left.");
     });
 
     it("classifies a standalone bracketed line as stage direction", () => {
@@ -925,6 +1002,37 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
       );
       expect(speech).toBeDefined();
       expect(speech!.dialogue).toBe("I hate this town.");
+    });
+
+    it("keeps descriptive age parentheticals inside dialogue", () => {
+      const result = parseDialogueLines(
+        "GENERAL SANTARELLI: The passenger, GENERAL SANTARELLI (60s), wearing a crisp suit, turns his head slowly.",
+      );
+      const speech = result.find(
+        (l) => l.character === "GENERAL SANTARELLI" && !l.isStageDirection,
+      );
+      expect(speech).toBeDefined();
+      expect(speech!.dialogue).toContain("(60s)");
+      expect(
+        result.some((l) => l.isStageDirection && l.dialogue === "(60s)"),
+      ).toBe(false);
+    });
+
+    it("keeps prose with an age note as narrative after dialogue", () => {
+      const result = parseDialogueLines(
+        [
+          "PHIL: I think we should go.",
+          "The passenger, GENERAL SANTARELLI (60s), wearing a crisp suit, turns his head slowly.",
+        ].join("\n"),
+      );
+      const narrative = result.find((l) => l.character === "[Narrative]");
+      expect(narrative).toBeDefined();
+      expect(narrative!.dialogue).toContain("(60s)");
+      expect(
+        result.some(
+          (l) => l.character === "PHIL" && l.dialogue.includes("(60s)"),
+        ),
+      ).toBe(false);
     });
   });
 

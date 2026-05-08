@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
 import { useScenes } from "@/contexts/SceneContext";
+import { useProjects } from "@/contexts/ProjectContext";
 import { Scene as StoredScene } from "@/types/scene";
 import { DialogueLine } from "@/types/rehearsal";
 import {
@@ -106,6 +107,7 @@ function getCharacters(scene: {
 export default function UnifiedRehearsalPage() {
   // Access saved scenes from the Scene Library (scenes page)
   const { getProjectScenes } = useScenes();
+  const { getCurrentProject } = useProjects();
 
   // Access cast voice configs
   const {
@@ -203,6 +205,31 @@ export default function UnifiedRehearsalPage() {
     null,
   );
 
+  const currentProject = getCurrentProject();
+  const productionType = currentProject?.productionType;
+
+  const buildKnownCharacters = useCallback(
+    (sceneCharacters: string[] = []) => {
+      const names = new Set<string>();
+
+      if (currentProjectId) {
+        for (const character of getProjectCharacters(currentProjectId)) {
+          names.add(character.characterName.toUpperCase());
+          for (const alias of character.aliases ?? []) {
+            names.add(alias.toUpperCase());
+          }
+        }
+      }
+
+      for (const character of sceneCharacters) {
+        names.add(character.toUpperCase());
+      }
+
+      return Array.from(names);
+    },
+    [currentProjectId, getProjectCharacters],
+  );
+
   // Helper: apply a saved settings blob to component state
   const applySettings = useCallback((saved: Record<string, unknown> | null) => {
     // Reset to defaults first so stale state from another project is cleared
@@ -264,11 +291,18 @@ export default function UnifiedRehearsalPage() {
         | "single"
         | "multiple"
         | "auto";
-      const parsedScenes = parseScenes(saved.scriptInput as string, { mode });
+      const parsedScenes = parseScenes(saved.scriptInput as string, {
+        mode,
+        productionType,
+      });
       const processedScenes: Scene[] = parsedScenes
         .map((ps) => ({
           title: ps.title,
-          lines: parseDialogueLines(ps.content),
+          lines: parseDialogueLines(
+            ps.content,
+            productionType === "Film" ? "screenplay" : "mixed",
+            buildKnownCharacters(),
+          ),
         }))
         .filter((s) => s.lines.length > 0);
       if (processedScenes.length > 0) {
@@ -404,14 +438,21 @@ export default function UnifiedRehearsalPage() {
     }
 
     // First, parse scenes (splits by scene headers)
-    const parsedScenes = parseScenes(scriptInput, { mode: sceneMode });
+    const parsedScenes = parseScenes(scriptInput, {
+      mode: sceneMode,
+      productionType,
+    });
     if (parsedScenes.length === 0) {
       return;
     }
 
     // Then, convert each ParsedScene to a Scene with dialogue lines
     const processedScenes: Scene[] = parsedScenes.map((ps) => {
-      const dialogueLines = parseDialogueLines(ps.content);
+      const dialogueLines = parseDialogueLines(
+        ps.content,
+        productionType === "Film" ? "screenplay" : "mixed",
+        buildKnownCharacters(),
+      );
       return {
         title: ps.title,
         lines: dialogueLines,
@@ -476,14 +517,35 @@ MOM: See? You were ready.`,
 
     const processedScenes: Scene[] = toLoad
       .map((s) => {
-        // Always re-parse from content so edits made in the Scenes tab are reflected
-        const dialogueLines = parseDialogueLines(s.content);
-        // Freshen the character list from content (handles stale stored lists
-        // and parser improvements after the scene was last saved). Merge with
-        // the stored list so manually-curated characters are preserved.
-        const freshChars = extractSceneCharacters(s.content);
+        // Reparse from source content so rehearsal always reflects the current
+        // classifier logic, even if the stored cached lines were created before
+        // a rules update.
+        const dialogueLines = parseDialogueLines(
+          s.content,
+          productionType === "Film" ? "screenplay" : "mixed",
+          buildKnownCharacters(s.characters ?? []),
+        );
+        // Derive characters from parsed lines; merge with stored list so
+        // manually-curated entries from the Scenes tab are preserved.
+        const lineChars = Array.from(
+          new Set(
+            dialogueLines
+              .filter(
+                (l) => !l.isStageDirection && !l.character.startsWith("["),
+              )
+              .flatMap((l) =>
+                l.character
+                  .split(/\s*[,&+]\s*/)
+                  .map((n) => n.trim().toUpperCase())
+                  .filter(Boolean),
+              ),
+          ),
+        );
         const mergedChars = Array.from(
-          new Set([...(s.characters ?? []), ...freshChars]),
+          new Set([
+            ...(s.characters ?? []).map((c) => c.toUpperCase()),
+            ...lineChars,
+          ]),
         );
         return {
           title: s.title,
@@ -1426,7 +1488,11 @@ MOM: See? You were ready.`,
                           ? libraryScenes.filter((ls) => {
                               const chars =
                                 ls.characters ??
-                                extractSceneCharacters(ls.content);
+                                extractSceneCharacters(
+                                  ls.content,
+                                  undefined,
+                                  productionType,
+                                );
                               return (
                                 ls.title.toLowerCase().includes(query) ||
                                 ls.content.toLowerCase().includes(query) ||
@@ -1479,7 +1545,11 @@ MOM: See? You were ready.`,
                               );
                               const chars =
                                 ls.characters ??
-                                extractSceneCharacters(ls.content);
+                                extractSceneCharacters(
+                                  ls.content,
+                                  undefined,
+                                  productionType,
+                                );
                               return (
                                 <label
                                   key={ls.id}

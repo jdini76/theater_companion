@@ -9,25 +9,32 @@ import {
   findProject,
   validateProjectName,
 } from "@/lib/projects";
+import type { ProductionType } from "@/types/project";
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useLocalStorage<Project[]>("theater_projects", []);
-  const [currentProjectId, setCurrentProjectId] = useLocalStorage<string | null>(
-    "theater_current_project_id",
-    null
+  const [projects, setProjects] = useLocalStorage<Project[]>(
+    "theater_projects",
+    [],
   );
+  const [currentProjectId, setCurrentProjectId] = useLocalStorage<
+    string | null
+  >("theater_current_project_id", null);
 
-  const createProject = (name: string, description?: string): Project => {
+  const createProject = (
+    name: string,
+    description?: string,
+    productionType?: ProductionType,
+  ): Project => {
     const validation = validateProjectName(name);
     if (!validation.valid) {
       throw new Error(validation.error);
     }
 
-    const newProject = createProjectUtil(name, description);
+    const newProject = createProjectUtil(name, description, productionType);
     setProjects([...projects, newProject]);
-    
+
     // Automatically select the newly created project
     if (!currentProjectId) {
       setCurrentProjectId(newProject.id);

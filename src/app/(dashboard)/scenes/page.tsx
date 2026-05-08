@@ -45,6 +45,7 @@ export default function ScenesPage() {
       <SceneManager
         projectId={currentProject.id}
         projectName={currentProject.name}
+        productionType={currentProject.productionType}
       />
     </div>
   );

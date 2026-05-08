@@ -17,6 +17,8 @@ import {
   stripTocSection,
   parseCastList,
   extractCastNames,
+  extractCharacterIntroductions,
+  extractCharacterIntroductionsFromScenes,
 } from "@/lib/scenes";
 import { Scene, ParsedScene, ParsedToc } from "@/types/scene";
 
@@ -28,6 +30,59 @@ describe("Scene Management", () => {
       expect(id1).toMatch(/^scene_\d+_[a-z0-9]+$/);
       expect(id2).toMatch(/^scene_\d+_[a-z0-9]+$/);
       expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe("Character introductions", () => {
+    it("extracts a description from a screenplay-style intro line", () => {
+      const text = [
+        "INT. STATION - DAY",
+        "JOHN, 40s and weary, sits by the window.",
+        "MARY enters behind him.",
+      ].join("\n");
+
+      const intros = extractCharacterIntroductions(text, ["JOHN", "MARY"]);
+      expect(intros.JOHN).toContain("40s and weary");
+      expect(intros.MARY).toBeUndefined();
+    });
+
+    it("uses the next line when the character is introduced on its own line", () => {
+      const text = [
+        "JOHN",
+        "A tired detective in his forties.",
+        "He lights a cigarette.",
+      ].join("\n");
+
+      const intros = extractCharacterIntroductions(text, ["JOHN"]);
+      expect(intros.JOHN).toContain("tired detective");
+    });
+
+    it("keeps the first introduction across scenes", () => {
+      const intros = extractCharacterIntroductionsFromScenes(
+        [
+          { content: "JOHN, 40s and weary, sits by the window." },
+          { content: "JOHN enters the room." },
+        ],
+        ["JOHN"],
+      );
+
+      expect(intros.JOHN).toContain("40s and weary");
+    });
+
+    it("trims later emphasized all-caps detail from the intro description", () => {
+      const text = [
+        "The passenger, GENERAL SANTARELLI (60s), wearing a crisp",
+        "suit, turns his head slowly. The glare emphasizes an OLD SCAR",
+        "down the right side of his face.",
+      ].join("\n");
+
+      const intros = extractCharacterIntroductions(text, [
+        "GENERAL SANTARELLI",
+      ]);
+      expect(intros["GENERAL SANTARELLI"]).toBe(
+        "60s, wearing a crisp suit, turns his head slowly.",
+      );
+      expect(intros["GENERAL SANTARELLI"]).not.toContain("OLD SCAR");
     });
   });
 
@@ -887,6 +942,15 @@ ROMEO: My love!`;
       expect(chars).toEqual(["JULIET", "ROMEO"]);
     });
 
+    it("should use screenplay-only parsing for Film", () => {
+      const content = `INT. OFFICE - DAY
+    @ROMEO
+    Hello there.
+    JULIET: This should not count in Film.`;
+      const chars = extractSceneCharacters(content, undefined, "Film");
+      expect(chars).toEqual(["ROMEO"]);
+    });
+
     it("should split ampersand groups into individual characters", () => {
       const content = `FRED & DEBBIE: Let's dance!
 FRED: One more time.`;
@@ -915,6 +979,14 @@ EVERYONE: Good morning, Phil!
 ENSEMBLE: Welcome to Punxsutawney!`;
       const chars = extractSceneCharacters(content);
       expect(chars).toEqual(["PHIL"]);
+    });
+
+    it("should exclude [Song] as a character", () => {
+      const content = `PHIL: Good morning.
+[Song]: LUMPY BED, UGLY CURTAINS
+JULIET: Hello.`;
+      const chars = extractSceneCharacters(content);
+      expect(chars).toEqual(["JULIET", "PHIL"]);
     });
 
     it("should not include stage directions or narrative", () => {
@@ -965,6 +1037,21 @@ JULIET: Hi.`;
       const scenes = parseScenes(text, { mode: "single" });
       expect(scenes).toHaveLength(1);
       expect(scenes[0].characters).toEqual(["JULIET", "ROMEO"]);
+    });
+
+    it("should keep Film scenes on the screenplay path", () => {
+      const text = `INT. OFFICE - DAY
+    @ROMEO
+    Hello there.
+    JULIET: This should not count in Film.`;
+      const filmScenes = parseScenes(text, {
+        mode: "single",
+        productionType: "Film",
+      });
+      const blendedScenes = parseScenes(text, { mode: "single" });
+
+      expect(filmScenes[0].characters).toEqual(["ROMEO"]);
+      expect(blendedScenes[0].characters).toEqual(["JULIET", "ROMEO"]);
     });
   });
 
@@ -1043,6 +1130,16 @@ PHIL CONNORS - a weatherman`;
       expect(result.entries[0].page).toBe(7);
       expect(result.entries[2].page).toBe(20);
       expect(result.entries[8].page).toBe(58);
+    });
+
+    it("should ignore bare page number lines with a trailing period", () => {
+      const text = ["INT. AIRPORT - DAY", "12.", "JOHN", "I have to go."].join(
+        "\n",
+      );
+
+      const parsed = parseScenes(text, { mode: "single" });
+      expect(parsed[0].content).not.toContain("12.");
+      expect(parsed[0].content).toContain("JOHN");
     });
 
     it("should stop parsing at Cast of Characters", () => {

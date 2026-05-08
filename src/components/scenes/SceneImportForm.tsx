@@ -1,18 +1,23 @@
 "use client";
 
 import React, { useState } from "react";
+import { useProjects } from "@/contexts/ProjectContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
+import type { ProductionType } from "@/types/project";
 import {
   createScenesFromInput,
   detectSceneCount,
   extractSceneCharacters,
+  extractCharacterIntroductionsFromScenes,
   extractCastNames,
   parseTOC,
   findSongsForScene,
   stripTocSection,
+  getSceneParseFormat,
   SceneInputMode,
 } from "@/lib/scenes";
+import { parseDialogueLines } from "@/lib/rehearsal";
 import type { ParsedToc } from "@/types/scene";
 import { extractTextFromPdf } from "@/lib/pdf-client";
 
@@ -28,6 +33,7 @@ import { OcrUploaderWrapper } from "../common/OcrUploaderWrapper";
 
 interface SceneImportFormProps {
   projectId: string;
+  productionType?: ProductionType;
   onSuccess?: () => void;
 }
 
@@ -262,8 +268,10 @@ function looksLikeGroup(name: string): boolean {
 
 export function SceneImportForm({
   projectId,
+  productionType,
   onSuccess,
 }: SceneImportFormProps) {
+  const { getCurrentProject } = useProjects();
   const { createScenes } = useScenes();
   const {
     importCastCharacters,
@@ -313,11 +321,19 @@ export function SceneImportForm({
     }
 
     try {
+      const currentProject = getCurrentProject();
       const toc = parseTOC(text);
       setTocData(toc);
       const sceneText = toc ? stripTocSection(text, toc) : text;
       setDetectedSceneCount(detectSceneCount(sceneText));
-      const scenes = createScenesFromInput(projectId, sceneText, inputMode);
+      const activeProductionType =
+        productionType ?? currentProject?.productionType;
+      const scenes = createScenesFromInput(
+        projectId,
+        sceneText,
+        inputMode,
+        activeProductionType,
+      );
 
       if (scenes.length === 0) {
         setError("No content to parse");
@@ -343,7 +359,11 @@ export function SceneImportForm({
       // Collect all raw character names detected across scenes
       const rawDetectedSet = new Set<string>();
       for (const scene of scenes) {
-        for (const char of extractSceneCharacters(scene.content, masterList))
+        for (const char of extractSceneCharacters(
+          scene.content,
+          masterList,
+          activeProductionType,
+        ))
           rawDetectedSet.add(char);
       }
 
@@ -484,11 +504,32 @@ export function SceneImportForm({
         (name) => categories.get(name) !== "Non-character",
       );
 
+      const currentProject = getCurrentProject();
+      const activeProductionType =
+        productionType ?? currentProject?.productionType;
+      const introDescriptions =
+        currentProject?.id === projectId && activeProductionType === "Film"
+          ? extractCharacterIntroductionsFromScenes(
+              scenesData,
+              activeCast,
+              activeProductionType,
+            )
+          : {};
+
       const finalScenes = scenesData.map((scene) => ({
         title: scene.title,
         content: scene.content,
-        characters: extractSceneCharacters(scene.content, activeCast),
+        characters: extractSceneCharacters(
+          scene.content,
+          activeCast,
+          activeProductionType,
+        ),
         songs: scene.songs.length > 0 ? scene.songs : undefined,
+        lines: parseDialogueLines(
+          scene.content,
+          getSceneParseFormat(activeProductionType),
+          activeCast,
+        ),
       }));
 
       if (finalScenes.length === 0) {
@@ -496,24 +537,30 @@ export function SceneImportForm({
         return;
       }
 
-      createScenes(projectId, finalScenes);
+      createScenes(projectId, finalScenes, activeProductionType);
 
       // Build per-character metadata
       const charData = new Map<
         string,
-        { category?: string; aliases?: string[] }
+        { category?: string; aliases?: string[]; description?: string }
       >();
       for (const name of activeCast) {
         const cat = categories.get(name);
         charData.set(name, {
           category: cat === "Group" ? "Group" : "Individual",
           aliases: aliases.get(name),
+          description: introDescriptions[name.toUpperCase()],
         });
       }
       // Include any scene-detected names not in the reviewed cast list
       for (const scene of finalScenes) {
         for (const c of scene.characters ?? []) {
-          if (!charData.has(c)) charData.set(c, { category: "Individual" });
+          if (!charData.has(c)) {
+            charData.set(c, {
+              category: "Individual",
+              description: introDescriptions[c.toUpperCase()],
+            });
+          }
         }
       }
 
@@ -562,7 +609,7 @@ export function SceneImportForm({
     setIsLoading(true);
     try {
       const name = file.name.toLowerCase();
-      if (name.endsWith(".txt")) {
+      if (name.endsWith(".txt") || name.endsWith(".fountain")) {
         handleParseText(await file.text());
         return;
       }
@@ -570,7 +617,9 @@ export function SceneImportForm({
         handleParseText(await extractTextFromPdf(file));
         return;
       }
-      throw new Error("Only .txt and .pdf files are supported in Text mode");
+      throw new Error(
+        "Only .txt, .fountain, and .pdf files are supported in Text mode",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to read file");
       setDetectedSceneCount(0);
@@ -703,7 +752,7 @@ export function SceneImportForm({
                   <label className="cursor-pointer">
                     <input
                       type="file"
-                      accept=".txt,.pdf"
+                      accept=".txt,.fountain,.pdf"
                       onChange={handleFileUpload}
                       disabled={isLoading}
                       className="hidden"
@@ -716,7 +765,8 @@ export function SceneImportForm({
                           : "Click to upload a script file"}
                       </p>
                       <p className="text-muted text-sm">
-                        Supports <strong>.pdf</strong> and <strong>.txt</strong>
+                        Supports <strong>.pdf</strong>, <strong>.txt</strong>,
+                        and <strong>.fountain</strong>
                       </p>
                       <p className="text-muted text-xs">
                         Note: PDFs must have a selectable text layer.
