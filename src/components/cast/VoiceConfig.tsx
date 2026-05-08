@@ -140,6 +140,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   const isKokoroMode = ttsSettings?.provider === "kokoro";
   const isElevenLabs =
     isApiMode && (ttsSettings?.externalApiType ?? "custom") === "elevenlabs";
+  const isDeepgram = isApiMode && ttsSettings?.externalApiType === "deepgram";
 
   useEffect(() => {
     const synth = window.speechSynthesis;
@@ -513,9 +514,11 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                   ? "Kokoro AI"
                   : isElevenLabs
                     ? "ElevenLabs"
-                    : isApiMode
-                      ? "Custom API"
-                      : "Browser TTS"}
+                    : isDeepgram
+                      ? "Deepgram"
+                      : isApiMode
+                        ? "Custom API"
+                        : "Browser TTS"}
               </span>
               {(isApiMode || isKokoroMode) && (
                 <span className="text-muted"> — change in Settings</span>
@@ -597,16 +600,23 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                     disabled={
                       apiVoicesLoading ||
                       (isElevenLabs
-                        ? !ttsSettings?.apiKey?.trim()
-                        : !ttsSettings?.apiUrl?.trim())
+                        ? !ttsSettings?.elevenLabsApiKey?.trim()
+                        : isDeepgram
+                          ? !ttsSettings?.deepgramApiKey?.trim()
+                          : !ttsSettings?.apiUrl?.trim())
                     }
                   >
                     {apiVoicesLoading ? "..." : "↻"}
                   </Button>
                 </div>
-                {isElevenLabs && !ttsSettings?.apiKey?.trim() && (
+                {isElevenLabs && !ttsSettings?.elevenLabsApiKey?.trim() && (
                   <p className="text-amber-400 text-xs mt-1">
                     Enter your ElevenLabs API key in Settings to load voices.
+                  </p>
+                )}
+                {isDeepgram && !ttsSettings?.deepgramApiKey?.trim() && (
+                  <p className="text-amber-400 text-xs mt-1">
+                    Enter your Deepgram API key in Settings to load voices.
                   </p>
                 )}
                 {apiVoicesError && (
@@ -653,8 +663,8 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               </div>
             )}
 
-            {/* Rate — hidden for ElevenLabs (speed not supported in API) */}
-            {!isElevenLabs && (
+            {/* Rate — hidden for ElevenLabs and Deepgram (speed not supported) */}
+            {!isElevenLabs && !isDeepgram && (
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-light font-semibold">
