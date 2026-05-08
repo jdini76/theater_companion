@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { decodeHtmlEntities } from "@/lib/utils";
 
 // --- CDN URLs (webpackIgnore bypasses bundling for both libraries) ---
 const PDFJS_CDN =
@@ -199,8 +200,9 @@ export function OcrUploaderWrapper({
     <div>
       <OcrUploaderWithCallback
         onExtract={(t) => {
-          setText(t);
-          onExtract(t);
+          const decoded = decodeHtmlEntities(t);
+          setText(decoded);
+          onExtract(decoded);
         }}
       />
       {text && (
@@ -244,7 +246,7 @@ function OcrUploaderWithCallback(props: { onExtract: (text: string) => void }) {
         // First, try to extract the text layer (fast, no OCR, works on iOS).
         const textLayerResult = await tryPdfTextLayer(arrayBuffer);
         if (textLayerResult !== null) {
-          props.onExtract(textLayerResult);
+          props.onExtract(decodeHtmlEntities(textLayerResult));
           return;
         }
 
@@ -284,10 +286,10 @@ function OcrUploaderWithCallback(props: { onExtract: (text: string) => void }) {
           fullText += data.text + "\n";
         }
         await worker.terminate();
-        props.onExtract(fullText);
+        props.onExtract(decodeHtmlEntities(fullText));
       } else {
         const text = await runOcr(file, setProgress);
-        props.onExtract(text);
+        props.onExtract(decodeHtmlEntities(text));
       }
     } catch (err) {
       console.error("OCR error:", err);

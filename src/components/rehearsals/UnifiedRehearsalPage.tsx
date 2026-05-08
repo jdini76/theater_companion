@@ -17,6 +17,7 @@ import {
   characterNamesMatch,
 } from "@/lib/voice";
 import { getCachedAudioFile } from "@/lib/audio-cache";
+import { decodeHtmlEntities } from "@/lib/utils";
 import {
   KOKORO_VOICES,
   speakTextViaKokoro,
@@ -230,6 +231,11 @@ export default function UnifiedRehearsalPage() {
     [currentProjectId, getProjectCharacters],
   );
 
+  const normalizeScriptInput = useCallback(
+    (text: string) => decodeHtmlEntities(text),
+    [],
+  );
+
   // Helper: apply a saved settings blob to component state
   const applySettings = useCallback((saved: Record<string, unknown> | null) => {
     // Reset to defaults first so stale state from another project is cleared
@@ -256,7 +262,8 @@ export default function UnifiedRehearsalPage() {
 
     if (!saved) return;
 
-    if (saved.scriptInput) setScriptInput(saved.scriptInput as string);
+    if (saved.scriptInput)
+      setScriptInput(normalizeScriptInput(saved.scriptInput as string));
     if (saved.sceneMode) setSceneMode(saved.sceneMode as "single" | "multiple");
     if (saved.selectedCharacter)
       setSelectedCharacter(saved.selectedCharacter as string);
@@ -291,7 +298,10 @@ export default function UnifiedRehearsalPage() {
         | "single"
         | "multiple"
         | "auto";
-      const parsedScenes = parseScenes(saved.scriptInput as string, {
+      const normalizedScript = normalizeScriptInput(
+        saved.scriptInput as string,
+      );
+      const parsedScenes = parseScenes(normalizedScript, {
         mode,
         productionType,
       });
@@ -438,7 +448,12 @@ export default function UnifiedRehearsalPage() {
     }
 
     // First, parse scenes (splits by scene headers)
-    const parsedScenes = parseScenes(scriptInput, {
+    const normalizedScriptInput = normalizeScriptInput(scriptInput);
+    if (normalizedScriptInput !== scriptInput) {
+      setScriptInput(normalizedScriptInput);
+    }
+
+    const parsedScenes = parseScenes(normalizedScriptInput, {
       mode: sceneMode,
       productionType,
     });
@@ -1616,7 +1631,9 @@ MOM: See? You were ready.`,
                     </div>
                     <textarea
                       value={scriptInput}
-                      onChange={(e) => setScriptInput(e.target.value)}
+                      onChange={(e) =>
+                        setScriptInput(normalizeScriptInput(e.target.value))
+                      }
                       placeholder="SCENE 1: AUDITION ROOM&#10;MOM: You know the lines.&#10;JOEY: I always know them until..."
                       rows={8}
                       className={`${inputCls} font-mono resize-y`}

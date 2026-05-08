@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useProjects } from "@/contexts/ProjectContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
+import { decodeHtmlEntities } from "@/lib/utils";
 import type { ProductionType } from "@/types/project";
 import {
   createScenesFromInput,
@@ -314,7 +315,8 @@ export function SceneImportForm({
 
   const handleParseText = (text: string) => {
     setError(null);
-    if (!text.trim()) {
+    const normalizedText = decodeHtmlEntities(text);
+    if (!normalizedText.trim()) {
       setError("Please enter some text");
       setDetectedSceneCount(0);
       return;
@@ -322,9 +324,11 @@ export function SceneImportForm({
 
     try {
       const currentProject = getCurrentProject();
-      const toc = parseTOC(text);
+      const toc = parseTOC(normalizedText);
       setTocData(toc);
-      const sceneText = toc ? stripTocSection(text, toc) : text;
+      const sceneText = toc
+        ? stripTocSection(normalizedText, toc)
+        : normalizedText;
       setDetectedSceneCount(detectSceneCount(sceneText));
       const activeProductionType =
         productionType ?? currentProject?.productionType;
@@ -713,7 +717,9 @@ export function SceneImportForm({
                 </label>
                 <textarea
                   value={pastedText}
-                  onChange={(e) => setPastedText(e.target.value)}
+                  onChange={(e) =>
+                    setPastedText(decodeHtmlEntities(e.target.value))
+                  }
                   placeholder={`Paste your scene text here. Supports:\nâ€¢ Single scene: Just paste the text\nâ€¢ Multiple scenes: Use "SCENE 1:", "---" separators, etc.\nâ€¢ Multiline dialogue: Indent continuation lines`}
                   rows={10}
                   className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan font-mono text-sm resize-vertical"
