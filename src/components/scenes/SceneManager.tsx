@@ -39,6 +39,10 @@ export function SceneManager({
     "theater_scene_list_only_my",
     false,
   );
+  const [hideEmptyScenes, setHideEmptyScenes] = useLocalStorage(
+    "theater_scene_list_hide_empty",
+    false,
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
   // When a navigation request arrives, select that scene and collapse sidebar
@@ -113,6 +117,11 @@ export function SceneManager({
         return chars.some((c) => myRoleNames.has(c.toUpperCase()));
       });
     }
+    if (hideEmptyScenes) {
+      result = result.filter(
+        (scene) => (sceneCharacters.get(scene.id) ?? []).length > 0,
+      );
+    }
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       result = result.filter((scene) => scene.title.toLowerCase().includes(q));
@@ -122,13 +131,20 @@ export function SceneManager({
     allScenes,
     onlyMyScenes,
     hasMyRole,
+    hideEmptyScenes,
     sceneCharacters,
     myRoleNames,
     searchQuery,
   ]);
 
+  useEffect(() => {
+    if (!selectedSceneId) return;
+    if (scenes.some((scene) => scene.id === selectedSceneId)) return;
+    setSelectedSceneId(scenes[0]?.id ?? null);
+  }, [scenes, selectedSceneId]);
+
   const selectedScene = selectedSceneId
-    ? (allScenes.find((s) => s.id === selectedSceneId) ?? null)
+    ? (scenes.find((s) => s.id === selectedSceneId) ?? null)
     : null;
   const selectedIndex = selectedSceneId
     ? scenes.findIndex((s) => s.id === selectedSceneId)
@@ -243,6 +259,15 @@ export function SceneManager({
                     </button>
                   )}
                 </div>
+                <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer hover:text-light mb-2 select-none">
+                  <input
+                    type="checkbox"
+                    checked={hideEmptyScenes}
+                    onChange={(e) => setHideEmptyScenes(e.target.checked)}
+                    className="accent-accent-cyan w-3.5 h-3.5"
+                  />
+                  Hide empty scenes
+                </label>
                 <SceneList
                   projectId={projectId}
                   filteredScenes={scenes}
