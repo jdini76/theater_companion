@@ -408,6 +408,39 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
         "I don't know why this is happening but I need answers.",
       );
     });
+
+    it("does not tag screenplay lyrics as songs", () => {
+      const text = [
+        "MAYBE FAR AWAY,",
+        "OR MAYBE REAL NEARBY",
+        "HE MAY BE POURIN HER COFFEE",
+        "SHE MAY BE STRAIGHTENING HIS TIE!",
+      ].join("\n");
+      const result = parseDialogueLines(text, "screenplay");
+      expect(result.some((l) => l.isSong)).toBe(false);
+      expect(result.some((l) => l.character === "[Song]")).toBe(false);
+    });
+
+    it("treats blank-line-separated screenplay prose as narrative", () => {
+      const text = [
+        "PHIL: I don't know what to say.",
+        "",
+        "He looks toward the door.",
+      ].join("\n");
+      const result = parseDialogueLines(text, "screenplay");
+      expect(
+        result.some(
+          (l) => l.character === "PHIL" && l.dialogue.includes("He looks"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue === "He looks toward the door.",
+        ),
+      ).toBe(true);
+    });
   });
 
   // ── Scene headings ─────────────────────────────────────────────────────
@@ -518,6 +551,26 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
         "I flew almost five million miles.",
       ].join("\n");
       const result = parseDialogueLines(text, "standalone");
+
+      it("recognises screenplay speaker cues that follow prose action", () => {
+        const text = [
+          "Still hurtling, the DRIVER calmly makes adjustments, works",
+          "the clutch, rams home the stick.",
+          "DRIVER",
+          "Sir, can I ask why I was pulled from deep cover?",
+          "GENERAL SANTARELLI",
+          "Just keep driving.",
+        ].join("\n");
+        const result = parseDialogueLines(text, "screenplay");
+        expect(
+          result.filter((l) => l.character === "DRIVER" && !l.isStageDirection),
+        ).toHaveLength(1);
+        expect(
+          result.filter(
+            (l) => l.character === "GENERAL SANTARELLI" && !l.isStageDirection,
+          ),
+        ).toHaveLength(1);
+      });
       const frank = result.filter((l) => l.character === "OLDER FRANK JUNIOR");
       expect(frank).toHaveLength(2);
     });
@@ -884,6 +937,70 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
       const narrative = result.find((l) => l.character === "[Narrative]");
       expect(narrative).toBeDefined();
       expect(narrative!.dialogue).toBe("some continuation");
+    });
+  });
+
+  describe("screenplay prose split", () => {
+    it("splits a dialogue line that turns into narrative prose", () => {
+      const text = [
+        "GENERAL SANTARELLI",
+        "Just keep driving. The passenger, GENERAL SANTARELLI (60s), wearing a crisp suit, turns his head slowly.",
+        "The glare emphasizes an OLD SCAR down the right side of his face.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      const generalLines = result.filter(
+        (l) => l.character === "GENERAL SANTARELLI" && !l.isStageDirection,
+      );
+      expect(generalLines).toHaveLength(1);
+      expect(generalLines[0].dialogue).toBe("Just keep driving.");
+
+      const narrativeLines = result.filter(
+        (l) => l.character === "[Narrative]",
+      );
+      expect(narrativeLines.map((l) => l.dialogue)).toEqual([
+        "The passenger, GENERAL SANTARELLI (60s), wearing a crisp suit, turns his head slowly.",
+        "The glare emphasizes an OLD SCAR down the right side of his face.",
+      ]);
+    });
+
+    it("does not treat dialogue ellipses as TOC dot leaders", () => {
+      const text = [
+        "DRIVER",
+        "It's just... I took two years to establish that identity.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      const driverLines = result.filter(
+        (l) => l.character === "DRIVER" && !l.isStageDirection,
+      );
+      expect(driverLines).toHaveLength(1);
+      expect(driverLines[0].dialogue).toBe(
+        "It's just... I took two years to establish that identity.",
+      );
+    });
+
+    it("treats a blank line after dialogue as narrative", () => {
+      const text = [
+        "DRIVER",
+        "Sir, can I ask why I was pulled from deep cover?",
+        "",
+        "The car rocks as he shifts lanes.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      const driverLines = result.filter(
+        (l) => l.character === "DRIVER" && !l.isStageDirection,
+      );
+      expect(driverLines).toHaveLength(1);
+      expect(driverLines[0].dialogue).toBe(
+        "Sir, can I ask why I was pulled from deep cover?",
+      );
+
+      const narrative = result.filter((l) => l.character === "[Narrative]");
+      expect(narrative.map((l) => l.dialogue)).toEqual([
+        "The car rocks as he shifts lanes.",
+      ]);
     });
   });
 

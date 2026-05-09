@@ -206,7 +206,7 @@ export function SceneList({
                     <span className="ml-0.5 opacity-60">👤</span>
                   </span>
                 )}
-                {songs.length > 0 && (
+                {productionType !== "Film" && songs.length > 0 && (
                   <span
                     className="text-xs text-yellow-500/60 tabular-nums ml-1"
                     title={`${songs.length} song${songs.length !== 1 ? "s" : ""}`}

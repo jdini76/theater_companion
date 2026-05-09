@@ -7,7 +7,12 @@ import type { ProductionType } from "@/types/project";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { extractSceneCharacters, getSceneParseFormat } from "@/lib/scenes";
+import {
+  buildSceneDisplayContent,
+  extractSceneCharacters,
+  getSceneParseFormat,
+  reflowWrappedText,
+} from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
 import {
   type LineOverride,
@@ -313,6 +318,8 @@ export function SceneViewer({
     sceneCharacters,
     allCharacters,
   };
+  const stageDirectionLabel =
+    productionType === "Film" ? "Action Line" : "Stage Direction";
 
   // When "highlight my lines only" is on, filter the colorMap so only the
   // user's role(s) lines get coloured. We always pass allNames as characters
@@ -340,6 +347,15 @@ export function SceneViewer({
       : colorMap;
 
   const songs = scene.songs ?? [];
+  const displayContent = buildSceneDisplayContent(
+    scene.content,
+    scene.lines,
+    productionType,
+  );
+  const displayDescription = scene.description
+    ? reflowWrappedText(scene.description)
+    : "";
+  const showSongs = productionType !== "Film" && songs.length > 0;
 
   return (
     <div className="card flex flex-col flex-1 space-y-4">
@@ -347,8 +363,10 @@ export function SceneViewer({
       <div className="flex justify-between items-start gap-4">
         <div>
           <h2 className="text-2xl font-bold text-light">{scene.title}</h2>
-          {scene.description && (
-            <p className="text-muted text-sm mt-1">{scene.description}</p>
+          {displayDescription && (
+            <p className="text-muted text-sm mt-1 whitespace-pre-line">
+              {displayDescription}
+            </p>
           )}
           <p className="text-xs text-muted mt-2">
             {scene.content.split("\n").length} lines
@@ -516,7 +534,7 @@ export function SceneViewer({
       )}
 
       {/* Songs */}
-      {songs.length > 0 && (
+      {showSongs && (
         <div className="flex flex-wrap gap-1.5">
           {songs.map((song) => (
             <span
@@ -532,7 +550,7 @@ export function SceneViewer({
       {/* Highlighted content — fully interactive */}
       <div className="flex-1 min-h-0">
         <HighlightedContent
-          content={scene.content}
+          content={displayContent}
           characters={allNames}
           colorMap={displayColorMap}
           overrides={overrides}
@@ -540,6 +558,8 @@ export function SceneViewer({
           maxHeight="max-h-[calc(160vh-20rem)]"
           textSize={scriptTextSize}
           allowColonHeaders={productionType !== "Film"}
+          allowSongMenus={productionType !== "Film"}
+          stageDirectionLabel={stageDirectionLabel}
           assignPanelProps={assignPanelProps}
         />
       </div>
@@ -672,7 +692,7 @@ export function SceneViewer({
           </div>
 
           {/* Character tags + songs */}
-          {(sceneCharacters.length > 0 || songs.length > 0) && (
+          {(sceneCharacters.length > 0 || showSongs) && (
             <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-border flex-shrink-0">
               {sceneCharacters.map((char) => {
                 const color = colorMap.get(char);
@@ -713,21 +733,22 @@ export function SceneViewer({
                   </span>
                 );
               })}
-              {songs.map((song) => (
-                <span
-                  key={song}
-                  className="px-2 py-0.5 bg-yellow-500/15 text-yellow-400 text-xs rounded-full border border-yellow-500/20"
-                >
-                  ♪ {song}
-                </span>
-              ))}
+              {showSongs &&
+                songs.map((song) => (
+                  <span
+                    key={song}
+                    className="px-2 py-0.5 bg-yellow-500/15 text-yellow-400 text-xs rounded-full border border-yellow-500/20"
+                  >
+                    ♪ {song}
+                  </span>
+                ))}
             </div>
           )}
 
           {/* Content */}
           <div className="flex-1 min-h-0 p-4">
             <HighlightedContent
-              content={scene.content}
+              content={displayContent}
               characters={allNames}
               colorMap={displayColorMap}
               overrides={overrides}
@@ -735,6 +756,8 @@ export function SceneViewer({
               maxHeight="max-h-[calc(100vh-5rem)]"
               textSize={scriptTextSize}
               allowColonHeaders={productionType !== "Film"}
+              allowSongMenus={productionType !== "Film"}
+              stageDirectionLabel={stageDirectionLabel}
               assignPanelProps={assignPanelProps}
             />
           </div>

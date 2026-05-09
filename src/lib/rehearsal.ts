@@ -132,14 +132,6 @@ const MODERN_SONG_CUE_RE =
   /^\((?:(?:she|he|they|we|i|all)\s+)?sing(?:s|ing)?(?:\s+(?:the\s+following|along|and\s+danc(?:es?|ing)))?\s*\.?\)$/i;
 
 /**
- * Heuristic for whether a dialogue fragment has ended a sentence.
- * Used to keep wrapped screenplay dialogue together until punctuation.
- */
-function hasTerminalPunctuation(text: string): boolean {
-  return /[.!?…]["')\]]*\s*$/.test(text.trim());
-}
-
-/**
  * Matches a line that is entirely uppercase — used by the post-parse pass
  * to identify song lyric lines that were not caught by active state.
  * Allows letters, digits, whitespace, and common lyric punctuation.
@@ -875,7 +867,12 @@ function isKnownCharacter(name: string, knownCharSet: Set<string>): boolean {
  * A single isolated ALL-CAPS narrative line is NOT re-tagged to avoid
  * false-positives from things like scene headings that weren't caught.
  */
-function tagConsecutiveLyrics(lines: DialogueLine[]): DialogueLine[] {
+function tagConsecutiveLyrics(
+  lines: DialogueLine[],
+  enableSongParsing: boolean,
+): DialogueLine[] {
+  if (!enableSongParsing) return lines;
+
   const isCandidate = lines.map(
     (l) =>
       l.character === "[Narrative]" &&
@@ -969,6 +966,7 @@ export function parseDialogueLines(
   const useStandalone =
     fmt === "standalone" || fmt === "screenplay" || fmt === "mixed";
   const useInline = fmt === "inline" || fmt === "mixed";
+  const enableSongParsing = fmt !== "screenplay";
 
   const allLines = sceneContent.split("\n");
   for (let i = 0; i < allLines.length; i++) {
@@ -995,7 +993,7 @@ export function parseDialogueLines(
     // ── TOC / dot-leader lines ───────────────────────────────────────
     // Lines like "Scene 1: The Locked Stage .............. 6" are table-of-
     // contents entries; they should never be treated as characters or dialogue.
-    if (/\.{3,}/.test(trimmed)) {
+    if (/\.{6,}\s*\d+\s*$/.test(trimmed)) {
       debugParse("table of contents / dot leader", { text: trimmed });
       output.push({
         lineNumber: lineNumber++,
@@ -1083,14 +1081,14 @@ export function parseDialogueLines(
       // ── Approach A: song cue detection ──────────────────────────
       // Check whether this stage direction opens or closes a song block.
       const songStartMatch = SONG_CUE_START_RE.exec(trimmed);
-      if (songStartMatch) {
+      if (enableSongParsing && songStartMatch) {
         inSongBlock = true;
         currentSongTitle =
           (songStartMatch[1] ?? songStartMatch[2] ?? "").trim() || null;
-      } else if (MODERN_SONG_CUE_RE.test(trimmed)) {
+      } else if (enableSongParsing && MODERN_SONG_CUE_RE.test(trimmed)) {
         // Modern-format cue: (She sings.)  (He sings)  (They sing.)  etc.
         inSongBlock = true;
-      } else if (SONG_CUE_END_RE.test(trimmed)) {
+      } else if (enableSongParsing && SONG_CUE_END_RE.test(trimmed)) {
         inSongBlock = false;
         currentSongTitle = null;
       }
@@ -1130,7 +1128,12 @@ export function parseDialogueLines(
           });
           pendingStandaloneChar = null;
           // When the character starts speaking with lowercase dialogue, exit song mode.
-          if (inSongBlock && dialogue && /[a-z]/.test(dialogue)) {
+          if (
+            enableSongParsing &&
+            inSongBlock &&
+            dialogue &&
+            /[a-z]/.test(dialogue)
+          ) {
             inSongBlock = false;
             currentSongTitle = null;
           }
@@ -1141,7 +1144,7 @@ export function parseDialogueLines(
               character,
               dialogue,
             };
-            if (inSongBlock) {
+            if (enableSongParsing && inSongBlock) {
               entry.isSong = true;
               if (currentSongTitle) entry.songTitle = currentSongTitle;
             }
@@ -1153,7 +1156,7 @@ export function parseDialogueLines(
             // The empty cue header signals that lyrics follow.
             lastCharacter = character;
             lastDialogueIdx = -1;
-            inSongBlock = true;
+            if (enableSongParsing) inSongBlock = true;
           }
           afterBlank = false;
           continue;
@@ -1278,6 +1281,23 @@ export function parseDialogueLines(
           }
         }
 
+        if (
+          !acceptAsCharacter &&
+          lastCharacter === null &&
+          lastDialogueIdx === -1 &&
+          fmt === "screenplay"
+        ) {
+          // Screenplay action lines often introduce the next speaker without a
+          // blank line. If the next meaningful line starts with lowercase, treat
+          // this all-caps line as the cue.
+          for (let j = i + 1; j < allLines.length; j++) {
+            const peek = allLines[j].trim();
+            if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
+            acceptAsCharacter = /[a-z]/.test(peek);
+            break;
+          }
+        }
+
         // ── Approach C: cast-aware lyric detection ──────────────────
         // If we have a known cast list and this name isn't in it, the line
         // is almost certainly a song lyric (e.g. "TOMORROW, TOMORROW…")
@@ -1364,6 +1384,7 @@ export function parseDialogueLines(
       debugParse("pending standalone character consumed", {
         pendingStandaloneChar,
       });
+
       lastCharacter = pendingStandaloneChar;
       pendingStandaloneChar = null;
       const idx = output.length;
@@ -1396,9 +1417,6 @@ export function parseDialogueLines(
         continue;
       }
 
-      const dialogueText =
-        lastDialogueIdx >= 0 ? output[lastDialogueIdx].dialogue : "";
-      const dialogueEndsSentence = hasTerminalPunctuation(dialogueText);
       let standaloneCharLooksLikeSpeaker = false;
       if (useStandalone) {
         const previewMatch = STANDALONE_CHAR_NAME_RE.exec(trimmed);
@@ -1430,21 +1448,29 @@ export function parseDialogueLines(
           text: trimmed,
         });
         output[lastDialogueIdx].dialogue += " " + trimmed;
-        if (inSongBlock) output[lastDialogueIdx].isSong = true;
+        if (enableSongParsing && inSongBlock)
+          output[lastDialogueIdx].isSong = true;
       } else if (
         !standaloneCharLooksLikeSpeaker &&
-        lastDialogueIdx >= 0 &&
-        !inSongBlock &&
-        !dialogueEndsSentence
+        fmt === "screenplay" &&
+        afterBlank
       ) {
-        // Blank-separated screenplay continuation: keep flowing until the
-        // current speech actually ends with punctuation.
-        debugParse("blank-separated continuation", {
+        // In screenplay mode, a blank line is a boundary. Treat the next line
+        // as scene description unless it is an explicit speaker cue.
+        debugParse("blank-separated screenplay narrative", {
           currentCharacter: lastCharacter,
           text: trimmed,
         });
-        output[lastDialogueIdx].dialogue += " " + trimmed;
-        if (inSongBlock) output[lastDialogueIdx].isSong = true;
+        output.push({
+          lineNumber: lineNumber++,
+          character: "[Narrative]",
+          dialogue: trimmed,
+        });
+        lastCharacter = null;
+        lastDialogueIdx = -1;
+        pendingStandaloneChar = null;
+        afterBlank = false;
+        continue;
       } else if (!standaloneCharLooksLikeSpeaker) {
         // Verse break (blank-separated) or first lyric after CHARACTER:
         debugParse("new continuation line", {
@@ -1458,7 +1484,7 @@ export function parseDialogueLines(
           character: lastCharacter,
           dialogue: trimmed,
         };
-        if (inSongBlock) {
+        if (enableSongParsing && inSongBlock) {
           entry.isSong = true;
           if (currentSongTitle) entry.songTitle = currentSongTitle;
         }
@@ -1478,7 +1504,7 @@ export function parseDialogueLines(
         character: inSongBlock ? "[Song]" : "[Narrative]",
         dialogue: trimmed,
       };
-      if (inSongBlock) {
+      if (enableSongParsing && inSongBlock) {
         entry.isSong = true;
         if (currentSongTitle) entry.songTitle = currentSongTitle;
       }
@@ -1490,7 +1516,7 @@ export function parseDialogueLines(
 
   // Approach B: tag any remaining runs of 2+ consecutive ALL-CAPS [Narrative]
   // lines that weren't caught by active state (no cues, no cast list).
-  tagConsecutiveLyrics(output);
+  tagConsecutiveLyrics(output, enableSongParsing);
 
   return expandInlineParentheticals(output);
 }

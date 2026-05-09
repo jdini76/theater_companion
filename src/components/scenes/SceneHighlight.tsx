@@ -344,6 +344,8 @@ interface LineAssignPanelProps {
   onClose: () => void;
   allCharacters?: string[];
   lineText?: string;
+  allowSongMenus?: boolean;
+  stageDirectionLabel?: string;
 }
 
 export function LineAssignPanel({
@@ -355,6 +357,8 @@ export function LineAssignPanel({
   onClose,
   allCharacters = [],
   lineText = "",
+  allowSongMenus = true,
+  stageDirectionLabel = "Stage Direction",
 }: LineAssignPanelProps) {
   const [mode, setMode] = useState<
     "dialogue" | "header" | "multi-header" | "song-title"
@@ -363,7 +367,7 @@ export function LineAssignPanel({
       ? "header"
       : currentAssignment?.kind === "multi-header"
         ? "multi-header"
-        : currentAssignment?.kind === "song-title"
+        : allowSongMenus && currentAssignment?.kind === "song-title"
           ? "song-title"
           : "dialogue",
   );
@@ -380,12 +384,13 @@ export function LineAssignPanel({
   );
 
   const isHeader = mode === "header";
-  const isSongTitle = mode === "song-title";
+  const isSongTitle = allowSongMenus && mode === "song-title";
   const isMultiHeader = mode === "multi-header";
 
   const switchMode = (
     newMode: "dialogue" | "header" | "multi-header" | "song-title",
   ) => {
+    if (!allowSongMenus && newMode === "song-title") return;
     if (newMode === "song-title" && mode !== "song-title") {
       if (!songTitleInput) setSongTitleInput(lineText);
     }
@@ -453,20 +458,22 @@ export function LineAssignPanel({
         >
           Multi-character
         </button>
-        <button
-          onClick={() => switchMode("song-title")}
-          style={
-            mode === "song-title"
-              ? {
-                  color: SONG_TITLE_COLOR.color,
-                  backgroundColor: SONG_TITLE_COLOR.bgColor,
-                }
-              : undefined
-          }
-          className={`px-2 py-0.5 rounded transition-colors ${mode === "song-title" ? "" : "text-muted hover:text-light"}`}
-        >
-          ♪ Song Title
-        </button>
+        {allowSongMenus && (
+          <button
+            onClick={() => switchMode("song-title")}
+            style={
+              mode === "song-title"
+                ? {
+                    color: SONG_TITLE_COLOR.color,
+                    backgroundColor: SONG_TITLE_COLOR.bgColor,
+                  }
+                : undefined
+            }
+            className={`px-2 py-0.5 rounded transition-colors ${mode === "song-title" ? "" : "text-muted hover:text-light"}`}
+          >
+            ♪ Song Title
+          </button>
+        )}
       </div>
 
       {isSongTitle ? (
@@ -634,7 +641,7 @@ export function LineAssignPanel({
           onClick={() => onAssign({ kind: "stage-direction" })}
           className={`px-2 py-0.5 rounded border transition-colors hover:text-light ${currentAssignment?.kind === "stage-direction" ? "border-current text-light" : "border-border text-muted"}`}
         >
-          Stage Direction
+          {stageDirectionLabel}
         </button>
         <button
           onClick={onReset}
@@ -662,6 +669,8 @@ interface HighlightedContentProps {
   maxHeight?: string;
   textSize?: string;
   allowColonHeaders?: boolean;
+  allowSongMenus?: boolean;
+  stageDirectionLabel?: string;
   assignPanelProps?: {
     sceneCharacters: string[];
     allCharacters: string[];
@@ -677,6 +686,8 @@ export function HighlightedContent({
   maxHeight = "max-h-80",
   textSize = "text-xs",
   allowColonHeaders = true,
+  allowSongMenus = true,
+  stageDirectionLabel = "Stage Direction",
   assignPanelProps,
 }: HighlightedContentProps) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
@@ -715,6 +726,8 @@ export function HighlightedContent({
         colorMap={colorMap}
         currentAssignment={override}
         lineText={lines[i]?.trim() ?? ""}
+        allowSongMenus={allowSongMenus}
+        stageDirectionLabel={stageDirectionLabel}
         onAssign={(ov) => {
           onAssign(i, ov);
           setActiveLine(null);

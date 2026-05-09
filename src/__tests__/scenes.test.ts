@@ -19,8 +19,12 @@ import {
   extractCastNames,
   extractCharacterIntroductions,
   extractCharacterIntroductionsFromScenes,
+  buildSceneDisplayContent,
+  reflowWrappedText,
+  normalizeSceneContent,
 } from "@/lib/scenes";
 import { Scene, ParsedScene, ParsedToc } from "@/types/scene";
+import { type DialogueLine } from "@/types/rehearsal";
 
 describe("Scene Management", () => {
   describe("Scene ID Generation", () => {
@@ -83,6 +87,53 @@ describe("Scene Management", () => {
         "60s, wearing a crisp suit, turns his head slowly.",
       );
       expect(intros["GENERAL SANTARELLI"]).not.toContain("OLD SCAR");
+    });
+  });
+
+  describe("scene display content", () => {
+    it("reflows wrapped narrative into viewer-friendly paragraphs", () => {
+      const lines: DialogueLine[] = [
+        {
+          lineNumber: 0,
+          character: "[Narrative]",
+          dialogue:
+            "Under bright moonlight, snow blankets a vast area dense with",
+        },
+        {
+          lineNumber: 1,
+          character: "[Narrative]",
+          dialogue: "trees, the WHISTLE OF WIND the only sound.",
+        },
+        {
+          lineNumber: 2,
+          character: "[Narrative]",
+          dialogue:
+            "The forest spreads to a mountainside, a snow-dusted wall of",
+        },
+        {
+          lineNumber: 3,
+          character: "[Narrative]",
+          dialogue: "rock, vegetation poking through here and there.",
+        },
+      ];
+
+      const display = buildSceneDisplayContent("", lines, "Film");
+
+      expect(display).toBe(
+        "Under bright moonlight, snow blankets a vast area dense with trees, the WHISTLE OF WIND the only sound. The forest spreads to a mountainside, a snow-dusted wall of rock, vegetation poking through here and there.",
+      );
+    });
+
+    it("reflows wrapped scene descriptions into one paragraph", () => {
+      const description = [
+        "A tense briefing room where",
+        "everyone is waiting for",
+        "the next order.",
+      ].join("\n");
+
+      expect(reflowWrappedText(description)).toBe(
+        "A tense briefing room where everyone is waiting for the next order.",
+      );
     });
   });
 
@@ -249,6 +300,24 @@ Content three.`;
       expect(scene.id).toMatch(/^scene_/);
       expect(scene.createdAt).toBeDefined();
       expect(scene.updatedAt).toBeDefined();
+    });
+
+    it("normalizes wrapped prose without inventing speaker names", () => {
+      const content = [
+        "Still hurtling, the DRIVER calmly makes adjustments, works",
+        "the clutch, rams home the stick. Civilian clothes. American.",
+        "DRIVER",
+        "Sir, can I ask why I was pulled from deep cover?",
+      ].join("\n");
+
+      const scene = createScene("project_123", "Test Scene", content);
+      expect(scene.content).toContain(
+        "Still hurtling, the DRIVER calmly makes adjustments, works the clutch, rams home the stick. Civilian clothes. American.",
+      );
+      expect(scene.content).toContain(
+        "DRIVER\nSir, can I ask why I was pulled from deep cover?",
+      );
+      expect(scene.content).toBe(normalizeSceneContent(content));
     });
 
     it("should create scene without description", () => {

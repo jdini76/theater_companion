@@ -12,6 +12,7 @@ import {
   extractSceneCharacters,
   extractCharacterIntroductionsFromScenes,
   extractCastNames,
+  cleanPdfArtifacts,
   parseTOC,
   findSongsForScene,
   stripTocSection,
@@ -313,10 +314,12 @@ export function SceneImportForm({
   // Whether to expand the review list to include auto-matched characters
   const [showAllChars, setShowAllChars] = useState(false);
 
-  const handleParseText = (text: string) => {
+  const handleParseText = (text: string, sourceType: "text" | "pdf") => {
     setError(null);
     const normalizedText = decodeHtmlEntities(text);
-    if (!normalizedText.trim()) {
+    const preparedText =
+      sourceType === "pdf" ? cleanPdfArtifacts(normalizedText) : normalizedText;
+    if (!preparedText.trim()) {
       setError("Please enter some text");
       setDetectedSceneCount(0);
       return;
@@ -324,11 +327,9 @@ export function SceneImportForm({
 
     try {
       const currentProject = getCurrentProject();
-      const toc = parseTOC(normalizedText);
+      const toc = parseTOC(preparedText);
       setTocData(toc);
-      const sceneText = toc
-        ? stripTocSection(normalizedText, toc)
-        : normalizedText;
+      const sceneText = toc ? stripTocSection(preparedText, toc) : preparedText;
       setDetectedSceneCount(detectSceneCount(sceneText));
       const activeProductionType =
         productionType ?? currentProject?.productionType;
@@ -348,11 +349,16 @@ export function SceneImportForm({
         scenes.map((scene) => ({
           title: scene.title,
           content: scene.content,
-          songs: toc ? findSongsForScene(toc, scene.title) : [],
+          songs:
+            activeProductionType === "Film"
+              ? []
+              : toc
+                ? findSongsForScene(toc, scene.title)
+                : [],
         })),
       );
 
-      const castPageNames = extractCastNames(text);
+      const castPageNames = extractCastNames(preparedText);
       const existingCast = getProjectCharacters(projectId).map(
         (c) => c.characterName,
       );
@@ -419,7 +425,12 @@ export function SceneImportForm({
       const localScenesData = scenes.map((scene) => ({
         title: scene.title,
         content: scene.content,
-        songs: toc ? findSongsForScene(toc, scene.title) : [],
+        songs:
+          activeProductionType === "Film"
+            ? []
+            : toc
+              ? findSongsForScene(toc, scene.title)
+              : [],
       }));
 
       if (flagged.length === 0) {
@@ -604,8 +615,6 @@ export function SceneImportForm({
     );
   };
 
-  const handlePasteInput = () => handleParseText(pastedText);
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0];
     if (!file) return;
@@ -614,11 +623,11 @@ export function SceneImportForm({
     try {
       const name = file.name.toLowerCase();
       if (name.endsWith(".txt") || name.endsWith(".fountain")) {
-        handleParseText(await file.text());
+        handleParseText(await file.text(), "text");
         return;
       }
       if (name.endsWith(".pdf")) {
-        handleParseText(await extractTextFromPdf(file));
+        handleParseText(await extractTextFromPdf(file), "pdf");
         return;
       }
       throw new Error(
@@ -727,7 +736,7 @@ export function SceneImportForm({
               </div>
               <Button
                 variant="primary"
-                onClick={handlePasteInput}
+                onClick={() => handleParseText(pastedText, "text")}
                 disabled={!pastedText.trim()}
               >
                 Parse Text
@@ -787,7 +796,7 @@ export function SceneImportForm({
                     <div className="mt-4">
                       <Button
                         variant="primary"
-                        onClick={() => handleParseText(ocrText)}
+                        onClick={() => handleParseText(ocrText, "text")}
                       >
                         Use Extracted Text
                       </Button>

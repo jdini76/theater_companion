@@ -1,7 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
-import { extractSceneCharacters, getSceneParseFormat } from "@/lib/scenes";
+import React, { useEffect, useState } from "react";
+import {
+  extractSceneCharacters,
+  getSceneParseFormat,
+  normalizeSceneContent,
+  reflowWrappedText,
+} from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
 import { Scene } from "@/types/scene";
 import type { ProductionType } from "@/types/project";
@@ -21,10 +26,22 @@ export function SceneEditor({
 }: SceneEditorProps) {
   const { updateScene } = useScenes();
   const [title, setTitle] = useState(scene.title);
-  const [content, setContent] = useState(scene.content);
-  const [description, setDescription] = useState(scene.description || "");
+  const [content, setContent] = useState(() =>
+    normalizeSceneContent(scene.content),
+  );
+  const [description, setDescription] = useState(() =>
+    scene.description ? reflowWrappedText(scene.description) : "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setTitle(scene.title);
+    setContent(normalizeSceneContent(scene.content));
+    setDescription(
+      scene.description ? reflowWrappedText(scene.description) : "",
+    );
+  }, [scene, productionType]);
 
   const handleSave = async () => {
     setError(null);
@@ -37,8 +54,9 @@ export function SceneEditor({
         contentLength: content.length,
       });
       const trimmedTitle = title.trim();
-      const trimmedContent = content.trim();
-      const rawContent = content;
+      const normalizedContent = normalizeSceneContent(content);
+      const trimmedContent = normalizedContent.trim();
+      const rawContent = normalizedContent;
 
       if (!trimmedTitle) {
         throw new Error("Scene title cannot be empty");

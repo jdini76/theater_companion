@@ -1,4 +1,5 @@
 import { Scene, ParsedScene, TocEntry, ParsedToc } from "@/types/scene";
+import type { DialogueLine } from "@/types/rehearsal";
 import type { ProductionType } from "@/types/project";
 import { parseDialogueLines } from "@/lib/rehearsal";
 
@@ -19,6 +20,133 @@ export function getSceneParseFormat(
   productionType?: ProductionType,
 ): "screenplay" | "mixed" {
   return productionType === "Film" ? "screenplay" : "mixed";
+}
+
+export function buildSceneDisplayContent(
+  content: string,
+  lines?: DialogueLine[],
+  productionType?: ProductionType,
+): string {
+  const parsedLines =
+    lines && lines.length > 0
+      ? lines
+      : parseDialogueLines(content, getSceneParseFormat(productionType));
+
+  const displayLines: string[] = [];
+  const proseBuffer: string[] = [];
+
+  const flushProseBuffer = () => {
+    if (proseBuffer.length === 0) return;
+    displayLines.push(reflowWrappedText(proseBuffer.join(" ")));
+    proseBuffer.length = 0;
+  };
+
+  for (const line of parsedLines) {
+    if (line.character === "[Narrative]") {
+      proseBuffer.push(line.dialogue);
+      continue;
+    }
+
+    flushProseBuffer();
+
+    if (line.isStageDirection || line.character === "[Scene Heading]") {
+      displayLines.push(line.dialogue);
+      continue;
+    }
+
+    const dialogue = line.dialogue.trim();
+    displayLines.push(
+      dialogue ? `${line.character}\n${dialogue}` : line.character,
+    );
+  }
+
+  flushProseBuffer();
+
+  return displayLines.join("\n");
+}
+
+export function reflowWrappedText(text: string): string {
+  return text
+    .trim()
+    .split(/\n\s*\n/)
+    .map((paragraph) =>
+      paragraph
+        .replace(/[ \t]*\n[ \t]*/g, " ")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function isStructuralSceneLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (
+    /^(?:#\s*\d+|ACT\s+|(?:SCENE|scene)\s+\d|(?:Prologue|Epilogue|Interlude)\s*:|(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.)/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+  if (/^(?:SUPER|TITLE|TEXT)\s*:/i.test(trimmed)) return true;
+  if (/^(?:>\s*\S|\(|\[)/.test(trimmed)) return true;
+  if (/^[A-Z0-9\s\-'.&,+()/:]+$/.test(trimmed) && trimmed.length <= 80) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Reflow wrapped source text without inventing new labels or changing the
+ * script structure. Structural lines stay on their own line; prose lines are
+ * joined when they clearly belong to the same wrapped paragraph.
+ */
+export function normalizeSceneContent(text: string): string {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const output: string[] = [];
+  let proseBuffer = "";
+
+  const flushProseBuffer = () => {
+    if (!proseBuffer) return;
+    output.push(reflowWrappedText(proseBuffer));
+    proseBuffer = "";
+  };
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      flushProseBuffer();
+      output.push("");
+      continue;
+    }
+
+    if (isStructuralSceneLine(trimmed)) {
+      flushProseBuffer();
+      output.push(trimmed);
+      continue;
+    }
+
+    if (!proseBuffer) {
+      proseBuffer = trimmed;
+      continue;
+    }
+
+    const shouldJoin =
+      /[-,;:]$/.test(proseBuffer) ||
+      !/^[A-Z]/.test(trimmed) ||
+      /^["'“”({\[]/.test(trimmed);
+    proseBuffer = shouldJoin
+      ? `${proseBuffer} ${trimmed}`
+      : `${proseBuffer}\n${trimmed}`;
+  }
+
+  flushProseBuffer();
+
+  return output
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export interface DetectedScene {
@@ -788,9 +916,6 @@ export function parseScenes(
     return [];
   }
 
-  // Clean PDF artifacts first
-  text = cleanPdfArtifacts(text);
-
   const mode = options?.mode ?? "auto";
   const productionType = options?.productionType;
 
@@ -1100,10 +1225,11 @@ export function createScene(
   productionType?: ProductionType,
 ): Scene {
   const now = new Date().toISOString();
+  const normalizedContent = normalizeSceneContent(content);
 
   // Parse and cache dialogue lines
   const lines = parseDialogueLines(
-    content,
+    normalizedContent,
     getSceneParseFormat(productionType),
   );
 
@@ -1111,7 +1237,7 @@ export function createScene(
     id: generateSceneId(),
     projectId,
     title: title || "Untitled Scene",
-    content,
+    content: normalizedContent,
     description,
     lines,
     order,
@@ -1169,8 +1295,6 @@ export function detectSceneCount(text: string): number {
   if (!text || text.trim().length === 0) {
     return 0;
   }
-
-  text = cleanPdfArtifacts(text);
   const detected = detectSceneBreaks(text);
   return detected.length > 0 ? detected.length : 1;
 }

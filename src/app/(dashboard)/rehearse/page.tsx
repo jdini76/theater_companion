@@ -23,6 +23,9 @@ export default function RehearsePage() {
   const { setCurrentCharacter } = useVoice();
   const { getCurrentProject } = useProjects();
   const currentProject = getCurrentProject();
+  const showSongsTab = currentProject?.productionType !== "Film";
+
+  const tabs = showSongsTab ? TABS : TABS.filter((tab) => tab.id !== "songs");
 
   const navigateToCharacter = useCallback(
     (characterId: string) => {
@@ -43,7 +46,7 @@ export default function RehearsePage() {
     >
       <div className="max-w-4xl mx-auto py-8">
         <div className="flex gap-2 mb-6 border-b border-border">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               className={`px-4 py-2 font-semibold border-b-2 transition-colors ${
