@@ -921,7 +921,7 @@ export function parseScenes(
 
   // Single scene mode: return entire text as one scene
   if (mode === "single") {
-    const trimmed = text.trim();
+    const trimmed = cleanPdfArtifacts(text).trim();
     return [
       {
         title: "Scene 1",
@@ -1223,9 +1223,11 @@ export function createScene(
   description?: string,
   order: number = 0,
   productionType?: ProductionType,
+  setPiece?: string,
 ): Scene {
   const now = new Date().toISOString();
   const normalizedContent = normalizeSceneContent(content);
+  const normalizedSetPiece = setPiece?.trim() || undefined;
 
   // Parse and cache dialogue lines
   const lines = parseDialogueLines(
@@ -1239,6 +1241,7 @@ export function createScene(
     title: title || "Untitled Scene",
     content: normalizedContent,
     description,
+    setPiece: normalizedSetPiece,
     lines,
     order,
     createdAt: now,

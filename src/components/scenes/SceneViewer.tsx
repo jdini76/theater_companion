@@ -356,6 +356,7 @@ export function SceneViewer({
     ? reflowWrappedText(scene.description)
     : "";
   const showSongs = productionType !== "Film" && songs.length > 0;
+  const setPiece = scene.setPiece?.trim();
 
   return (
     <div className="card flex flex-col flex-1 space-y-4">
@@ -366,6 +367,11 @@ export function SceneViewer({
           {displayDescription && (
             <p className="text-muted text-sm mt-1 whitespace-pre-line">
               {displayDescription}
+            </p>
+          )}
+          {setPiece && (
+            <p className="text-xs uppercase tracking-[0.2em] text-accent-cyan/80 mt-2">
+              Set Piece: {setPiece}
             </p>
           )}
           <p className="text-xs text-muted mt-2">

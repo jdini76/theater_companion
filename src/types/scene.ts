@@ -7,6 +7,7 @@ export interface Scene {
   title: string;
   content: string;
   description?: string;
+  setPiece?: string;
   characters?: string[];
   songs?: string[];
   lines?: DialogueLine[]; // Cached parsed dialogue lines
@@ -55,6 +56,7 @@ export interface SceneContextType {
     content: string,
     description?: string,
     productionType?: ProductionType,
+    setPiece?: string,
   ) => Scene;
   createScenes: (
     projectId: string,
@@ -62,6 +64,7 @@ export interface SceneContextType {
       title: string;
       content: string;
       description?: string;
+      setPiece?: string;
       characters?: string[];
       songs?: string[];
       lines?: DialogueLine[];

@@ -302,6 +302,20 @@ Content three.`;
       expect(scene.updatedAt).toBeDefined();
     });
 
+    it("should store an optional set piece label", () => {
+      const scene = createScene(
+        "project_123",
+        "Test Scene",
+        "Scene content here",
+        undefined,
+        0,
+        undefined,
+        "Finale Sequence",
+      );
+
+      expect(scene.setPiece).toBe("Finale Sequence");
+    });
+
     it("normalizes wrapped prose without inventing speaker names", () => {
       const content = [
         "Still hurtling, the DRIVER calmly makes adjustments, works",
@@ -351,10 +365,12 @@ Content three.`;
         title: "New Title",
         content: "New content",
         description: "New description",
+        setPiece: "Finale Sequence",
       });
       expect(updated.title).toBe("New Title");
       expect(updated.content).toBe("New content");
       expect(updated.description).toBe("New description");
+      expect(updated.setPiece).toBe("Finale Sequence");
     });
 
     it("should preserve id and projectId", () => {

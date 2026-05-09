@@ -22,6 +22,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
     content: string,
     description?: string,
     productionType?: import("@/types/project").ProductionType,
+    setPiece?: string,
   ): Scene => {
     const titleValidation = validateSceneTitle(title);
     if (!titleValidation.valid) {
@@ -47,6 +48,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       description,
       maxOrder + 1,
       productionType,
+      setPiece,
     );
     setScenes([...scenes, newScene]);
     return newScene;
@@ -58,6 +60,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       title: string;
       content: string;
       description?: string;
+      setPiece?: string;
       characters?: string[];
       songs?: string[];
       lines?: import("@/types/rehearsal").DialogueLine[];
@@ -96,6 +99,9 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       );
       if (sceneData.characters) {
         scene.characters = sceneData.characters;
+      }
+      if (sceneData.setPiece) {
+        scene.setPiece = sceneData.setPiece.trim() || undefined;
       }
       if (sceneData.songs) {
         scene.songs = sceneData.songs;

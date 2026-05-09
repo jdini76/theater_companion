@@ -407,13 +407,42 @@ function looksLikeNarrativeProseLine(text: string): boolean {
   // Narrative prose should not be forced through the dialogue continuation
   // path just because it appears after a speaker.
   if (!/[a-z]/.test(trimmed)) return false;
-  if (!/\([^)]+\)/.test(trimmed)) return false;
-  if (!/\b\d{1,3}s\b/i.test(trimmed)) return false;
-  if (!/^["'“”]*(?:the|a|an|this|that|these|those)\b/i.test(trimmed)) {
+  if (
+    !/^['"“”]*(?:the|a|an|this|that|these|those|he|she|they|we|i|his|her|their|its|our|my)\b/i.test(
+      trimmed,
+    )
+  ) {
     return false;
   }
 
-  return /[.!?…]["')\]]*\s*$/.test(trimmed);
+  if (!/[.!?…]["')\]]*\s*$/.test(trimmed)) return false;
+
+  // Prose lines usually read like descriptive sentences rather than speech.
+  // Keep the heuristic broad enough to catch screenplay action paragraphs,
+  // but narrow enough to avoid routine dialogue continuations.
+  return (
+    /,\s*[A-Z0-9(]/.test(trimmed) ||
+    /\([^)]+\)/.test(trimmed) ||
+    trimmed.split(/\s+/).length >= 8
+  );
+}
+
+function splitDialogueFromNarrativeProse(
+  text: string,
+): { dialogue: string; narrative: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const boundaryMatch = trimmed.match(
+    /^(.*?[.!?…]["')\]]*)\s+(?=(?:the|a|an|this|that|these|those)\b)/i,
+  );
+  if (!boundaryMatch) return null;
+
+  const dialogue = boundaryMatch[1].trim();
+  const narrative = trimmed.slice(dialogue.length).trim();
+  if (!dialogue || !narrative) return null;
+
+  return { dialogue, narrative };
 }
 
 /**
@@ -1387,6 +1416,26 @@ export function parseDialogueLines(
 
       lastCharacter = pendingStandaloneChar;
       pendingStandaloneChar = null;
+
+      const mixedProseSplit = splitDialogueFromNarrativeProse(trimmed);
+      if (mixedProseSplit) {
+        const dialogueIdx = output.length;
+        output.push({
+          lineNumber: lineNumber++,
+          character: lastCharacter,
+          dialogue: mixedProseSplit.dialogue,
+        });
+        output.push({
+          lineNumber: lineNumber++,
+          character: "[Narrative]",
+          dialogue: mixedProseSplit.narrative,
+        });
+        lastDialogueIdx = dialogueIdx;
+        lastCharacter = null;
+        afterBlank = false;
+        continue;
+      }
+
       const idx = output.length;
       output.push({
         lineNumber: lineNumber++,
@@ -1400,6 +1449,41 @@ export function parseDialogueLines(
 
     // ── Continuation / lyric line ───────────────────────────────────
     if (lastCharacter !== null) {
+      const mixedProseSplit = splitDialogueFromNarrativeProse(trimmed);
+      if (mixedProseSplit) {
+        debugParse("mixed prose split", {
+          currentCharacter: lastCharacter,
+          dialogue: mixedProseSplit.dialogue,
+          narrative: mixedProseSplit.narrative,
+        });
+        if (lastDialogueIdx >= 0) {
+          output[lastDialogueIdx].dialogue += " " + mixedProseSplit.dialogue;
+        } else {
+          const idx = output.length;
+          const entry: DialogueLine = {
+            lineNumber: lineNumber++,
+            character: lastCharacter,
+            dialogue: mixedProseSplit.dialogue,
+          };
+          if (enableSongParsing && inSongBlock) {
+            entry.isSong = true;
+            if (currentSongTitle) entry.songTitle = currentSongTitle;
+          }
+          output.push(entry);
+          lastDialogueIdx = idx;
+        }
+        output.push({
+          lineNumber: lineNumber++,
+          character: "[Narrative]",
+          dialogue: mixedProseSplit.narrative,
+        });
+        lastCharacter = null;
+        lastDialogueIdx = -1;
+        pendingStandaloneChar = null;
+        afterBlank = false;
+        continue;
+      }
+
       if (looksLikeNarrativeProseLine(trimmed)) {
         debugParse("narrative prose override", {
           currentCharacter: lastCharacter,
