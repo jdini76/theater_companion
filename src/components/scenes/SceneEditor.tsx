@@ -32,6 +32,7 @@ export function SceneEditor({
   const [description, setDescription] = useState(() =>
     scene.description ? reflowWrappedText(scene.description) : "",
   );
+  const [setPiece, setSetPiece] = useState(() => scene.setPiece ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -41,6 +42,7 @@ export function SceneEditor({
     setDescription(
       scene.description ? reflowWrappedText(scene.description) : "",
     );
+    setSetPiece(scene.setPiece ?? "");
   }, [scene, productionType]);
 
   const handleSave = async () => {
@@ -102,6 +104,7 @@ export function SceneEditor({
         title: trimmedTitle,
         content: rawContent,
         description: description.trim() || undefined,
+        setPiece: setPiece.trim() || undefined,
         characters,
         lines,
       });
@@ -161,6 +164,19 @@ export function SceneEditor({
           onChange={(e) => setDescription(e.target.value)}
           className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
           placeholder="Scene description"
+        />
+      </div>
+
+      <div>
+        <label className="block text-light font-semibold mb-2">
+          Set Piece (optional)
+        </label>
+        <input
+          type="text"
+          value={setPiece}
+          onChange={(e) => setSetPiece(e.target.value)}
+          className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+          placeholder="Group name for related scenes"
         />
       </div>
 
