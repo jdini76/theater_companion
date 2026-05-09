@@ -1,48 +1,119 @@
 "use client";
 
-import React, { useState } from "react";
-import { extractSceneCharacters } from "@/lib/scenes";
+import React, { useEffect, useState } from "react";
+import {
+  extractSceneCharacters,
+  getSceneParseFormat,
+  normalizeSceneContent,
+  reflowWrappedText,
+} from "@/lib/scenes";
+import { parseDialogueLines } from "@/lib/rehearsal";
 import { Scene } from "@/types/scene";
+import type { ProductionType } from "@/types/project";
 import { useScenes } from "@/contexts/SceneContext";
 import { Button } from "@/components/ui/Button";
 
 interface SceneEditorProps {
   scene: Scene;
+  productionType?: ProductionType;
   onClose?: () => void;
 }
 
-export function SceneEditor({ scene, onClose }: SceneEditorProps) {
+export function SceneEditor({
+  scene,
+  productionType,
+  onClose,
+}: SceneEditorProps) {
   const { updateScene } = useScenes();
   const [title, setTitle] = useState(scene.title);
-  const [content, setContent] = useState(scene.content);
-  const [description, setDescription] = useState(scene.description || "");
+  const [content, setContent] = useState(() =>
+    normalizeSceneContent(scene.content),
+  );
+  const [description, setDescription] = useState(() =>
+    scene.description ? reflowWrappedText(scene.description) : "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setTitle(scene.title);
+    setContent(normalizeSceneContent(scene.content));
+    setDescription(
+      scene.description ? reflowWrappedText(scene.description) : "",
+    );
+  }, [scene, productionType]);
 
   const handleSave = async () => {
     setError(null);
     setIsSaving(true);
 
     try {
-      if (!title.trim()) {
+      console.log("[SceneEditor] save started", {
+        sceneId: scene.id,
+        titleLength: title.length,
+        contentLength: content.length,
+      });
+      const trimmedTitle = title.trim();
+      const normalizedContent = normalizeSceneContent(content);
+      const trimmedContent = normalizedContent.trim();
+      const rawContent = normalizedContent;
+
+      if (!trimmedTitle) {
         throw new Error("Scene title cannot be empty");
       }
-      if (!content.trim()) {
+      if (!trimmedContent) {
         throw new Error("Scene content cannot be empty");
       }
 
-      // Automatically reparse characters from the updated content
-      const characters = extractSceneCharacters(content.trim());
+      // Preserve the existing curated cast while refreshing the parse from the
+      // updated content so rehearsal views keep the same speaker resolution.
+      const detectedCharacters = extractSceneCharacters(
+        rawContent,
+        undefined,
+        productionType,
+      ).map((character) => character.toUpperCase());
+      const existingCharacters = (scene.characters ?? []).map((character) =>
+        character.toUpperCase(),
+      );
+      const characters = Array.from(
+        new Set([...existingCharacters, ...detectedCharacters]),
+      ).sort();
+      console.log("[SceneEditor] parsing scene content", {
+        sceneId: scene.id,
+        characterCount: characters.length,
+        productionType: productionType ?? null,
+      });
+      const lines = parseDialogueLines(
+        rawContent,
+        getSceneParseFormat(productionType),
+        characters,
+      );
+      console.log("[SceneEditor] parse complete", {
+        sceneId: scene.id,
+        lineCount: lines.length,
+      });
 
+      console.log("[SceneEditor] updating scene", {
+        sceneId: scene.id,
+        characterCount: characters.length,
+        lineCount: lines.length,
+      });
       updateScene(scene.id, {
-        title: title.trim(),
-        content: content.trim(),
+        title: trimmedTitle,
+        content: rawContent,
         description: description.trim() || undefined,
         characters,
+        lines,
       });
+
+      console.log("[SceneEditor] save finished", { sceneId: scene.id });
 
       onClose?.();
     } catch (err) {
+      console.log("[SceneEditor] save failed", {
+        sceneId: scene.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
       setError(err instanceof Error ? err.message : "Failed to save scene");
     } finally {
       setIsSaving(false);

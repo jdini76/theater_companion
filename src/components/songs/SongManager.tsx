@@ -6,6 +6,7 @@ import { useVoice } from "@/contexts/VoiceContext";
 import { extractSongsFromScenes, SongEntry } from "@/lib/songs";
 import { type LineOverride } from "@/components/scenes/SceneHighlight";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import type { ProductionType } from "@/types/project";
 import { SongList } from "./SongList";
 import { SongViewer } from "./SongViewer";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -32,11 +33,13 @@ function readAllSceneOverrides(
 interface SongManagerProps {
   projectId: string;
   projectName?: string;
+  productionType?: ProductionType;
 }
 
 export function SongManager({
   projectId,
   projectName = "Project",
+  productionType,
 }: SongManagerProps) {
   const { getProjectScenes } = useScenes();
   const { getProjectCharacters } = useVoice();
@@ -114,6 +117,19 @@ export function SongManager({
       return !v;
     });
   };
+
+  if (productionType === "Film") {
+    return (
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="card text-center py-12">
+          <h1 className="text-2xl font-bold text-light mb-4">Songs Disabled</h1>
+          <p className="text-muted">
+            Film projects do not use song parsing or song menus.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4">

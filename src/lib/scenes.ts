@@ -1,4 +1,6 @@
 import { Scene, ParsedScene, TocEntry, ParsedToc } from "@/types/scene";
+import type { DialogueLine } from "@/types/rehearsal";
+import type { ProductionType } from "@/types/project";
 import { parseDialogueLines } from "@/lib/rehearsal";
 
 /**
@@ -11,6 +13,140 @@ export type SceneInputMode = "single" | "multiple" | "auto";
 
 export interface ParseSceneOptions {
   mode?: SceneInputMode;
+  productionType?: ProductionType;
+}
+
+export function getSceneParseFormat(
+  productionType?: ProductionType,
+): "screenplay" | "mixed" {
+  return productionType === "Film" ? "screenplay" : "mixed";
+}
+
+export function buildSceneDisplayContent(
+  content: string,
+  lines?: DialogueLine[],
+  productionType?: ProductionType,
+): string {
+  const parsedLines =
+    lines && lines.length > 0
+      ? lines
+      : parseDialogueLines(content, getSceneParseFormat(productionType));
+
+  const displayLines: string[] = [];
+  const proseBuffer: string[] = [];
+
+  const flushProseBuffer = () => {
+    if (proseBuffer.length === 0) return;
+    displayLines.push(reflowWrappedText(proseBuffer.join(" ")));
+    proseBuffer.length = 0;
+  };
+
+  for (const line of parsedLines) {
+    if (line.character === "[Narrative]") {
+      proseBuffer.push(line.dialogue);
+      continue;
+    }
+
+    flushProseBuffer();
+
+    if (line.isStageDirection || line.character === "[Scene Heading]") {
+      displayLines.push(line.dialogue);
+      continue;
+    }
+
+    const dialogue = line.dialogue.trim();
+    displayLines.push(
+      dialogue ? `${line.character}\n${dialogue}` : line.character,
+    );
+  }
+
+  flushProseBuffer();
+
+  return displayLines.join("\n");
+}
+
+export function reflowWrappedText(text: string): string {
+  return text
+    .trim()
+    .split(/\n\s*\n/)
+    .map((paragraph) =>
+      paragraph
+        .replace(/[ \t]*\n[ \t]*/g, " ")
+        .replace(/[ \t]{2,}/g, " ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function isStructuralSceneLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (
+    /^(?:#\s*\d+|ACT\s+|(?:SCENE|scene)\s+\d|(?:Prologue|Epilogue|Interlude)\s*:|(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.)/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+  if (/^(?:SUPER|TITLE|TEXT)\s*:/i.test(trimmed)) return true;
+  if (/^(?:>\s*\S|\(|\[)/.test(trimmed)) return true;
+  if (/^[A-Z0-9\s\-'.&,+()/:]+$/.test(trimmed) && trimmed.length <= 80) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Reflow wrapped source text without inventing new labels or changing the
+ * script structure. Structural lines stay on their own line; prose lines are
+ * joined when they clearly belong to the same wrapped paragraph.
+ */
+export function normalizeSceneContent(text: string): string {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const output: string[] = [];
+  let proseBuffer = "";
+
+  const flushProseBuffer = () => {
+    if (!proseBuffer) return;
+    output.push(reflowWrappedText(proseBuffer));
+    proseBuffer = "";
+  };
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      flushProseBuffer();
+      output.push("");
+      continue;
+    }
+
+    if (isStructuralSceneLine(trimmed)) {
+      flushProseBuffer();
+      output.push(trimmed);
+      continue;
+    }
+
+    if (!proseBuffer) {
+      proseBuffer = trimmed;
+      continue;
+    }
+
+    const shouldJoin =
+      /[-,;:]$/.test(proseBuffer) ||
+      !/^[A-Z]/.test(trimmed) ||
+      /^["'“”({\[]/.test(trimmed);
+    proseBuffer = shouldJoin
+      ? `${proseBuffer} ${trimmed}`
+      : `${proseBuffer}\n${trimmed}`;
+  }
+
+  flushProseBuffer();
+
+  return output
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export interface DetectedScene {
@@ -34,6 +170,7 @@ export interface DetectedScene {
 export function extractSceneCharacters(
   content: string,
   knownCast?: string[],
+  productionType?: ProductionType,
 ): string[] {
   // ── If the content itself is a cast page, return those names ────
   const castPage = parseCastList(content);
@@ -44,7 +181,11 @@ export function extractSceneCharacters(
   // Use "mixed" format so all character patterns (colon, standalone, inline)
   // are checked.  For character extraction purposes we want maximum recall.
   // Pass knownCast so Approach C (cast-comparison) song detection fires.
-  const lines = parseDialogueLines(content, "mixed", knownCast);
+  const lines = parseDialogueLines(
+    content,
+    getSceneParseFormat(productionType),
+    knownCast,
+  );
   const characters = new Set<string>();
 
   // ── Build cast lookup tables (if cast list provided) ────────────
@@ -80,6 +221,7 @@ export function extractSceneCharacters(
   for (const line of lines) {
     if (
       line.isStageDirection ||
+      line.character.startsWith("[") ||
       line.character === "[Narrative]" ||
       line.character === "[Scene Heading]"
     ) {
@@ -97,7 +239,7 @@ export function extractSceneCharacters(
 
     for (const part of parts) {
       const upper = part.toUpperCase();
-      if (upper === "ALL" || upper === "EVERYONE") {
+      if (upper === "ALL" || upper === "EVERYONE" || upper === "ENSEMBLE") {
         continue;
       }
 
@@ -183,6 +325,169 @@ export function extractSceneCharacters(
   }
 
   return allNames.sort();
+}
+
+function normalizeDescription(text: string): string {
+  return text
+    .replace(/^[\s,;:\-–—]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isLikelyDescriptionLine(text: string): boolean {
+  if (!text) return false;
+  if (/^[A-Z0-9\s\-'.&,+()\[\]]+$/.test(text)) return false;
+  return /[a-z]/.test(text);
+}
+
+function extractSentenceFragment(text: string): string {
+  const match = text.match(/^.*?[.!?](?=(?:\s|$))/);
+  return (match?.[0] ?? text).trim();
+}
+
+function collectWrappedIntro(
+  lines: string[],
+  startIndex: number,
+  seed: string,
+): string {
+  let text = seed.trim();
+  let cursor = startIndex;
+  let wrapCount = 0;
+
+  while (cursor + 1 < lines.length) {
+    const next = lines[cursor + 1]?.trim() ?? "";
+    if (!next) break;
+    if (
+      /^(?:#\s*\d+|ACT\s+|(?:SCENE|scene)\s+\d|(?:Prologue|Epilogue|Interlude)\s*:|(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.)/i.test(
+        next,
+      )
+    ) {
+      break;
+    }
+    if (!isLikelyDescriptionLine(next) && !/^[a-z(]/.test(next)) break;
+    text = `${text} ${next}`;
+    cursor++;
+    wrapCount++;
+    if (/[.!?…]["')\]]*\s*$/.test(text) || wrapCount >= 3) break;
+  }
+
+  return text;
+}
+
+function stripLeadingIntroNoise(text: string): string {
+  const ageTag = text.match(
+    /^\(\s*(\d{1,3}(?:\s*-\s*\d{1,3})?\s*(?:s|ys)?|mid-\d{1,3}s)\s*\)\s*,?\s*(.*)$/i,
+  );
+  if (ageTag) {
+    const age = ageTag[1].replace(/\s+/g, "");
+    const rest = ageTag[2].trim();
+    return `${age}, ${rest}`.trim();
+  }
+
+  return text.replace(/^[,;:\-–—\s]+/, "").trim();
+}
+
+function findNameSpan(text: string, name: string): [number, number] | null {
+  const upperText = text.toUpperCase();
+  const upperName = name.toUpperCase();
+  let index = upperText.indexOf(upperName);
+
+  while (index !== -1) {
+    const before = index > 0 ? upperText[index - 1] : "";
+    const after = upperText[index + upperName.length] ?? "";
+    if (!/[A-Z0-9]/.test(before) && !/[A-Z0-9]/.test(after)) {
+      return [index, index + upperName.length];
+    }
+    index = upperText.indexOf(upperName, index + 1);
+  }
+
+  return null;
+}
+
+/**
+ * Extract the first introduction description for each character found in the
+ * supplied content. This is intentionally heuristic and aimed at screenplay
+ * imports where the first character mention often appears in scene action.
+ */
+export function extractCharacterIntroductions(
+  content: string,
+  knownCharacters?: string[],
+  productionType?: ProductionType,
+): Record<string, string> {
+  const candidates = Array.from(
+    new Set(
+      (
+        knownCharacters ??
+        extractSceneCharacters(content, undefined, productionType)
+      ).map((n) => n.toUpperCase()),
+    ),
+  ).sort((a, b) => b.length - a.length);
+
+  const descriptions = new Map<string, string>();
+  const lines = content.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    if (
+      /^\s*(?:#\s*\d+|ACT\s+|(?:SCENE|scene)\s+\d|(?:Prologue|Epilogue|Interlude)\s*:|(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.)/i.test(
+        trimmed,
+      )
+    ) {
+      continue;
+    }
+
+    for (const name of candidates) {
+      if (descriptions.has(name)) continue;
+      const span = findNameSpan(trimmed, name);
+      if (!span) continue;
+
+      let intro = "";
+      const afterName = trimmed.slice(span[1]).trim();
+
+      if (/^[,\-–—\(]/.test(afterName)) {
+        intro = stripLeadingIntroNoise(afterName);
+      } else if (afterName === "") {
+        const next = lines[i + 1]?.trim() ?? "";
+        if (isLikelyDescriptionLine(next)) {
+          intro = next;
+        }
+      }
+
+      if (intro) {
+        intro = collectWrappedIntro(lines, i, intro);
+      }
+      intro = extractSentenceFragment(normalizeDescription(intro));
+      if (intro) {
+        descriptions.set(name, intro);
+      }
+    }
+  }
+
+  return Object.fromEntries(descriptions.entries());
+}
+
+export function extractCharacterIntroductionsFromScenes(
+  scenes: Array<{ content: string }>,
+  knownCharacters?: string[],
+  productionType?: ProductionType,
+): Record<string, string> {
+  const descriptions = new Map<string, string>();
+
+  for (const scene of scenes) {
+    const sceneDescriptions = extractCharacterIntroductions(
+      scene.content,
+      knownCharacters,
+      productionType,
+    );
+    for (const [name, description] of Object.entries(sceneDescriptions)) {
+      if (!descriptions.has(name)) {
+        descriptions.set(name, description);
+      }
+    }
+  }
+
+  return Object.fromEntries(descriptions.entries());
 }
 
 // ── Cast list parser ────────────────────────────────────────────────────────
@@ -393,7 +698,8 @@ export function diagnoseSceneMarkers(
   const bracketedPattern =
     /^\[(?:SCENE|Scene|scene)\s+(\d+|[IVivx]+)\s*:?\s*(.*?)\]$/;
   const numberHeadingPattern = /^#\s*(\d+[a-z]?)\s*[-\u2013\u2014]\s*(.+)$/;
-  const screenplayPattern = /^(INT|EXT)\.\s+(.+?)\s*(?:-\s*(.+))?$/i;
+  const screenplayPattern =
+    /^(?:(?:INT|EXT)(?:\.?\/EXT)?|I\/E)\.\s+(.+?)\s*(?:-\s*(.+))?$/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -588,6 +894,8 @@ export function cleanPdfArtifacts(text: string): string {
   text = text.replace(/^\s*Page\s+\d+\s+of\s+\d+\s*$/gm, "");
   // Remove lines that are just page numbers
   text = text.replace(/^\s*\d+\s*$/gm, "");
+  // Remove bare page markers like "12." that often appear in film scripts
+  text = text.replace(/^\s*\d{1,3}\.\s*$/gm, "");
   // Remove libretto running headers: "SHOW TITLE Page N" or "Page N SHOW TITLE"
   // e.g. "ANNIE Page 1" or "Page 2 ANNIE"
   text = text.replace(/^[A-Z][A-Z\s]*\s+Page\s+\d+\s*$/gm, "");
@@ -608,10 +916,8 @@ export function parseScenes(
     return [];
   }
 
-  // Clean PDF artifacts first
-  text = cleanPdfArtifacts(text);
-
   const mode = options?.mode ?? "auto";
+  const productionType = options?.productionType;
 
   // Single scene mode: return entire text as one scene
   if (mode === "single") {
@@ -620,13 +926,13 @@ export function parseScenes(
       {
         title: "Scene 1",
         content: trimmed,
-        characters: extractSceneCharacters(trimmed),
+        characters: extractSceneCharacters(trimmed, undefined, productionType),
       },
     ];
   }
 
   // Multiple or auto mode: detect scene breaks
-  const detectedScenes = detectSceneBreaks(text);
+  const detectedScenes = detectSceneBreaks(text, productionType);
 
   // In auto mode, if only one scene detected, return as single
   if (mode === "auto" && detectedScenes.length <= 1) {
@@ -635,7 +941,7 @@ export function parseScenes(
       {
         title: "Scene 1",
         content: trimmed,
-        characters: extractSceneCharacters(trimmed),
+        characters: extractSceneCharacters(trimmed, undefined, productionType),
       },
     ];
   }
@@ -655,7 +961,7 @@ export function parseScenes(
     {
       title: "Scene 1",
       content: trimmed,
-      characters: extractSceneCharacters(trimmed),
+      characters: extractSceneCharacters(trimmed, undefined, productionType),
     },
   ];
 }
@@ -664,7 +970,10 @@ export function parseScenes(
  * Detect scene breaks in text using multiple patterns
  * Returns detected scenes with content and line ranges
  */
-export function detectSceneBreaks(text: string): DetectedScene[] {
+export function detectSceneBreaks(
+  text: string,
+  productionType?: ProductionType,
+): DetectedScene[] {
   const scenes: DetectedScene[] = [];
   const lines = text.split("\n");
   const breaks: Array<{
@@ -890,7 +1199,11 @@ export function detectSceneBreaks(text: string): DetectedScene[] {
       scenes.push({
         title: currentBreak.title,
         content: sceneContent,
-        characters: extractSceneCharacters(sceneContent),
+        characters: extractSceneCharacters(
+          sceneContent,
+          undefined,
+          productionType,
+        ),
         startLine: currentBreak.lineIndex,
         endLine: contentEndLine,
       });
@@ -909,17 +1222,22 @@ export function createScene(
   content: string,
   description?: string,
   order: number = 0,
+  productionType?: ProductionType,
 ): Scene {
   const now = new Date().toISOString();
+  const normalizedContent = normalizeSceneContent(content);
 
   // Parse and cache dialogue lines
-  const lines = parseDialogueLines(content);
+  const lines = parseDialogueLines(
+    normalizedContent,
+    getSceneParseFormat(productionType),
+  );
 
   return {
     id: generateSceneId(),
     projectId,
     title: title || "Untitled Scene",
-    content,
+    content: normalizedContent,
     description,
     lines,
     order,
@@ -935,12 +1253,13 @@ export function createScenesFromInput(
   projectId: string,
   text: string,
   mode?: SceneInputMode,
+  productionType?: ProductionType,
 ): Scene[] {
   if (!text || text.trim().length === 0) {
     throw new Error("Scene content cannot be empty");
   }
 
-  const parsedScenes = parseScenes(text, { mode });
+  const parsedScenes = parseScenes(text, { mode, productionType });
 
   if (parsedScenes.length === 0) {
     throw new Error("Failed to parse scene content");
@@ -963,6 +1282,7 @@ export function createScenesFromInput(
       scene.content,
       scene.description,
       index,
+      productionType,
     ),
   );
 }
@@ -975,8 +1295,6 @@ export function detectSceneCount(text: string): number {
   if (!text || text.trim().length === 0) {
     return 0;
   }
-
-  text = cleanPdfArtifacts(text);
   const detected = detectSceneBreaks(text);
   return detected.length > 0 ? detected.length : 1;
 }

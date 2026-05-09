@@ -1,4 +1,5 @@
 import { DialogueLine } from "./rehearsal";
+import type { ProductionType } from "./project";
 
 export interface Scene {
   id: string;
@@ -53,6 +54,7 @@ export interface SceneContextType {
     title: string,
     content: string,
     description?: string,
+    productionType?: ProductionType,
   ) => Scene;
   createScenes: (
     projectId: string,
@@ -62,7 +64,9 @@ export interface SceneContextType {
       description?: string;
       characters?: string[];
       songs?: string[];
+      lines?: DialogueLine[];
     }>,
+    productionType?: ProductionType,
   ) => Scene[];
   updateScene: (
     id: string,

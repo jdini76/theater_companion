@@ -214,10 +214,32 @@ export function isFolderAccessSupported(): boolean {
   return typeof window !== "undefined" && "showDirectoryPicker" in window;
 }
 
+function getDirectoryPicker():
+  | ((options?: {
+      mode?: "read" | "readwrite";
+    }) => Promise<FileSystemDirectoryHandle>)
+  | null {
+  if (typeof window === "undefined") return null;
+  return (
+    (
+      window as Window & {
+        showDirectoryPicker?: (options?: {
+          mode?: "read" | "readwrite";
+        }) => Promise<FileSystemDirectoryHandle>;
+      }
+    ).showDirectoryPicker ?? null
+  );
+}
+
 export async function exportToFolder(
   onProgress?: ProgressFn,
 ): Promise<{ uploaded: number }> {
   // showDirectoryPicker is in the File System Access API (TypeScript DOM lib)
+  const showDirectoryPicker = getDirectoryPicker();
+  if (!showDirectoryPicker) {
+    throw new Error("Folder access is not supported in this browser.");
+  }
+
   const dirHandle = await showDirectoryPicker({ mode: "readwrite" });
   const entries = await getAllCachedAudio();
   if (entries.length === 0) throw new Error("No cached audio files to export.");
@@ -245,6 +267,11 @@ export async function exportToFolder(
 export async function importFromFolder(
   onProgress?: ProgressFn,
 ): Promise<{ imported: number; skipped: number }> {
+  const showDirectoryPicker = getDirectoryPicker();
+  if (!showDirectoryPicker) {
+    throw new Error("Folder access is not supported in this browser.");
+  }
+
   const dirHandle = await showDirectoryPicker({ mode: "read" });
 
   let mh: FileSystemFileHandle;

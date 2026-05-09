@@ -14,6 +14,7 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
   const {
     createCharacter,
     deleteCharacter,
+    deleteCharacters,
     getProjectCharacters,
     currentCharacterId,
     setCurrentCharacter,
@@ -28,11 +29,15 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
     useState(!!currentCharacterId);
   const [searchQuery, setSearchQuery] = useState("");
   const [myRoleOnly, setMyRoleOnly] = useState(false);
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>(
+    [],
+  );
 
   const characters = getProjectCharacters(projectId);
   const selectedChar =
     characters.find((c) => c.id === currentCharacterId) ?? null;
   const hasMyRoles = characters.some((c) => c.isMyRole);
+  const selectedCount = selectedCharacterIds.length;
 
   const filteredCharacters = useMemo(() => {
     let list = myRoleOnly ? characters.filter((c) => c.isMyRole) : characters;
@@ -48,6 +53,18 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
   const handleSelectCharacter = (characterId: string) => {
     setCurrentCharacter(characterId);
     setSidebarCollapsed(true);
+  };
+
+  const toggleCharacterSelection = (characterId: string) => {
+    setSelectedCharacterIds((prev) =>
+      prev.includes(characterId)
+        ? prev.filter((id) => id !== characterId)
+        : [...prev, characterId],
+    );
+  };
+
+  const clearSelection = () => {
+    setSelectedCharacterIds([]);
   };
 
   const handleAddCharacter = async () => {
@@ -81,6 +98,21 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
     e.stopPropagation();
     if (confirm("Delete this character and their voice configuration?")) {
       deleteCharacter(characterId);
+      setSelectedCharacterIds((prev) =>
+        prev.filter((id) => id !== characterId),
+      );
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedCharacterIds.length === 0) return;
+    if (
+      confirm(
+        `Delete ${selectedCharacterIds.length} selected character${selectedCharacterIds.length === 1 ? "" : "s"} and their voice configuration${selectedCharacterIds.length === 1 ? "" : "s"}?`,
+      )
+    ) {
+      deleteCharacters(selectedCharacterIds);
+      clearSelection();
     }
   };
 
@@ -210,6 +242,22 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
                   )}
                 </div>
 
+                <div className="flex items-center justify-between gap-2 mb-2 flex-shrink-0">
+                  <span className="text-xs text-muted">
+                    {selectedCount > 0
+                      ? `${selectedCount} selected`
+                      : "Select multiple characters"}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleDeleteSelected}
+                    disabled={selectedCount === 0}
+                  >
+                    Delete selected
+                  </Button>
+                </div>
+
                 {hasMyRoles && (
                   <label className="flex items-center gap-1.5 cursor-pointer select-none mb-2 flex-shrink-0">
                     <input
@@ -236,26 +284,45 @@ export function VoiceControlPanel({ projectId }: VoiceControlPanelProps) {
                   <div className="space-y-0.5 overflow-y-auto flex-1">
                     {filteredCharacters.map((char) => {
                       const isSelected = currentCharacterId === char.id;
+                      const isChecked = selectedCharacterIds.includes(char.id);
                       return (
                         <div
                           key={char.id}
                           onClick={() => handleSelectCharacter(char.id)}
                           className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-all ${
-                            isSelected
+                            isSelected || isChecked
                               ? "bg-accent-cyan/15 border border-accent-cyan/40"
                               : "border border-transparent hover:bg-background hover:border-border"
                           }`}
                         >
-                          <span
-                            className={`flex-1 text-sm truncate min-w-0 font-semibold ${
-                              isSelected
-                                ? "text-light"
-                                : "text-muted group-hover:text-light"
-                            }`}
-                            title={char.characterName}
-                          >
-                            {char.characterName}
-                          </span>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => toggleCharacterSelection(char.id)}
+                            className="accent-accent-cyan w-3.5 h-3.5 flex-shrink-0"
+                            aria-label={`Select ${char.characterName}`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span
+                              className={`block text-sm truncate font-semibold ${
+                                isSelected
+                                  ? "text-light"
+                                  : "text-muted group-hover:text-light"
+                              }`}
+                              title={char.characterName}
+                            >
+                              {char.characterName}
+                            </span>
+                            {char.description && (
+                              <span
+                                className="block text-[11px] leading-snug text-muted/70 mt-0.5 line-clamp-2"
+                                title={char.description}
+                              >
+                                {char.description}
+                              </span>
+                            )}
+                          </div>
                           {char.actorName && (
                             <span
                               className="text-xs text-muted/70 truncate max-w-[8rem] flex-shrink-0"

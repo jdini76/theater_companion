@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { Scene } from "@/types/scene";
+import type { ProductionType } from "@/types/project";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -16,6 +17,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 interface SceneManagerProps {
   projectId: string;
   projectName?: string;
+  productionType?: ProductionType;
   initialSceneId?: string | null;
   onSceneNavigated?: () => void;
 }
@@ -23,6 +25,7 @@ interface SceneManagerProps {
 export function SceneManager({
   projectId,
   projectName = "Project",
+  productionType,
   initialSceneId,
   onSceneNavigated,
 }: SceneManagerProps) {
@@ -34,6 +37,10 @@ export function SceneManager({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [onlyMyScenes, setOnlyMyScenes] = useLocalStorage(
     "theater_scene_list_only_my",
+    false,
+  );
+  const [hideEmptyScenes, setHideEmptyScenes] = useLocalStorage(
+    "theater_scene_list_hide_empty",
     false,
   );
   const [searchQuery, setSearchQuery] = useState("");
@@ -75,21 +82,32 @@ export function SceneManager({
         : undefined;
     const map = new Map<string, string[]>();
     for (const scene of allScenes) {
-      // Always re-extract using the current cast so canonical (full) names are
-      // used, and changes to the cast are reflected immediately.
-      // Stored scene.characters may have abbreviated names from before the
-      // full cast was configured; merging preserves manually-added characters.
-      const extracted = extractSceneCharacters(scene.content, cast);
+      // Use pre-parsed lines when available to avoid re-parsing content.
+      // Fall back to extractSceneCharacters for scenes without cached lines.
+      const lineChars =
+        scene.lines && scene.lines.length > 0
+          ? Array.from(
+              new Set(
+                scene.lines
+                  .filter(
+                    (l) => !l.isStageDirection && !l.character.startsWith("["),
+                  )
+                  .flatMap((l) =>
+                    l.character
+                      .split(/\s*[,&+]\s*/)
+                      .map((n) => n.trim().toUpperCase())
+                      .filter(Boolean),
+                  ),
+              ),
+            )
+          : extractSceneCharacters(scene.content, cast, productionType).map(
+              (n) => n.toUpperCase(),
+            );
       const stored = (scene.characters ?? []).map((n) => n.toUpperCase());
-      map.set(
-        scene.id,
-        Array.from(
-          new Set([...extracted.map((n) => n.toUpperCase()), ...stored]),
-        ),
-      );
+      map.set(scene.id, Array.from(new Set([...lineChars, ...stored])));
     }
     return map;
-  }, [allScenes, projectCharacters]);
+  }, [allScenes, projectCharacters, productionType]);
 
   const scenes = useMemo(() => {
     let result = allScenes;
@@ -98,6 +116,11 @@ export function SceneManager({
         const chars = sceneCharacters.get(scene.id) ?? [];
         return chars.some((c) => myRoleNames.has(c.toUpperCase()));
       });
+    }
+    if (hideEmptyScenes) {
+      result = result.filter(
+        (scene) => (sceneCharacters.get(scene.id) ?? []).length > 0,
+      );
     }
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -108,13 +131,20 @@ export function SceneManager({
     allScenes,
     onlyMyScenes,
     hasMyRole,
+    hideEmptyScenes,
     sceneCharacters,
     myRoleNames,
     searchQuery,
   ]);
 
+  useEffect(() => {
+    if (!selectedSceneId) return;
+    if (scenes.some((scene) => scene.id === selectedSceneId)) return;
+    setSelectedSceneId(scenes[0]?.id ?? null);
+  }, [scenes, selectedSceneId]);
+
   const selectedScene = selectedSceneId
-    ? (allScenes.find((s) => s.id === selectedSceneId) ?? null)
+    ? (scenes.find((s) => s.id === selectedSceneId) ?? null)
     : null;
   const selectedIndex = selectedSceneId
     ? scenes.findIndex((s) => s.id === selectedSceneId)
@@ -166,6 +196,7 @@ export function SceneManager({
         <div className="mb-6">
           <SceneImportForm
             projectId={projectId}
+            productionType={productionType}
             onSuccess={() => setShowImportForm(false)}
           />
         </div>
@@ -228,6 +259,15 @@ export function SceneManager({
                     </button>
                   )}
                 </div>
+                <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer hover:text-light mb-2 select-none">
+                  <input
+                    type="checkbox"
+                    checked={hideEmptyScenes}
+                    onChange={(e) => setHideEmptyScenes(e.target.checked)}
+                    className="accent-accent-cyan w-3.5 h-3.5"
+                  />
+                  Hide empty scenes
+                </label>
                 <SceneList
                   projectId={projectId}
                   filteredScenes={scenes}
@@ -247,12 +287,14 @@ export function SceneManager({
           {selectedScene && isEditingScene ? (
             <SceneEditor
               scene={selectedScene}
+              productionType={productionType}
               onClose={() => setIsEditingScene(false)}
             />
           ) : selectedScene ? (
             <SceneViewer
               scene={selectedScene}
               projectId={projectId}
+              productionType={productionType}
               onEdit={() => setIsEditingScene(true)}
               onPrev={handlePrevScene}
               onNext={handleNextScene}

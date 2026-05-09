@@ -34,16 +34,14 @@ export function ProjectListItem({
       setIsEditing(false);
       setError("");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to rename project"
-      );
+      setError(err instanceof Error ? err.message : "Failed to rename project");
     }
   };
 
   const handleDelete = () => {
     if (
       window.confirm(
-        `Are you sure you want to delete "${project.name}"? This action cannot be undone.`
+        `Are you sure you want to delete "${project.name}"? This action cannot be undone.`,
       )
     ) {
       onDelete(project.id);
@@ -84,19 +82,22 @@ export function ProjectListItem({
                 onClick={(e) => e.stopPropagation()}
                 className="w-full px-3 py-2 border border-accent-cyan bg-dark-input text-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-cyan"
               />
-              {error && (
-                <p className="text-sm text-warn-amber">{error}</p>
-              )}
+              {error && <p className="text-sm text-warn-amber">{error}</p>}
             </div>
           ) : (
             <div>
-              <h3 className="font-semibold text-light text-lg">{project.name}</h3>
+              <h3 className="font-semibold text-light text-lg">
+                {project.name}
+              </h3>
+              <span className="inline-block text-xs font-medium px-2 py-0.5 mt-1 rounded-full border border-accent-cyan/40 text-accent-cyan/80">
+                {project.productionType ?? "Play"}
+              </span>
               {project.description && (
-                <p className="text-sm text-muted mt-1">
-                  {project.description}
-                </p>
+                <p className="text-sm text-muted mt-1">{project.description}</p>
               )}
-              <p className="text-xs text-muted/60 mt-2">Created: {createdDate}</p>
+              <p className="text-xs text-muted/60 mt-2">
+                Created: {createdDate}
+              </p>
             </div>
           )}
         </div>
@@ -107,7 +108,10 @@ export function ProjectListItem({
               <Button
                 size="sm"
                 variant="success"
-                onClick={(e) => { e.stopPropagation(); handleSave(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSave();
+                }}
               >
                 Save
               </Button>
@@ -129,14 +133,20 @@ export function ProjectListItem({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditing(true);
+                }}
               >
                 Rename
               </Button>
               <Button
                 size="sm"
                 variant="warn"
-                onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete();
+                }}
               >
                 Delete
               </Button>
@@ -149,13 +159,20 @@ export function ProjectListItem({
 }
 
 export function ProjectList() {
-  const { projects, currentProjectId, selectProject, renameProject, deleteProject } =
-    useProjects();
+  const {
+    projects,
+    currentProjectId,
+    selectProject,
+    renameProject,
+    deleteProject,
+  } = useProjects();
 
   if (projects.length === 0) {
     return (
       <div className="text-center py-8">
-        <p className="text-muted">No projects yet. Create one to get started!</p>
+        <p className="text-muted">
+          No projects yet. Create one to get started!
+        </p>
       </div>
     );
   }

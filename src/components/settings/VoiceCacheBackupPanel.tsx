@@ -11,10 +11,8 @@ import {
   isFolderAccessSupported,
   exportToGoogleDrive,
   importFromGoogleDrive,
-  isGoogleDriveConfigured,
   exportToDropbox,
   importFromDropbox,
-  isDropboxConfigured,
 } from "@/lib/voice-cache-backup";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -181,14 +179,10 @@ export function VoiceCacheBackupPanel() {
     totalSizeBytes: number;
   } | null>(null);
   const [folderSupported, setFolderSupported] = useState(false);
-  const [gdriveAvailable, setGdriveAvailable] = useState(false);
-  const [dropboxAvailable, setDropboxAvailable] = useState(false);
 
   useEffect(() => {
     getAudioCacheStats().then(setStats);
     setFolderSupported(isFolderAccessSupported());
-    setGdriveAvailable(isGoogleDriveConfigured());
-    setDropboxAvailable(isDropboxConfigured());
   }, []);
 
   const isRunning = phase.kind === "running";

@@ -17,6 +17,23 @@ export default function SongsPage() {
 
   const currentProject = getCurrentProject();
 
+  if (currentProject?.productionType === "Film") {
+    return (
+      <div className="min-h-screen bg-dark-base py-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="card text-center py-12">
+            <h1 className="text-2xl font-bold text-light mb-4">
+              Songs Disabled
+            </h1>
+            <p className="text-muted">
+              Film projects do not use song parsing or song menus.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentProject) {
     return (
       <div className="min-h-screen bg-dark-base py-8">
@@ -45,6 +62,7 @@ export default function SongsPage() {
       <SongManager
         projectId={currentProject.id}
         projectName={currentProject.name}
+        productionType={currentProject.productionType}
       />
     </div>
   );

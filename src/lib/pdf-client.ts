@@ -24,7 +24,10 @@ interface PdfDocument {
 }
 
 interface PdfPage {
-  getTextContent: () => Promise<{
+  getTextContent: (params?: {
+    normalizeWhitespace?: boolean;
+    includeMarkedContent?: boolean;
+  }) => Promise<{
     items: Array<{
       str?: string;
       hasEOL?: boolean;
@@ -159,6 +162,17 @@ function reconstructText(
   return parts.join("");
 }
 
+export function normalizePdfExtractedText(text: string): string {
+  return text
+    .replace(/\u00ad/g, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/([A-Za-z])-[ \t]*\n([a-z])/g, "$1$2")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /**
  * Extract all text from a PDF file in the browser.
  */
@@ -174,9 +188,9 @@ export async function extractTextFromPdf(file: File): Promise<string> {
   const pages: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
+    const content = await page.getTextContent({ normalizeWhitespace: true });
     pages.push(reconstructText(content.items));
   }
 
-  return pages.join("\n");
+  return normalizePdfExtractedText(pages.join("\n"));
 }
