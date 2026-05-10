@@ -14,6 +14,7 @@ interface SceneListProps {
   filteredScenes: Scene[];
   selectedSceneId: string | null;
   onSelectScene: (scene: Scene) => void;
+  onOpenSetPiece?: (scene: Scene) => void;
   onlyMyScenes: boolean;
   onOnlyMyScenesChange: (v: boolean) => void;
   hasMyRole: boolean;
@@ -25,6 +26,7 @@ export function SceneList({
   filteredScenes,
   selectedSceneId,
   onSelectScene,
+  onOpenSetPiece,
   onlyMyScenes,
   onOnlyMyScenesChange,
   hasMyRole,
@@ -176,6 +178,11 @@ export function SceneList({
     }
   };
 
+  const handleClearSetPiece = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    updateScene(id, { setPiece: undefined });
+  };
+
   const handleMove = (id: string, direction: -1 | 1, e: React.MouseEvent) => {
     e.stopPropagation();
     const ids = renderedScenes.map((s) => s.id);
@@ -233,14 +240,6 @@ export function SceneList({
         </span>
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          {scene.setPiece?.trim() && (
-            <span
-              className="text-[10px] uppercase tracking-[0.16em] text-accent-cyan/70 border border-accent-cyan/30 rounded px-1.5 py-0.5"
-              title={`Set Piece: ${scene.setPiece.trim()}`}
-            >
-              Set Piece
-            </span>
-          )}
           {chars.length > 0 && (
             <span
               className="text-xs text-muted/60 tabular-nums"
@@ -258,6 +257,19 @@ export function SceneList({
               {songs.length}
               <span className="ml-0.5 opacity-60">♪</span>
             </span>
+          )}
+          {scene.setPiece?.trim() && (
+            <div className="inline-flex items-center justify-center min-w-[4.5rem] text-[10px] uppercase tracking-[0.16em] text-accent-cyan/70 border border-accent-cyan/30 rounded px-1.5 py-0.5">
+              <button
+                type="button"
+                onClick={(e) => handleClearSetPiece(scene.id, e)}
+                className="inline-flex w-full items-center justify-center text-accent-cyan/70 hover:text-accent-cyan leading-none"
+                title="Remove scene from set piece"
+                aria-label="Remove scene from set piece"
+              >
+                Remove
+              </button>
+            </div>
           )}
         </div>
 
@@ -347,9 +359,20 @@ export function SceneList({
                 <div className="text-[10px] uppercase tracking-[0.2em] text-muted">
                   Set Piece
                 </div>
-                <div className="text-sm font-semibold text-light">
-                  {group.label}
-                </div>
+                {onOpenSetPiece ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSetPiece(group.scenes[0])}
+                    className="text-left text-sm font-semibold text-light hover:text-accent-cyan transition-colors"
+                    title={`Open set piece ${group.label} in fullscreen screenplay view`}
+                  >
+                    {group.label}
+                  </button>
+                ) : (
+                  <div className="text-sm font-semibold text-light">
+                    {group.label}
+                  </div>
+                )}
                 <div className="text-[11px] text-muted mt-0.5">
                   {group.scenes.length} scene
                   {group.scenes.length !== 1 ? "s" : ""}

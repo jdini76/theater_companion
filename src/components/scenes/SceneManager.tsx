@@ -35,6 +35,7 @@ export function SceneManager({
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [fullscreenRequest, setFullscreenRequest] = useState(0);
   const [onlyMyScenes, setOnlyMyScenes] = useLocalStorage(
     "theater_scene_list_only_my",
     false,
@@ -156,6 +157,13 @@ export function SceneManager({
     setSidebarCollapsed(true);
   };
 
+  const handleOpenSetPiece = (scene: Scene) => {
+    setSelectedSceneId(scene.id);
+    setIsEditingScene(false);
+    setSidebarCollapsed(true);
+    setFullscreenRequest((value) => value + 1);
+  };
+
   const handlePrevScene = () => {
     if (selectedIndex > 0) {
       handleSelectScene(scenes[selectedIndex - 1]);
@@ -209,7 +217,7 @@ export function SceneManager({
       >
         {/* Sidebar */}
         <div
-          className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[32rem]"}`}
+          className={`flex-shrink-0 flex flex-col transition-all duration-200 ${sidebarCollapsed ? "w-8" : "w-[44rem]"}`}
         >
           <div className="card flex flex-col flex-1 overflow-hidden relative">
             {/* Collapse toggle */}
@@ -273,6 +281,7 @@ export function SceneManager({
                   filteredScenes={scenes}
                   selectedSceneId={selectedSceneId}
                   onSelectScene={handleSelectScene}
+                  onOpenSetPiece={handleOpenSetPiece}
                   onlyMyScenes={onlyMyScenes}
                   onOnlyMyScenesChange={setOnlyMyScenes}
                   hasMyRole={hasMyRole}
@@ -300,6 +309,8 @@ export function SceneManager({
               onNext={handleNextScene}
               hasPrev={selectedIndex > 0}
               hasNext={selectedIndex >= 0 && selectedIndex < scenes.length - 1}
+              fullscreenOpenToken={fullscreenRequest}
+              fullscreenOpenView="screenplay"
             />
           ) : (
             <div className="card flex-1 flex flex-col items-center justify-center text-center py-16">

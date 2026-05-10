@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Scene } from "@/types/scene";
 // import { Button } from "@/components/ui/Button";
 import type { ProductionType } from "@/types/project";
+import type { DialogueLine } from "@/types/rehearsal";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -39,7 +40,17 @@ interface SceneViewerProps {
   onNext?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
+  fullscreenOpenToken?: number;
+  fullscreenOpenView?: "interactive" | "screenplay";
 }
+
+type ScreenplayPageItem =
+  | { kind: "line"; line: DialogueLine }
+  | { kind: "spacer" };
+
+type ScreenplayPage = {
+  items: ScreenplayPageItem[];
+};
 
 function useLineOverrides(sceneId: string) {
   const storageKey = `theater_scene_line_overrides_${sceneId}`;
@@ -104,10 +115,15 @@ export function SceneViewer({
   onNext,
   hasPrev,
   hasNext,
+  fullscreenOpenToken,
+  fullscreenOpenView,
 }: SceneViewerProps) {
   const [isCopied, setIsCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenView, setFullscreenView] = useState<
+    "interactive" | "screenplay"
+  >("interactive");
   const [highlightMyOnly, setHighlightMyOnly] = useLocalStorage(
     "theater_scene_highlight_my_only",
     false,
@@ -117,10 +133,12 @@ export function SceneViewer({
     "text-xs",
   );
   const menuRef = useRef<HTMLDivElement>(null);
+  const screenplayScrollRef = useRef<HTMLDivElement>(null);
   const { getProjectCharacters } = useVoice();
   const { navigateToCharacter } = useRehearsalNav();
-  const { updateScene } = useScenes();
+  const { getProjectScenes, updateScene } = useScenes();
   const { overrides, assign } = useLineOverrides(scene.id);
+  const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
   const projectCharacters = getProjectCharacters(projectId);
   const myRoleChars = projectCharacters.filter((c) => c.isMyRole);
@@ -220,6 +238,15 @@ export function SceneViewer({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (fullscreenOpenToken === undefined) return;
+    setIsFullscreen(true);
+    setFullscreenView(fullscreenOpenView ?? "screenplay");
+    if (fullscreenOpenView === "screenplay") {
+      setScreenplayPageIndex(0);
+    }
+  }, [fullscreenOpenToken, fullscreenOpenView]);
 
   const handleCopyContent = () => {
     navigator.clipboard.writeText(scene.content);
@@ -357,6 +384,259 @@ export function SceneViewer({
     : "";
   const showSongs = productionType !== "Film" && songs.length > 0;
   const setPiece = scene.setPiece?.trim();
+  const screenplaySourceScenes = useMemo(() => {
+    if (!setPiece) return [scene];
+
+    const label = setPiece.toLowerCase();
+    const scenesInSetPiece = getProjectScenes(projectId)
+      .filter((item) => item.setPiece?.trim().toLowerCase() === label)
+      .sort((left, right) => left.order - right.order);
+
+    return scenesInSetPiece.length > 0 ? scenesInSetPiece : [scene];
+  }, [getProjectScenes, projectId, scene, setPiece]);
+
+  useEffect(() => {
+    setScreenplayPageIndex(0);
+  }, [scene.id, setPiece]);
+
+  const isSetPieceScreenplay = Boolean(setPiece);
+
+  const screenplayFontSize =
+    scriptTextSize === "text-xs"
+      ? "11pt"
+      : scriptTextSize === "text-sm"
+        ? "12pt"
+        : "13pt";
+
+  const screenplayPageBudget =
+    screenplayFontSize === "11pt"
+      ? 56
+      : screenplayFontSize === "12pt"
+        ? 52
+        : 48;
+
+  const screenplayPages = useMemo<ScreenplayPage[]>(() => {
+    const pages: ScreenplayPage[] = [];
+    let currentItems: ScreenplayPageItem[] = [];
+    let currentUnits = 0;
+
+    const estimateTextLines = (text: string, charsPerLine: number) => {
+      const segments = text.split(/\r?\n/);
+      return Math.max(
+        1,
+        segments.reduce((count, segment) => {
+          const trimmed = segment.trim();
+          if (!trimmed) return count + 1;
+          return count + Math.max(1, Math.ceil(trimmed.length / charsPerLine));
+        }, 0),
+      );
+    };
+
+    const estimateUnits = (item: ScreenplayPageItem) => {
+      if (item.kind === "spacer") return 1;
+      const line = item.line;
+      const text = line.dialogue.trim();
+
+      if (line.character === "[Scene Heading]") return 1.2;
+      if (line.character === "[Narrative]") return estimateTextLines(text, 68);
+      if (line.character === "[Song]" || line.isSong)
+        return estimateTextLines(text, 66);
+      if (line.isStageDirection) return estimateTextLines(text, 68);
+
+      return 1 + estimateTextLines(text, 54);
+    };
+
+    const pushPage = () => {
+      if (currentItems.length === 0) return;
+      pages.push({ items: currentItems });
+      currentItems = [];
+      currentUnits = 0;
+    };
+
+    for (const screenplayScene of screenplaySourceScenes) {
+      const screenplayLines: DialogueLine[] = parseDialogueLines(
+        screenplayScene.content,
+        getSceneParseFormat(productionType),
+      );
+
+      const hasLeadingHeading =
+        screenplayLines[0]?.character === "[Scene Heading]";
+      const screenplayHeadingText = screenplayScene.title.trim();
+      const sceneLines =
+        !hasLeadingHeading && screenplayHeadingText
+          ? [
+              {
+                lineNumber: -1,
+                character: "[Scene Heading]",
+                dialogue: screenplayHeadingText,
+                isStageDirection: true,
+              },
+              ...screenplayLines,
+            ]
+          : screenplayLines;
+
+      const screenplayItems: ScreenplayPageItem[] = sceneLines.map((line) => ({
+        kind: "line",
+        line,
+      }));
+
+      if (currentItems.length > 0) {
+        screenplayItems.unshift({ kind: "spacer" });
+      }
+
+      for (const item of screenplayItems) {
+        const units = estimateUnits(item);
+        if (
+          currentItems.length > 0 &&
+          currentUnits + units > screenplayPageBudget
+        ) {
+          pushPage();
+        }
+        if (item.kind === "spacer" && currentItems.length === 0) {
+          continue;
+        }
+        currentItems.push(item);
+        currentUnits += units;
+      }
+    }
+
+    pushPage();
+
+    for (let index = 0; index < pages.length - 1; index++) {
+      const page = pages[index];
+      const nextPage = pages[index + 1];
+      const lastLineIndex = [...page.items]
+        .map((item, itemIndex) => ({ item, itemIndex }))
+        .reverse()
+        .find(({ item }) => item.kind === "line");
+
+      if (
+        !lastLineIndex ||
+        lastLineIndex.item.kind !== "line" ||
+        lastLineIndex.item.line.character !== "[Scene Heading]"
+      ) {
+        continue;
+      }
+
+      const movedItems = page.items.splice(lastLineIndex.itemIndex);
+      if (movedItems.length === 0) {
+        continue;
+      }
+
+      while (nextPage.items[0]?.kind === "spacer") {
+        nextPage.items.shift();
+      }
+      nextPage.items.unshift(...movedItems);
+      while (page.items[page.items.length - 1]?.kind === "spacer") {
+        page.items.pop();
+      }
+    }
+
+    return pages.length > 0 ? pages : [{ items: [] }];
+  }, [productionType, screenplayPageBudget, screenplaySourceScenes]);
+
+  const screenplayPage =
+    screenplayPages[screenplayPageIndex] ?? screenplayPages[0];
+  const screenplayPageNumber = screenplayPageIndex + 1;
+  const screenplayPageCount = screenplayPages.length;
+  const screenplayPageTitle = isSetPieceScreenplay
+    ? `Page ${screenplayPageNumber}`
+    : scene.title;
+  const screenplayPageSubtitle = isSetPieceScreenplay ? setPiece : undefined;
+
+  useEffect(() => {
+    setScreenplayPageIndex((value) =>
+      Math.min(value, Math.max(0, screenplayPageCount - 1)),
+    );
+  }, [screenplayPageCount]);
+
+  const handleFullscreenOpen = () => {
+    if (isSetPieceScreenplay) {
+      setFullscreenView("screenplay");
+      setScreenplayPageIndex(0);
+    } else {
+      setFullscreenView("interactive");
+    }
+    setIsFullscreen(true);
+  };
+
+  const handlePrevScreenplayPage = () => {
+    setScreenplayPageIndex((value) => Math.max(0, value - 1));
+    screenplayScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  };
+
+  const handleNextScreenplayPage = () => {
+    setScreenplayPageIndex((value) =>
+      Math.min(screenplayPageCount - 1, value + 1),
+    );
+    screenplayScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  };
+
+  const renderScreenplayLine = (line: DialogueLine, index: number) => {
+    const text = line.dialogue.trim();
+    const isHeading = line.character === "[Scene Heading]";
+    const isNarrative = line.character === "[Narrative]";
+    const isStageDirection = line.isStageDirection;
+    const isSong = line.isSong || line.character === "[Song]";
+    const looksLikeParenthetical =
+      isStageDirection && /^\(.*\)$/.test(text) && text.length < 80;
+
+    if (isHeading) {
+      return (
+        <div
+          key={index}
+          className="whitespace-pre-wrap uppercase font-bold tracking-normal text-black"
+        >
+          {text}
+        </div>
+      );
+    }
+
+    if (isNarrative || isSong) {
+      return (
+        <div key={index} className={isSong ? "italic text-amber-900" : ""}>
+          <div className="whitespace-pre-wrap leading-[1.3]">{text}</div>
+        </div>
+      );
+    }
+
+    if (looksLikeParenthetical) {
+      return (
+        <div
+          key={index}
+          className="italic leading-[1.2]"
+          style={{ marginLeft: "2.2in", maxWidth: "2.4in" }}
+        >
+          {text}
+        </div>
+      );
+    }
+
+    if (isStageDirection) {
+      return (
+        <div key={index} className="leading-[1.3] whitespace-pre-wrap">
+          {text}
+        </div>
+      );
+    }
+
+    return (
+      <div key={index}>
+        <div
+          className="uppercase font-semibold tracking-wide"
+          style={{ margin: "0 auto", width: "2.4in", textAlign: "center" }}
+        >
+          {line.character}
+        </div>
+        <div
+          className="leading-[1.45] whitespace-pre-wrap"
+          style={{ margin: "0 auto", maxWidth: "3.9in" }}
+        >
+          {text}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="card flex flex-col flex-1 space-y-4">
@@ -444,47 +724,47 @@ export function SceneViewer({
       </div>
 
       {/* Character tags + My lines toggle */}
-      {sceneCharacters.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {sceneCharacters.map((char) => {
-            const color = colorMap.get(char);
-            const projectChar = getProjectCharacters(projectId).find(
-              (c) =>
-                c.characterName.toUpperCase() === char ||
-                (c.aliases ?? []).some((a) => a.toUpperCase() === char),
-            );
-            return projectChar ? (
-              <button
-                key={char}
-                onClick={() => navigateToCharacter(projectChar.id)}
-                style={{
-                  color: color?.color,
-                  backgroundColor: color?.bgColor,
-                  borderColor: color?.color ? `${color.color}40` : undefined,
-                }}
-                className="px-2 py-0.5 rounded-full text-xs font-mono border hover:opacity-80 hover:ring-1 hover:ring-white/20 transition-opacity cursor-pointer"
-                title={`View ${char} in Cast`}
-              >
-                {char}
-              </button>
-            ) : (
-              <span
-                key={char}
-                style={{
-                  color: color?.color,
-                  backgroundColor: color?.bgColor,
-                  borderColor: color?.color ? `${color.color}40` : undefined,
-                }}
-                className="px-2 py-0.5 rounded-full text-xs font-mono border"
-              >
-                {char}
-              </span>
-            );
-          })}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {sceneCharacters.map((char) => {
+          const color = colorMap.get(char);
+          const projectChar = getProjectCharacters(projectId).find(
+            (c) =>
+              c.characterName.toUpperCase() === char ||
+              (c.aliases ?? []).some((a) => a.toUpperCase() === char),
+          );
+          return projectChar ? (
+            <button
+              key={char}
+              onClick={() => navigateToCharacter(projectChar.id)}
+              style={{
+                color: color?.color,
+                backgroundColor: color?.bgColor,
+                borderColor: color?.color ? `${color.color}40` : undefined,
+              }}
+              className="px-2 py-0.5 rounded-full text-xs font-mono border hover:opacity-80 hover:ring-1 hover:ring-white/20 transition-opacity cursor-pointer"
+              title={`View ${char} in Cast`}
+            >
+              {char}
+            </button>
+          ) : (
+            <span
+              key={char}
+              style={{
+                color: color?.color,
+                backgroundColor: color?.bgColor,
+                borderColor: color?.color ? `${color.color}40` : undefined,
+              }}
+              className="px-2 py-0.5 rounded-full text-xs font-mono border"
+            >
+              {char}
+            </span>
+          );
+        })}
 
+        <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
           {/* My lines only toggle */}
           {myRoleChars.length > 0 && (
-            <label className="ml-auto flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0">
               <input
                 type="checkbox"
                 checked={highlightMyOnly}
@@ -496,11 +776,7 @@ export function SceneViewer({
           )}
 
           {/* Text size control */}
-          <div
-            className={`flex items-center gap-0.5 flex-shrink-0 ${
-              myRoleChars.length === 0 ? "ml-auto" : ""
-            }`}
-          >
+          <div className="flex items-center gap-0.5 flex-shrink-0">
             {(["text-xs", "text-sm", "text-base"] as const).map((size) => (
               <button
                 key={size}
@@ -528,7 +804,7 @@ export function SceneViewer({
               </button>
             ))}
             <button
-              onClick={() => setIsFullscreen(true)}
+              onClick={handleFullscreenOpen}
               title="Fullscreen"
               className="ml-1 p-0.5 rounded text-muted hover:text-light transition-colors"
               aria-label="Expand to fullscreen"
@@ -537,7 +813,7 @@ export function SceneViewer({
             </button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Songs */}
       {showSongs && (
@@ -575,10 +851,49 @@ export function SceneViewer({
         <div className="fixed inset-0 z-50 bg-dark-base flex flex-col">
           {/* Fullscreen header row */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0 gap-2">
-            <h2 className="text-lg font-bold text-light truncate min-w-0">
-              {scene.title}
-            </h2>
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold text-light truncate">
+                {isSetPieceScreenplay ? screenplayPageTitle : scene.title}
+              </h2>
+              {isSetPieceScreenplay && (
+                <p className="text-[11px] uppercase tracking-[0.2em] text-muted truncate">
+                  {screenplayPageSubtitle ? `${screenplayPageSubtitle} · ` : ""}
+                  {screenplayPageNumber} / {screenplayPageCount}
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-1 flex-shrink-0">
+              {isSetPieceScreenplay ? (
+                <div className="inline-flex items-center gap-1 mr-1 rounded-md border border-white/10 px-2 py-1 text-xs text-light bg-white/5">
+                  Screenplay
+                </div>
+              ) : (
+                <div className="inline-flex rounded-md border border-white/10 overflow-hidden mr-1">
+                  <button
+                    onClick={() => setFullscreenView("interactive")}
+                    className={`px-2 py-1 text-xs transition-colors ${
+                      fullscreenView === "interactive"
+                        ? "bg-white/15 text-light"
+                        : "text-muted hover:text-light hover:bg-white/5"
+                    }`}
+                    aria-pressed={fullscreenView === "interactive"}
+                  >
+                    Interactive
+                  </button>
+                  <button
+                    onClick={() => setFullscreenView("screenplay")}
+                    className={`px-2 py-1 text-xs transition-colors border-l border-white/10 ${
+                      fullscreenView === "screenplay"
+                        ? "bg-white/15 text-light"
+                        : "text-muted hover:text-light hover:bg-white/5"
+                    }`}
+                    aria-pressed={fullscreenView === "screenplay"}
+                  >
+                    Screenplay
+                  </button>
+                </div>
+              )}
+
               {/* Text size */}
               {(["text-xs", "text-sm", "text-base"] as const).map((size) => (
                 <button
@@ -622,28 +937,51 @@ export function SceneViewer({
                 </label>
               )}
 
-              {/* Prev / Next */}
-              {(onPrev || onNext) && (
+              {/* Pagination */}
+              {isSetPieceScreenplay ? (
                 <>
                   <button
-                    onClick={onPrev}
-                    disabled={!hasPrev}
-                    title="Previous scene"
+                    onClick={handlePrevScreenplayPage}
+                    disabled={screenplayPageIndex === 0}
+                    title="Previous page"
                     className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
-                    aria-label="Previous scene"
+                    aria-label="Previous page"
                   >
                     <ChevronUp size={16} />
                   </button>
                   <button
-                    onClick={onNext}
-                    disabled={!hasNext}
-                    title="Next scene"
+                    onClick={handleNextScreenplayPage}
+                    disabled={screenplayPageIndex >= screenplayPageCount - 1}
+                    title="Next page"
                     className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
-                    aria-label="Next scene"
+                    aria-label="Next page"
                   >
                     <ChevronDown size={16} />
                   </button>
                 </>
+              ) : (
+                (onPrev || onNext) && (
+                  <>
+                    <button
+                      onClick={onPrev}
+                      disabled={!hasPrev}
+                      title="Previous scene"
+                      className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
+                      aria-label="Previous scene"
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      onClick={onNext}
+                      disabled={!hasNext}
+                      title="Next scene"
+                      className="p-1 rounded hover:bg-white/10 text-muted hover:text-light disabled:opacity-25 disabled:cursor-default transition-colors"
+                      aria-label="Next scene"
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                  </>
+                )
               )}
 
               {/* ⋯ menu */}
@@ -753,19 +1091,52 @@ export function SceneViewer({
 
           {/* Content */}
           <div className="flex-1 min-h-0 p-4">
-            <HighlightedContent
-              content={displayContent}
-              characters={allNames}
-              colorMap={displayColorMap}
-              overrides={overrides}
-              onAssign={handleAssign}
-              maxHeight="max-h-[calc(100vh-5rem)]"
-              textSize={scriptTextSize}
-              allowColonHeaders={productionType !== "Film"}
-              allowSongMenus={productionType !== "Film"}
-              stageDirectionLabel={stageDirectionLabel}
-              assignPanelProps={assignPanelProps}
-            />
+            {fullscreenView === "interactive" && !isSetPieceScreenplay ? (
+              <HighlightedContent
+                content={displayContent}
+                characters={allNames}
+                colorMap={displayColorMap}
+                overrides={overrides}
+                onAssign={handleAssign}
+                maxHeight="max-h-[calc(100vh-5rem)]"
+                textSize={scriptTextSize}
+                allowColonHeaders={productionType !== "Film"}
+                allowSongMenus={productionType !== "Film"}
+                stageDirectionLabel={stageDirectionLabel}
+                assignPanelProps={assignPanelProps}
+              />
+            ) : (
+              <div
+                ref={screenplayScrollRef}
+                className="h-full overflow-auto px-2 pb-4"
+              >
+                <div
+                  className="mx-auto bg-[#f7f3e8] text-black shadow-2xl border border-black/10"
+                  style={{
+                    width: "min(92vw, 8.5in)",
+                    minHeight: "11in",
+                    padding: "1in 1in 1in 1.5in",
+                    fontFamily: '"Courier New", Courier, monospace',
+                    fontSize: screenplayFontSize,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <div className="space-y-2.5">
+                    {screenplayPage.items.map((item, index) =>
+                      item.kind === "spacer" ? (
+                        <div
+                          key={`spacer-${index}`}
+                          className="h-2"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        renderScreenplayLine(item.line, index)
+                      ),
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

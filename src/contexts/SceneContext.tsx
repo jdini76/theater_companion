@@ -122,11 +122,6 @@ export function SceneProvider({ children }: { children: ReactNode }) {
     id: string,
     updates: Partial<Omit<Scene, "id" | "projectId" | "createdAt">>,
   ): void => {
-    const scene = scenes.find((s) => s.id === id);
-    if (!scene) {
-      throw new Error(`Scene with id ${id} not found`);
-    }
-
     if (updates.title) {
       const validation = validateSceneTitle(updates.title);
       if (!validation.valid) {
@@ -141,8 +136,15 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const updated = updateSceneUtil(scene, updates);
-    setScenes(scenes.map((s) => (s.id === id ? updated : s)));
+    setScenes((currentScenes) => {
+      const scene = currentScenes.find((s) => s.id === id);
+      if (!scene) {
+        throw new Error(`Scene with id ${id} not found`);
+      }
+
+      const updated = updateSceneUtil(scene, updates);
+      return currentScenes.map((s) => (s.id === id ? updated : s));
+    });
   };
 
   const deleteScene = (id: string): void => {
