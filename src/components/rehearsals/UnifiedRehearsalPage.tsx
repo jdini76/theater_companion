@@ -155,6 +155,8 @@ export default function UnifiedRehearsalPage() {
     Set<string>
   >(new Set());
   const [libraryFilter, setLibraryFilter] = useState<string>("");
+  const [hideScenesWithoutCharacters, setHideScenesWithoutCharacters] =
+    useState<boolean>(false);
 
   // Scenes
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -1765,6 +1767,17 @@ MOM: See? You were ready.`,
                       </p>
                     ) : libraryLoadMode === "scenes" ? (
                       <>
+                        <label className="flex items-center gap-2 text-xs text-muted cursor-pointer hover:text-light select-none">
+                          <input
+                            type="checkbox"
+                            checked={hideScenesWithoutCharacters}
+                            onChange={(e) =>
+                              setHideScenesWithoutCharacters(e.target.checked)
+                            }
+                            className="accent-accent-cyan w-3.5 h-3.5"
+                          />
+                          Hide scenes without characters
+                        </label>
                         <input
                           type="text"
                           value={libraryFilter}
@@ -1774,8 +1787,21 @@ MOM: See? You were ready.`,
                         />
                         {(() => {
                           const query = libraryFilter.trim().toLowerCase();
+                          const scenesWithCharacters =
+                            hideScenesWithoutCharacters
+                              ? libraryScenes.filter((ls) => {
+                                  const chars =
+                                    ls.characters ??
+                                    extractSceneCharacters(
+                                      ls.content,
+                                      undefined,
+                                      productionType,
+                                    );
+                                  return chars.length > 0;
+                                })
+                              : libraryScenes;
                           const filtered = query
-                            ? libraryScenes.filter((ls) => {
+                            ? scenesWithCharacters.filter((ls) => {
                                 const chars =
                                   ls.characters ??
                                   extractSceneCharacters(
@@ -1791,7 +1817,7 @@ MOM: See? You were ready.`,
                                   )
                                 );
                               })
-                            : libraryScenes;
+                            : scenesWithCharacters;
                           const allSelected =
                             filtered.length > 0 &&
                             filtered.every((ls) =>
