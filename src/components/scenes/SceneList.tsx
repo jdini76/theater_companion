@@ -229,7 +229,7 @@ export function SceneList({
         </span>
 
         <span
-          className={`flex-1 text-sm truncate min-w-0 ${
+          className={`flex-1 text-sm min-w-0 whitespace-nowrap ${
             isSelected
               ? "text-light font-medium"
               : "text-muted group-hover:text-light"

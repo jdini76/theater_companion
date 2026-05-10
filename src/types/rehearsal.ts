@@ -13,6 +13,8 @@ export interface DialogueLine {
   isStageDirection?: boolean;
   /** True when this line is a sung lyric rather than spoken dialogue. */
   isSong?: boolean;
+  /** True when the line is a narrator-spoken cue such as a slugline. */
+  isNarratorCue?: boolean;
   /**
    * Song title from an explicit cue marker, e.g. `(Song: "Tomorrow")`.
    * Undefined when the line was detected heuristically (no cue present).

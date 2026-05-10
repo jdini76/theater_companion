@@ -32,6 +32,9 @@ export function SceneManager({
   const { getProjectScenes } = useScenes();
   const { getProjectCharacters } = useVoice();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [sceneOpenMode, setSceneOpenMode] = useState<"scene" | "set-piece">(
+    "scene",
+  );
   const [isEditingScene, setIsEditingScene] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -50,6 +53,7 @@ export function SceneManager({
   useEffect(() => {
     if (initialSceneId) {
       setSelectedSceneId(initialSceneId);
+      setSceneOpenMode("scene");
       setIsEditingScene(false);
       setSidebarCollapsed(true);
       onSceneNavigated?.();
@@ -153,12 +157,14 @@ export function SceneManager({
 
   const handleSelectScene = (scene: Scene) => {
     setSelectedSceneId(scene.id);
+    setSceneOpenMode("scene");
     setIsEditingScene(false);
     setSidebarCollapsed(true);
   };
 
   const handleOpenSetPiece = (scene: Scene) => {
     setSelectedSceneId(scene.id);
+    setSceneOpenMode("set-piece");
     setIsEditingScene(false);
     setSidebarCollapsed(true);
     setFullscreenRequest((value) => value + 1);
@@ -304,6 +310,7 @@ export function SceneManager({
               scene={selectedScene}
               projectId={projectId}
               productionType={productionType}
+              sceneOpenMode={sceneOpenMode}
               onEdit={() => setIsEditingScene(true)}
               onPrev={handlePrevScene}
               onNext={handleNextScene}
