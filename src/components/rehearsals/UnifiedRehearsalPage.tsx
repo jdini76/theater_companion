@@ -1,6 +1,12 @@
 ﻿"use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
@@ -59,6 +65,12 @@ interface Scene {
   title: string;
   lines: DialogueLine[];
   characters?: string[];
+  setPiece?: string;
+}
+
+interface LibrarySetPieceGroup {
+  label: string;
+  scenes: StoredScene[];
 }
 
 interface VoiceAssignment {
@@ -92,7 +104,8 @@ function getCharacters(scene: {
       line.character &&
       line.character !== "[Narrative]" &&
       line.character !== "[Stage Direction]" &&
-      line.character !== "[Scene Heading]"
+      line.character !== "[Scene Heading]" &&
+      !line.isNarratorCue
     ) {
       // Split combined speakers ("MOM + JOEY", "A & B") into individuals
       line.character
@@ -130,12 +143,20 @@ export default function UnifiedRehearsalPage() {
 
   // Script loading
   const [loadSource, setLoadSource] = useState<"paste" | "library">("paste");
+  const [libraryLoadMode, setLibraryLoadMode] = useState<
+    "scenes" | "set-pieces"
+  >("scenes");
   const [scriptInput, setScriptInput] = useState<string>("");
   const [sceneMode, setSceneMode] = useState<"single" | "multiple">("single");
   const [selectedLibrarySceneIds, setSelectedLibrarySceneIds] = useState<
     Set<string>
   >(new Set());
+  const [selectedLibrarySetPieces, setSelectedLibrarySetPieces] = useState<
+    Set<string>
+  >(new Set());
   const [libraryFilter, setLibraryFilter] = useState<string>("");
+  const [hideScenesWithoutCharacters, setHideScenesWithoutCharacters] =
+    useState<boolean>(false);
 
   // Scenes
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -229,6 +250,155 @@ export default function UnifiedRehearsalPage() {
       return Array.from(names);
     },
     [currentProjectId, getProjectCharacters],
+  );
+
+  const buildSetPieceGroups = useCallback(
+    (sourceScenes: StoredScene[]): LibrarySetPieceGroup[] => {
+      const groups = new Map<
+        string,
+        { label: string; scenes: StoredScene[]; order: number }
+      >();
+
+      for (const scene of sourceScenes) {
+        const label = scene.setPiece?.trim();
+        if (!label) continue;
+
+        const key = label.toLowerCase();
+        const existing = groups.get(key);
+        if (existing) {
+          existing.scenes.push(scene);
+          existing.order = Math.min(existing.order, scene.order);
+          continue;
+        }
+
+        groups.set(key, { label, scenes: [scene], order: scene.order });
+      }
+
+      return Array.from(groups.values())
+        .sort((a, b) => a.order - b.order)
+        .map((group) => ({
+          label: group.label,
+          scenes: group.scenes.sort((a, b) => a.order - b.order),
+        }));
+    },
+    [],
+  );
+
+  const libraryScenes = useMemo(
+    () => (currentProjectId ? getProjectScenes(currentProjectId) : []),
+    [currentProjectId, getProjectScenes],
+  );
+  const librarySetPieceGroups = useMemo(
+    () => buildSetPieceGroups(libraryScenes),
+    [buildSetPieceGroups, libraryScenes],
+  );
+
+  const parseSceneHeading = useCallback((scene: StoredScene) => {
+    const headingLine = scene.lines?.find(
+      (line) => line.character === "[Scene Heading]" && line.dialogue.trim(),
+    );
+    return headingLine?.dialogue.trim() || scene.title.trim();
+  }, []);
+
+  const buildLibraryScenePage = useCallback(
+    (scene: StoredScene): Scene | null => {
+      const dialogueLines = parseDialogueLines(
+        scene.content,
+        productionType === "Film" ? "screenplay" : "mixed",
+        buildKnownCharacters(scene.characters ?? []),
+      );
+
+      const lineChars = Array.from(
+        new Set(
+          dialogueLines
+            .filter((l) => !l.isStageDirection && !l.character.startsWith("["))
+            .flatMap((l) =>
+              l.character
+                .split(/\s*[,&+]\s*/)
+                .map((n) => n.trim().toUpperCase())
+                .filter(Boolean),
+            ),
+        ),
+      );
+
+      const mergedChars = Array.from(
+        new Set([
+          ...(scene.characters ?? []).map((c) => c.toUpperCase()),
+          ...lineChars,
+        ]),
+      );
+
+      return {
+        title: scene.title,
+        lines: dialogueLines,
+        characters: mergedChars.length > 0 ? mergedChars : scene.characters,
+        setPiece: scene.setPiece?.trim() || undefined,
+      };
+    },
+    [buildKnownCharacters, productionType],
+  );
+
+  const buildSetPieceScenePage = useCallback(
+    (label: string, scenesInSetPiece: StoredScene[]): Scene | null => {
+      const flattenedLines: DialogueLine[] = [];
+      const mergedChars = new Set<string>();
+
+      for (const scene of scenesInSetPiece) {
+        const dialogueLines = parseDialogueLines(
+          scene.content,
+          productionType === "Film" ? "screenplay" : "mixed",
+          buildKnownCharacters(scene.characters ?? []),
+        );
+
+        const slugline = parseSceneHeading(scene);
+        if (slugline) {
+          flattenedLines.push({
+            lineNumber: -1,
+            character: "[Narrative]",
+            dialogue: slugline,
+            isNarratorCue: true,
+          });
+        }
+
+        for (const line of dialogueLines) {
+          if (line.character === "[Scene Heading]") continue;
+          flattenedLines.push(line);
+        }
+
+        const lineChars = Array.from(
+          new Set(
+            dialogueLines
+              .filter(
+                (l) => !l.isStageDirection && !l.character.startsWith("["),
+              )
+              .flatMap((l) =>
+                l.character
+                  .split(/\s*[,&+]\s*/)
+                  .map((n) => n.trim().toUpperCase())
+                  .filter(Boolean),
+              ),
+          ),
+        );
+
+        for (const characterName of [
+          ...(scene.characters ?? []),
+          ...lineChars,
+        ]) {
+          const upper = characterName.trim().toUpperCase();
+          if (upper) mergedChars.add(upper);
+        }
+      }
+
+      if (flattenedLines.length === 0) return null;
+
+      return {
+        title: label,
+        lines: flattenedLines,
+        characters: Array.from(mergedChars),
+        setPiece: label,
+      };
+    },
+    [buildKnownCharacters, parseSceneHeading, productionType],
   );
 
   const normalizeScriptInput = useCallback(
@@ -515,60 +685,39 @@ MOM: See? You were ready.`,
       return;
     }
 
-    const libraryScenes: StoredScene[] = getProjectScenes(currentProjectId);
-    if (libraryScenes.length === 0) {
-      return;
+    let processedScenes: Scene[] = [];
+
+    if (libraryLoadMode === "set-pieces") {
+      const selectedLabels =
+        selectedLibrarySetPieces.size > 0
+          ? librarySetPieceGroups
+              .map((group) => group.label)
+              .filter((label) => selectedLibrarySetPieces.has(label))
+          : librarySetPieceGroups.map((group) => group.label);
+
+      processedScenes = selectedLabels
+        .map((label) => {
+          const group = librarySetPieceGroups.find(
+            (item) => item.label.toLowerCase() === label.toLowerCase(),
+          );
+          if (!group) return null;
+          return buildSetPieceScenePage(group.label, group.scenes);
+        })
+        .filter((scene): scene is Scene => scene !== null);
+    } else {
+      const toLoad: StoredScene[] =
+        selectedLibrarySceneIds.size > 0
+          ? libraryScenes.filter((s) => selectedLibrarySceneIds.has(s.id))
+          : libraryScenes;
+
+      if (toLoad.length === 0) {
+        return;
+      }
+
+      processedScenes = toLoad
+        .map((scene) => buildLibraryScenePage(scene))
+        .filter((scene): scene is Scene => scene !== null);
     }
-
-    // Filter to selected scenes, or all if none selected
-    const toLoad: StoredScene[] =
-      selectedLibrarySceneIds.size > 0
-        ? libraryScenes.filter((s) => selectedLibrarySceneIds.has(s.id))
-        : libraryScenes;
-
-    if (toLoad.length === 0) {
-      return;
-    }
-
-    const processedScenes: Scene[] = toLoad
-      .map((s) => {
-        // Reparse from source content so rehearsal always reflects the current
-        // classifier logic, even if the stored cached lines were created before
-        // a rules update.
-        const dialogueLines = parseDialogueLines(
-          s.content,
-          productionType === "Film" ? "screenplay" : "mixed",
-          buildKnownCharacters(s.characters ?? []),
-        );
-        // Derive characters from parsed lines; merge with stored list so
-        // manually-curated entries from the Scenes tab are preserved.
-        const lineChars = Array.from(
-          new Set(
-            dialogueLines
-              .filter(
-                (l) => !l.isStageDirection && !l.character.startsWith("["),
-              )
-              .flatMap((l) =>
-                l.character
-                  .split(/\s*[,&+]\s*/)
-                  .map((n) => n.trim().toUpperCase())
-                  .filter(Boolean),
-              ),
-          ),
-        );
-        const mergedChars = Array.from(
-          new Set([
-            ...(s.characters ?? []).map((c) => c.toUpperCase()),
-            ...lineChars,
-          ]),
-        );
-        return {
-          title: s.title,
-          lines: dialogueLines,
-          characters: mergedChars.length > 0 ? mergedChars : s.characters,
-        };
-      })
-      .filter((s) => s.lines.length > 0);
 
     if (processedScenes.length === 0) {
       return;
@@ -577,7 +726,11 @@ MOM: See? You were ready.`,
     setScenes(processedScenes);
     setSelectedSceneIndex(0);
     setCurrentSpeaker("READY");
-    setCurrentDialogue("Scenes loaded from library.");
+    setCurrentDialogue(
+      libraryLoadMode === "set-pieces"
+        ? "Set pieces loaded from library."
+        : "Scenes loaded from library.",
+    );
     setCurrentPrompt("");
     setScenesOpen(false);
   };
@@ -589,6 +742,18 @@ MOM: See? You were ready.`,
         next.delete(sceneId);
       } else {
         next.add(sceneId);
+      }
+      return next;
+    });
+  };
+
+  const toggleLibrarySetPiece = (label: string) => {
+    setSelectedLibrarySetPieces((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
       }
       return next;
     });
@@ -731,6 +896,7 @@ MOM: See? You were ready.`,
     window.speechSynthesis.cancel();
     localStorage.removeItem(saveKeyForProject(currentProjectId));
     setSelectedLibrarySceneIds(new Set());
+    setSelectedLibrarySetPieces(new Set());
     setScenesOpen(true);
     applySettings(null);
   };
@@ -785,8 +951,90 @@ MOM: See? You were ready.`,
   const speakLine = useCallback(
     (line: DialogueLine, onDone: () => void) => {
       // For combined speakers like "MOM + JOEY", use the first individual's voice
-      const primarySpeaker = splitSpeaker(line.character)[0] || line.character;
+      const isNarratorCue = line.isNarratorCue === true;
+      const primarySpeaker = isNarratorCue
+        ? "NARRATOR"
+        : splitSpeaker(line.character)[0] || line.character;
       const cacheEnabled = getTTSSettings().enableAudioCache ?? false;
+      if (isNarratorCue) {
+        if (ttsProvider === "kokoro") {
+          const ttsSettings = getTTSSettings();
+          speakTextViaKokoro(line.dialogue, {
+            voice: ttsSettings.kokoroVoice || "am_puck",
+            speed: 1,
+            characterName: primarySpeaker,
+            cacheAudio: cacheEnabled,
+            voiceSignature: `kokoro:${ttsSettings.kokoroVoice || "am_puck"}`,
+          })
+            .then(onDone)
+            .catch(() => onDone());
+          return;
+        }
+
+        if (ttsProvider === "api") {
+          const ttsSettings = getTTSSettings();
+          speakTextViaApi(line.dialogue, {
+            voice: ttsSettings.defaultVoiceId || "",
+            speed: 1,
+            characterName: primarySpeaker,
+            cacheAudio: cacheEnabled,
+          })
+            .then(onDone)
+            .catch(() => onDone());
+          return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(line.dialogue);
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        if (availableVoices.length && availableVoices[narratorVoiceIndex]) {
+          utterance.voice = availableVoices[narratorVoiceIndex];
+        }
+        utterance.onend = onDone;
+        utterance.onerror = onDone;
+        window.speechSynthesis.speak(utterance);
+        return;
+      }
+
+      if (isNarratorCue) {
+        if (ttsProvider === "kokoro") {
+          const ttsSettings = getTTSSettings();
+          speakTextViaKokoro(line.dialogue, {
+            voice: ttsSettings.kokoroVoice || "am_puck",
+            speed: 1,
+            characterName: primarySpeaker,
+            cacheAudio: cacheEnabled,
+            voiceSignature: `kokoro:${ttsSettings.kokoroVoice || "am_puck"}`,
+          })
+            .then(onDone)
+            .catch(() => onDone());
+          return;
+        }
+
+        if (ttsProvider === "api") {
+          const ttsSettings = getTTSSettings();
+          speakTextViaApi(line.dialogue, {
+            voice: ttsSettings.defaultVoiceId || "",
+            speed: 1,
+            characterName: primarySpeaker,
+            cacheAudio: cacheEnabled,
+          })
+            .then(onDone)
+            .catch(() => onDone());
+          return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(line.dialogue);
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        if (availableVoices.length && availableVoices[narratorVoiceIndex]) {
+          utterance.voice = availableVoices[narratorVoiceIndex];
+        }
+        utterance.onend = onDone;
+        utterance.onerror = onDone;
+        window.speechSynthesis.speak(utterance);
+        return;
+      }
 
       // â”€â”€ Kokoro TTS path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (ttsProvider === "kokoro") {
@@ -1066,6 +1314,9 @@ MOM: See? You were ready.`,
             line.character === "[Scene Heading]" ||
             line.isStageDirection)))
     ) {
+      if (line.isNarratorCue) {
+        break;
+      }
       idx++;
       line = rehearsal.lines[idx];
     }
@@ -1300,10 +1551,6 @@ MOM: See? You were ready.`,
   const labelCls =
     "block text-xs font-semibold text-muted uppercase tracking-wider mb-1.5";
 
-  const libraryScenes = currentProjectId
-    ? getProjectScenes(currentProjectId)
-    : [];
-
   return (
     <div className="space-y-4">
       {/* ── Run Lines (stays fixed) ──────────────────────────────── */}
@@ -1411,7 +1658,7 @@ MOM: See? You were ready.`,
       <div className="flex gap-4 items-start">
         {/* ── Load Scenes sidebar ──────────────────────────────────── */}
         <div
-          className={`flex-shrink-0 transition-all duration-200 ${scenesOpen ? "w-72" : "w-8"}`}
+          className={`flex-shrink-0 transition-all duration-200 ${scenesOpen ? "w-[34rem]" : "w-8"}`}
         >
           <div className="card relative overflow-hidden">
             {/* Toggle chevron */}
@@ -1463,150 +1710,331 @@ MOM: See? You were ready.`,
                   )}
                 </div>
 
-                {/* Source tabs */}
-                <div className="flex gap-1 border-b border-border">
-                  {(["library", "paste"] as const).map((src) => (
-                    <button
-                      key={src}
-                      onClick={() => setLoadSource(src)}
-                      className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${
-                        loadSource === src
-                          ? "border-accent-cyan text-accent-cyan"
-                          : "border-transparent text-muted hover:text-light"
-                      }`}
-                    >
-                      {src === "library" ? "From Library" : "Paste Script"}
-                    </button>
-                  ))}
+                <div className="space-y-3">
+                  {/* Source tabs */}
+                  <div className="flex gap-1 border-b border-border">
+                    {(["library", "paste"] as const).map((src) => (
+                      <button
+                        key={src}
+                        onClick={() => setLoadSource(src)}
+                        className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${
+                          loadSource === src
+                            ? "border-accent-cyan text-accent-cyan"
+                            : "border-transparent text-muted hover:text-light"
+                        }`}
+                      >
+                        {src === "library" ? "From Library" : "Paste Script"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {loadSource === "library" && (
+                    <div className="grid grid-cols-2 gap-1 rounded-lg border border-border p-1">
+                      {(["scenes", "set-pieces"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => {
+                            setLibraryLoadMode(mode);
+                            if (mode === "scenes") {
+                              setSelectedLibrarySetPieces(new Set());
+                            } else {
+                              setSelectedLibrarySceneIds(new Set());
+                            }
+                          }}
+                          className={`rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                            libraryLoadMode === mode
+                              ? "bg-accent-cyan/20 text-accent-cyan"
+                              : "text-muted hover:text-light hover:bg-white/5"
+                          }`}
+                        >
+                          {mode === "scenes"
+                            ? "Individual Scenes"
+                            : "Set Pieces"}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Library */}
-                {loadSource === "library" &&
-                  (libraryScenes.length === 0 ? (
-                    <p className="text-muted text-sm">
-                      No scenes found. Import scenes in the{" "}
-                      <span className="text-accent-cyan">Scenes</span> tab
-                      first.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      <input
-                        type="text"
-                        value={libraryFilter}
-                        onChange={(e) => setLibraryFilter(e.target.value)}
-                        placeholder="Filter scenes…"
-                        className={inputCls}
-                      />
-                      {(() => {
-                        const query = libraryFilter.trim().toLowerCase();
-                        const filtered = query
-                          ? libraryScenes.filter((ls) => {
-                              const chars =
-                                ls.characters ??
-                                extractSceneCharacters(
-                                  ls.content,
-                                  undefined,
-                                  productionType,
+                {loadSource === "library" && (
+                  <div className="space-y-3">
+                    {libraryScenes.length === 0 ? (
+                      <p className="text-muted text-sm">
+                        No scenes found. Import scenes in the{" "}
+                        <span className="text-accent-cyan">Scenes</span> tab
+                        first.
+                      </p>
+                    ) : libraryLoadMode === "scenes" ? (
+                      <>
+                        <label className="flex items-center gap-2 text-xs text-muted cursor-pointer hover:text-light select-none">
+                          <input
+                            type="checkbox"
+                            checked={hideScenesWithoutCharacters}
+                            onChange={(e) =>
+                              setHideScenesWithoutCharacters(e.target.checked)
+                            }
+                            className="accent-accent-cyan w-3.5 h-3.5"
+                          />
+                          Hide scenes without characters
+                        </label>
+                        <input
+                          type="text"
+                          value={libraryFilter}
+                          onChange={(e) => setLibraryFilter(e.target.value)}
+                          placeholder="Filter scenes…"
+                          className={inputCls}
+                        />
+                        {(() => {
+                          const query = libraryFilter.trim().toLowerCase();
+                          const scenesWithCharacters =
+                            hideScenesWithoutCharacters
+                              ? libraryScenes.filter((ls) => {
+                                  const chars =
+                                    ls.characters ??
+                                    extractSceneCharacters(
+                                      ls.content,
+                                      undefined,
+                                      productionType,
+                                    );
+                                  return chars.length > 0;
+                                })
+                              : libraryScenes;
+                          const filtered = query
+                            ? scenesWithCharacters.filter((ls) => {
+                                const chars =
+                                  ls.characters ??
+                                  extractSceneCharacters(
+                                    ls.content,
+                                    undefined,
+                                    productionType,
+                                  );
+                                return (
+                                  ls.title.toLowerCase().includes(query) ||
+                                  ls.content.toLowerCase().includes(query) ||
+                                  chars.some((c) =>
+                                    c.toLowerCase().includes(query),
+                                  )
                                 );
-                              return (
-                                ls.title.toLowerCase().includes(query) ||
-                                ls.content.toLowerCase().includes(query) ||
-                                chars.some((c) =>
-                                  c.toLowerCase().includes(query),
-                                )
-                              );
-                            })
-                          : libraryScenes;
-                        const allSelected =
-                          filtered.length > 0 &&
-                          filtered.every((ls) =>
+                              })
+                            : scenesWithCharacters;
+                          const allSelected =
+                            filtered.length > 0 &&
+                            filtered.every((ls) =>
+                              selectedLibrarySceneIds.has(ls.id),
+                            );
+                          const someSelected = filtered.some((ls) =>
                             selectedLibrarySceneIds.has(ls.id),
                           );
-                        const someSelected = filtered.some((ls) =>
-                          selectedLibrarySceneIds.has(ls.id),
-                        );
-                        return (
-                          <div className="border border-border rounded-lg overflow-hidden">
-                            <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel border-b border-border cursor-pointer hover:bg-white/5 transition-colors">
-                              <input
-                                type="checkbox"
-                                checked={allSelected}
-                                ref={(el) => {
-                                  if (el)
-                                    el.indeterminate =
-                                      someSelected && !allSelected;
-                                }}
-                                onChange={() =>
-                                  setSelectedLibrarySceneIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (allSelected)
-                                      filtered.forEach((ls) =>
-                                        next.delete(ls.id),
-                                      );
-                                    else
-                                      filtered.forEach((ls) => next.add(ls.id));
-                                    return next;
-                                  })
-                                }
-                                className="accent-accent-cyan"
-                              />
-                              <span className="text-xs font-semibold text-muted uppercase tracking-widest">
-                                All{query ? ` (${filtered.length})` : ""}
-                              </span>
-                            </label>
-                            {filtered.map((ls) => {
-                              const isSelected = selectedLibrarySceneIds.has(
-                                ls.id,
-                              );
-                              const chars =
-                                ls.characters ??
-                                extractSceneCharacters(
-                                  ls.content,
-                                  undefined,
-                                  productionType,
+                          return (
+                            <div className="border border-border rounded-lg overflow-hidden">
+                              <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel border-b border-border cursor-pointer hover:bg-white/5 transition-colors">
+                                <input
+                                  type="checkbox"
+                                  checked={allSelected}
+                                  ref={(el) => {
+                                    if (el)
+                                      el.indeterminate =
+                                        someSelected && !allSelected;
+                                  }}
+                                  onChange={() =>
+                                    setSelectedLibrarySceneIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (allSelected)
+                                        filtered.forEach((ls) =>
+                                          next.delete(ls.id),
+                                        );
+                                      else
+                                        filtered.forEach((ls) =>
+                                          next.add(ls.id),
+                                        );
+                                      return next;
+                                    })
+                                  }
+                                  className="accent-accent-cyan"
+                                />
+                                <span className="text-xs font-semibold text-muted uppercase tracking-widest">
+                                  All{query ? ` (${filtered.length})` : ""}
+                                </span>
+                              </label>
+                              {filtered.map((ls) => {
+                                const isSelected = selectedLibrarySceneIds.has(
+                                  ls.id,
                                 );
-                              return (
-                                <label
-                                  key={ls.id}
-                                  className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => toggleLibraryScene(ls.id)}
-                                    className="accent-accent-cyan mt-0.5 flex-shrink-0"
-                                  />
-                                  <div className="min-w-0">
-                                    <div className="text-sm text-light font-medium truncate">
-                                      {ls.title}
-                                    </div>
-                                    {chars.length > 0 && (
-                                      <div className="text-xs text-accent-cyan mt-0.5 truncate">
-                                        {chars.join(", ")}
+                                const chars =
+                                  ls.characters ??
+                                  extractSceneCharacters(
+                                    ls.content,
+                                    undefined,
+                                    productionType,
+                                  );
+                                return (
+                                  <label
+                                    key={ls.id}
+                                    className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleLibraryScene(ls.id)}
+                                      className="accent-accent-cyan mt-0.5 flex-shrink-0"
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="text-sm text-light font-medium truncate">
+                                        {ls.title}
                                       </div>
-                                    )}
-                                  </div>
-                                </label>
-                              );
-                            })}
-                            {filtered.length === 0 && (
-                              <div className="px-3 py-4 text-muted text-sm text-center">
-                                No matches
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      <button
-                        onClick={handleLoadFromLibrary}
-                        className={btnPrimary}
-                      >
-                        {selectedLibrarySceneIds.size > 0
-                          ? `Load ${selectedLibrarySceneIds.size} scene${selectedLibrarySceneIds.size !== 1 ? "s" : ""}`
-                          : `Load all ${libraryScenes.length}`}
-                      </button>
-                    </div>
-                  ))}
+                                      {chars.length > 0 && (
+                                        <div className="text-xs text-accent-cyan mt-0.5 truncate">
+                                          {chars.join(", ")}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                              {filtered.length === 0 && (
+                                <div className="px-3 py-4 text-muted text-sm text-center">
+                                  No matches
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        <button
+                          onClick={handleLoadFromLibrary}
+                          className={btnPrimary}
+                        >
+                          {selectedLibrarySceneIds.size > 0
+                            ? `Load ${selectedLibrarySceneIds.size} scene${selectedLibrarySceneIds.size !== 1 ? "s" : ""}`
+                            : `Load all ${libraryScenes.length}`}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          value={libraryFilter}
+                          onChange={(e) => setLibraryFilter(e.target.value)}
+                          placeholder="Filter set pieces…"
+                          className={inputCls}
+                        />
+                        {(() => {
+                          const query = libraryFilter.trim().toLowerCase();
+                          const filtered = query
+                            ? librarySetPieceGroups.filter((group) => {
+                                const groupChars = group.scenes.flatMap(
+                                  (scene) =>
+                                    scene.characters ??
+                                    extractSceneCharacters(
+                                      scene.content,
+                                      undefined,
+                                      productionType,
+                                    ),
+                                );
+                                return (
+                                  group.label.toLowerCase().includes(query) ||
+                                  group.scenes.some((scene) =>
+                                    scene.title.toLowerCase().includes(query),
+                                  ) ||
+                                  groupChars.some((c) =>
+                                    c.toLowerCase().includes(query),
+                                  )
+                                );
+                              })
+                            : librarySetPieceGroups;
+                          const allSelected =
+                            filtered.length > 0 &&
+                            filtered.every((group) =>
+                              selectedLibrarySetPieces.has(group.label),
+                            );
+                          const someSelected = filtered.some((group) =>
+                            selectedLibrarySetPieces.has(group.label),
+                          );
+                          return (
+                            <div className="border border-border rounded-lg overflow-hidden">
+                              <label className="flex items-center gap-3 px-3 py-2 bg-dark-panel border-b border-border cursor-pointer hover:bg-white/5 transition-colors">
+                                <input
+                                  type="checkbox"
+                                  checked={allSelected}
+                                  ref={(el) => {
+                                    if (el)
+                                      el.indeterminate =
+                                        someSelected && !allSelected;
+                                  }}
+                                  onChange={() =>
+                                    setSelectedLibrarySetPieces((prev) => {
+                                      const next = new Set(prev);
+                                      if (allSelected)
+                                        filtered.forEach((group) =>
+                                          next.delete(group.label),
+                                        );
+                                      else
+                                        filtered.forEach((group) =>
+                                          next.add(group.label),
+                                        );
+                                      return next;
+                                    })
+                                  }
+                                  className="accent-accent-cyan"
+                                />
+                                <span className="text-xs font-semibold text-muted uppercase tracking-widest">
+                                  All{query ? ` (${filtered.length})` : ""}
+                                </span>
+                              </label>
+                              {filtered.map((group) => {
+                                const isSelected = selectedLibrarySetPieces.has(
+                                  group.label,
+                                );
+                                return (
+                                  <label
+                                    key={group.label}
+                                    className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer border-b border-border last:border-b-0 transition-colors ${isSelected ? "bg-accent-cyan/5" : "hover:bg-white/5"}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() =>
+                                        toggleLibrarySetPiece(group.label)
+                                      }
+                                      className="accent-accent-cyan mt-0.5 flex-shrink-0"
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="text-sm text-light font-medium truncate">
+                                        {group.label}
+                                      </div>
+                                      <div className="text-xs text-accent-cyan mt-0.5">
+                                        {group.scenes.length} scene
+                                        {group.scenes.length !== 1 ? "s" : ""}
+                                      </div>
+                                      <div className="text-[11px] text-muted mt-0.5 truncate">
+                                        {group.scenes
+                                          .map((scene) => scene.title)
+                                          .join(" • ")}
+                                      </div>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                              {filtered.length === 0 && (
+                                <div className="px-3 py-4 text-muted text-sm text-center">
+                                  No matches
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        <button
+                          onClick={handleLoadFromLibrary}
+                          className={btnPrimary}
+                        >
+                          {selectedLibrarySetPieces.size > 0
+                            ? `Load ${selectedLibrarySetPieces.size} set piece${selectedLibrarySetPieces.size !== 1 ? "s" : ""}`
+                            : `Load all ${librarySetPieceGroups.length} set pieces`}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* Paste */}
                 {loadSource === "paste" && (

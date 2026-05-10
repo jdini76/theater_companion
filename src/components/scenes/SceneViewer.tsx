@@ -35,6 +35,7 @@ interface SceneViewerProps {
   scene: Scene;
   projectId: string;
   productionType?: ProductionType;
+  sceneOpenMode?: "scene" | "set-piece";
   onEdit?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -110,6 +111,7 @@ export function SceneViewer({
   scene,
   projectId,
   productionType,
+  sceneOpenMode = "scene",
   onEdit,
   onPrev,
   onNext,
@@ -385,7 +387,7 @@ export function SceneViewer({
   const showSongs = productionType !== "Film" && songs.length > 0;
   const setPiece = scene.setPiece?.trim();
   const screenplaySourceScenes = useMemo(() => {
-    if (!setPiece) return [scene];
+    if (sceneOpenMode !== "set-piece" || !setPiece) return [scene];
 
     const label = setPiece.toLowerCase();
     const scenesInSetPiece = getProjectScenes(projectId)
@@ -393,13 +395,14 @@ export function SceneViewer({
       .sort((left, right) => left.order - right.order);
 
     return scenesInSetPiece.length > 0 ? scenesInSetPiece : [scene];
-  }, [getProjectScenes, projectId, scene, setPiece]);
+  }, [getProjectScenes, projectId, scene, sceneOpenMode, setPiece]);
 
   useEffect(() => {
     setScreenplayPageIndex(0);
-  }, [scene.id, setPiece]);
+  }, [scene.id, sceneOpenMode, setPiece]);
 
-  const isSetPieceScreenplay = Boolean(setPiece);
+  const isSetPieceScreenplay =
+    sceneOpenMode === "set-piece" && Boolean(setPiece);
 
   const screenplayFontSize =
     scriptTextSize === "text-xs"
