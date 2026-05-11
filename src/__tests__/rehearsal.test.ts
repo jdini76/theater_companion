@@ -964,6 +964,62 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
       ]);
     });
 
+    it("treats proper-name-led action lines as narrative", () => {
+      const text = [
+        "ELI",
+        "For the record, I am opposed to dares that involve tetanus.",
+        "MARA VALE enters with PROFESSOR TICK, a gentle, eccentric drama teacher with a pocket watch dangling from his vest.",
+        "MARA",
+        "You said the stage was haunted.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      expect(
+        result.some(
+          (l) =>
+            l.character === "ELI" && l.dialogue.includes("MARA VALE enters"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue.startsWith("MARA VALE enters"),
+        ),
+      ).toBe(true);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "MARA" &&
+            l.dialogue === "You said the stage was haunted.",
+        ),
+      ).toBe(true);
+    });
+
+    it("treats blank-line-separated action lines as narrative", () => {
+      const text = [
+        "ELI: For the record, I am opposed to dares that involve tetanus.",
+        "",
+        "MARA VALE enters with PROFESSOR TICK, a gentle, eccentric drama teacher with a pocket watch dangling from his vest.",
+        "MARA: You said the stage was haunted.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      expect(
+        result.some(
+          (l) =>
+            l.character === "ELI" && l.dialogue.includes("MARA VALE enters"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue.startsWith("MARA VALE enters"),
+        ),
+      ).toBe(true);
+    });
+
     it("does not treat dialogue ellipses as TOC dot leaders", () => {
       const text = [
         "DRIVER",
