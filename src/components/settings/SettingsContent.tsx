@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { getAvailableVoices } from "@/lib/voice";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
@@ -593,8 +594,11 @@ const TABS: { id: SettingsTab; label: string }[] = [
 
 export function SettingsContent() {
   const { canUseKokoro, deviceType } = useDeviceCapabilities();
+  const searchParams = useSearchParams();
   const isIOSDevice = deviceType === "ios";
-  const [activeTab, setActiveTab] = useState<SettingsTab>("voice");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
+    searchParams.get("tab") === "data" ? "data" : "voice",
+  );
   const [settings, setSettings] = useState<TTSSettings>(DEFAULT_TTS_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [testStatus, setTestStatus] = useState<string | null>(null);
@@ -674,7 +678,11 @@ export function SettingsContent() {
 
     const unsub = onKokoroStateChange(setKokoroLoadState);
     return unsub;
-  }, []);
+  }, [canUseKokoro]);
+
+  useEffect(() => {
+    setActiveTab(searchParams.get("tab") === "data" ? "data" : "voice");
+  }, [searchParams]);
 
   const handleSave = () => {
     saveTTSSettings({ ...settings, previewText: testText });

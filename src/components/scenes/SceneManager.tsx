@@ -316,8 +316,12 @@ export function SceneManager({
               onNext={handleNextScene}
               hasPrev={selectedIndex > 0}
               hasNext={selectedIndex >= 0 && selectedIndex < scenes.length - 1}
-              fullscreenOpenToken={fullscreenRequest}
-              fullscreenOpenView="screenplay"
+              fullscreenOpenToken={
+                sceneOpenMode === "set-piece" ? fullscreenRequest : undefined
+              }
+              fullscreenOpenView={
+                sceneOpenMode === "set-piece" ? "screenplay" : undefined
+              }
             />
           ) : (
             <div className="card flex-1 flex flex-col items-center justify-center text-center py-16">

@@ -403,11 +403,13 @@ function splitParentheticals(
 function looksLikeNarrativeProseLine(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  const actionProse = looksLikeActionProseLine(trimmed);
 
   // Narrative prose should not be forced through the dialogue continuation
   // path just because it appears after a speaker.
   if (!/[a-z]/.test(trimmed)) return false;
   if (
+    !actionProse &&
     !/^['"“”]*(?:the|a|an|this|that|these|those|he|she|they|we|i|his|her|their|its|our|my)\b/i.test(
       trimmed,
     )
@@ -423,7 +425,8 @@ function looksLikeNarrativeProseLine(text: string): boolean {
   return (
     /,\s*[A-Z0-9(]/.test(trimmed) ||
     /\([^)]+\)/.test(trimmed) ||
-    trimmed.split(/\s+/).length >= 8
+    trimmed.split(/\s+/).length >= 8 ||
+    actionProse
   );
 }
 
@@ -443,6 +446,27 @@ function splitDialogueFromNarrativeProse(
   if (!dialogue || !narrative) return null;
 
   return { dialogue, narrative };
+}
+
+const ACTION_PROSE_VERBS =
+  /\b(?:enters?|exits?|crosses|walks?|runs?|turns?|looks?|smiles?|nods?|sits?|stands?|moves?|returns?|follows?|joins?|passes|arrives?|leaves?|pulls|pushes|reaches|holds?|takes|grabs|opens?|closes?|drops?|raises|lowers?|picks|sets|starts?|stops?|watches|studies|checks|clutches|heads)\b/i;
+
+const ACTION_PROSE_START_RE =
+  /^(?:['"“”]*(?:the|a|an|this|that|these|those)\b|['"“”]*[A-Z][A-Za-z0-9'.&,+-]*(?:\s+[A-Z][A-Za-z0-9'.&,+-]*)*(?:\s|,))/;
+
+function looksLikeActionProseLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (!/[a-z]/.test(trimmed)) return false;
+  if (!ACTION_PROSE_START_RE.test(trimmed)) {
+    return false;
+  }
+
+  return (
+    ACTION_PROSE_VERBS.test(trimmed) ||
+    /,\s*[A-Z0-9(]/.test(trimmed) ||
+    trimmed.split(/\s+/).length >= 8
+  );
 }
 
 /**
@@ -1536,11 +1560,11 @@ export function parseDialogueLines(
           output[lastDialogueIdx].isSong = true;
       } else if (
         !standaloneCharLooksLikeSpeaker &&
-        fmt === "screenplay" &&
+        (fmt === "screenplay" || fmt === "mixed") &&
         afterBlank
       ) {
-        // In screenplay mode, a blank line is a boundary. Treat the next line
-        // as scene description unless it is an explicit speaker cue.
+        // In screenplay/mixed mode, a blank line is a boundary. Treat the next
+        // line as scene description unless it is an explicit speaker cue.
         debugParse("blank-separated screenplay narrative", {
           currentCharacter: lastCharacter,
           text: trimmed,

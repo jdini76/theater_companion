@@ -441,6 +441,28 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
         ),
       ).toBe(true);
     });
+
+    it("treats blank-line-separated mixed prose as narrative", () => {
+      const text = [
+        "PHIL: I don't know what to say.",
+        "",
+        "He looks toward the door.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "mixed");
+      expect(
+        result.some(
+          (l) => l.character === "PHIL" && l.dialogue.includes("He looks"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue === "He looks toward the door.",
+        ),
+      ).toBe(true);
+    });
   });
 
   // ── Scene headings ─────────────────────────────────────────────────────
@@ -962,6 +984,62 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
         "The passenger, GENERAL SANTARELLI (60s), wearing a crisp suit, turns his head slowly.",
         "The glare emphasizes an OLD SCAR down the right side of his face.",
       ]);
+    });
+
+    it("treats proper-name-led action lines as narrative", () => {
+      const text = [
+        "ELI",
+        "For the record, I am opposed to dares that involve tetanus.",
+        "MARA VALE enters with PROFESSOR TICK, a gentle, eccentric drama teacher with a pocket watch dangling from his vest.",
+        "MARA",
+        "You said the stage was haunted.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      expect(
+        result.some(
+          (l) =>
+            l.character === "ELI" && l.dialogue.includes("MARA VALE enters"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue.startsWith("MARA VALE enters"),
+        ),
+      ).toBe(true);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "MARA" &&
+            l.dialogue === "You said the stage was haunted.",
+        ),
+      ).toBe(true);
+    });
+
+    it("treats blank-line-separated action lines as narrative", () => {
+      const text = [
+        "ELI: For the record, I am opposed to dares that involve tetanus.",
+        "",
+        "MARA VALE enters with PROFESSOR TICK, a gentle, eccentric drama teacher with a pocket watch dangling from his vest.",
+        "MARA: You said the stage was haunted.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "screenplay");
+      expect(
+        result.some(
+          (l) =>
+            l.character === "ELI" && l.dialogue.includes("MARA VALE enters"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue.startsWith("MARA VALE enters"),
+        ),
+      ).toBe(true);
     });
 
     it("does not treat dialogue ellipses as TOC dot leaders", () => {

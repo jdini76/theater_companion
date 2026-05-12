@@ -135,6 +135,14 @@ describe("Scene Management", () => {
         "A tense briefing room where everyone is waiting for the next order.",
       );
     });
+
+    it("preserves blank lines while reflowing paragraphs", () => {
+      const description = "\nFirst paragraph\n\nSecond paragraph\n";
+
+      expect(reflowWrappedText(description)).toBe(
+        "\nFirst paragraph\n\nSecond paragraph\n",
+      );
+    });
   });
 
   describe("Scene Parsing - Single Scene", () => {
@@ -332,6 +340,14 @@ Content three.`;
         "DRIVER\nSir, can I ask why I was pulled from deep cover?",
       );
       expect(scene.content).toBe(normalizeSceneContent(content));
+    });
+
+    it("preserves blank lines when normalizing scene content", () => {
+      const content = "\nAlpha line\n\nBeta line\n";
+
+      expect(normalizeSceneContent(content)).toBe(
+        "\nAlpha line\n\nBeta line\n",
+      );
     });
 
     it("should create scene without description", () => {
