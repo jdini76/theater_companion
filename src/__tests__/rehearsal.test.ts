@@ -441,6 +441,28 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
         ),
       ).toBe(true);
     });
+
+    it("treats blank-line-separated mixed prose as narrative", () => {
+      const text = [
+        "PHIL: I don't know what to say.",
+        "",
+        "He looks toward the door.",
+      ].join("\n");
+
+      const result = parseDialogueLines(text, "mixed");
+      expect(
+        result.some(
+          (l) => l.character === "PHIL" && l.dialogue.includes("He looks"),
+        ),
+      ).toBe(false);
+      expect(
+        result.some(
+          (l) =>
+            l.character === "[Narrative]" &&
+            l.dialogue === "He looks toward the door.",
+        ),
+      ).toBe(true);
+    });
   });
 
   // ── Scene headings ─────────────────────────────────────────────────────

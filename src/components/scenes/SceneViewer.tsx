@@ -9,7 +9,6 @@ import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
-  buildSceneDisplayContent,
   extractSceneCharacters,
   getSceneParseFormat,
   reflowWrappedText,
@@ -376,11 +375,7 @@ export function SceneViewer({
       : colorMap;
 
   const songs = scene.songs ?? [];
-  const displayContent = buildSceneDisplayContent(
-    scene.content,
-    scene.lines,
-    productionType,
-  );
+  const displayContent = scene.content;
   const displayDescription = scene.description
     ? reflowWrappedText(scene.description)
     : "";

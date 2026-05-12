@@ -1560,11 +1560,11 @@ export function parseDialogueLines(
           output[lastDialogueIdx].isSong = true;
       } else if (
         !standaloneCharLooksLikeSpeaker &&
-        fmt === "screenplay" &&
+        (fmt === "screenplay" || fmt === "mixed") &&
         afterBlank
       ) {
-        // In screenplay mode, a blank line is a boundary. Treat the next line
-        // as scene description unless it is an explicit speaker cue.
+        // In screenplay/mixed mode, a blank line is a boundary. Treat the next
+        // line as scene description unless it is an explicit speaker cue.
         debugParse("blank-separated screenplay narrative", {
           currentCharacter: lastCharacter,
           text: trimmed,

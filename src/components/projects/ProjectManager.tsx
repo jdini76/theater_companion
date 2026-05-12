@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { CreateProjectForm } from "./CreateProjectForm";
 import { ProjectList } from "./ProjectList";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +31,12 @@ export function ProjectManager() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/settings?tab=data"
+              className="px-3 py-2 text-sm border border-border text-muted font-medium rounded-lg hover:border-accent-cyan hover:text-light transition-colors"
+            >
+              Import Data
+            </Link>
             <button
               onClick={handleLoadSample}
               className="px-3 py-2 text-sm border border-border text-muted font-medium rounded-lg hover:border-accent-cyan hover:text-light transition-colors"

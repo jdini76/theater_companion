@@ -66,8 +66,23 @@ export function buildSceneDisplayContent(
 }
 
 export function reflowWrappedText(text: string): string {
-  return text
-    .trim()
+  const normalized = text.replace(/\r\n?/g, "\n");
+
+  if (!normalized.trim()) {
+    return normalized;
+  }
+
+  const leadingBlankLines = normalized.match(/^(?:[ \t]*\n)+/);
+  const trailingBlankLines = normalized.match(/(?:\n[ \t]*)+$/);
+
+  const leading = leadingBlankLines?.[0] ?? "";
+  const trailing = trailingBlankLines?.[0] ?? "";
+  const body = normalized.slice(
+    leading.length,
+    normalized.length - trailing.length,
+  );
+
+  const reflowedBody = body
     .split(/\n\s*\n/)
     .map((paragraph) =>
       paragraph
@@ -75,8 +90,9 @@ export function reflowWrappedText(text: string): string {
         .replace(/[ \t]{2,}/g, " ")
         .trim(),
     )
-    .filter(Boolean)
     .join("\n\n");
+
+  return `${leading}${reflowedBody}${trailing}`;
 }
 
 function isStructuralSceneLine(text: string): boolean {
@@ -143,10 +159,7 @@ export function normalizeSceneContent(text: string): string {
 
   flushProseBuffer();
 
-  return output
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return output.join("\n");
 }
 
 export interface DetectedScene {
