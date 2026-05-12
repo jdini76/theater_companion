@@ -1326,11 +1326,14 @@ export function updateScene(
   // Guarantee updatedAt always advances even sub-millisecond in tests
   const updatedAt =
     newTimestamp > scene.updatedAt ? newTimestamp : scene.updatedAt + "1";
-  // If content changed, invalidate the cached parsed lines
+  // Preserve an explicitly refreshed line cache; otherwise invalidate it when
+  // the source content changes.
   const lines =
-    updates.content !== undefined && updates.content !== scene.content
-      ? undefined
-      : scene.lines;
+    updates.lines !== undefined
+      ? updates.lines
+      : updates.content !== undefined && updates.content !== scene.content
+        ? undefined
+        : scene.lines;
   return {
     ...scene,
     ...updates,

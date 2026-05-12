@@ -344,6 +344,18 @@ export function characterNamesMatch(a: string, b: string): boolean {
   return false;
 }
 
+/**
+ * Determine whether a rehearsal line should use the narrator playback path.
+ * This treats both explicit narrator cues and plain narrative lines as narrator
+ * output so they share the same cache identity.
+ */
+export function isNarratorPlaybackLine(line: {
+  character: string;
+  isNarratorCue?: boolean;
+}): boolean {
+  return line.isNarratorCue === true || line.character === "[Narrative]";
+}
+
 // ── External TTS API ────────────────────────────────────────────────────────
 
 export interface ApiVoice {

@@ -376,6 +376,24 @@ Content three.`;
       expect(updated.title).toBe(scene.title);
     });
 
+    it("should preserve refreshed parsed lines when content changes", () => {
+      const updatedLines: DialogueLine[] = [
+        {
+          lineNumber: 0,
+          character: "ROMEO",
+          dialogue: "A fresh line.",
+        },
+      ];
+
+      const updated = updateScene(scene, {
+        content: "ROMEO: A fresh line.",
+        lines: updatedLines,
+      });
+
+      expect(updated.content).toBe("ROMEO: A fresh line.");
+      expect(updated.lines).toBe(updatedLines);
+    });
+
     it("should update multiple fields", () => {
       const updated = updateScene(scene, {
         title: "New Title",

@@ -14,6 +14,7 @@ import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
 import { Scene as StoredScene } from "@/types/scene";
 import { DialogueLine } from "@/types/rehearsal";
+import { type LineOverride } from "@/components/scenes/SceneHighlight";
 import {
   getTTSSettings,
   fetchApiVoices,
@@ -21,6 +22,7 @@ import {
   stopApiAudio,
   ApiVoice,
   characterNamesMatch,
+  isNarratorPlaybackLine,
 } from "@/lib/voice";
 import { getCachedAudioFile } from "@/lib/audio-cache";
 import { decodeHtmlEntities } from "@/lib/utils";
@@ -59,6 +61,69 @@ function loadSavedForProject(projectId: string | null) {
   } catch {
     return null;
   }
+}
+
+function loadSceneLineOverrides(sceneId: string): Map<number, LineOverride> {
+  const storageKey = `theater_scene_line_overrides_${sceneId}`;
+  const legacyKey = `scene_line_overrides_${sceneId}`;
+
+  try {
+    const raw =
+      localStorage.getItem(storageKey) ?? localStorage.getItem(legacyKey);
+    return raw
+      ? new Map(JSON.parse(raw) as [number, LineOverride][])
+      : new Map();
+  } catch {
+    return new Map();
+  }
+}
+
+function applySceneLineOverrides(
+  content: string,
+  overrides: Map<number, LineOverride>,
+): string {
+  if (overrides.size === 0) return content;
+
+  return content
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((rawLine, index) => {
+      const override = overrides.get(index);
+      if (!override) return rawLine;
+
+      const trimmed = rawLine.trim();
+      if (!trimmed) return rawLine;
+
+      if (override.kind === "dialogue" || override.kind === "header") {
+        const char = override.char.trim().toUpperCase();
+        if (!char) return rawLine;
+        if (trimmed.includes(":")) {
+          const dialogue = trimmed.slice(trimmed.indexOf(":") + 1).trim();
+          return dialogue ? `${char}: ${dialogue}` : char;
+        }
+        return override.kind === "dialogue" ? char : rawLine;
+      }
+
+      if (override.kind === "multi-header") {
+        const chars = override.chars
+          .map((name) => name.trim().toUpperCase())
+          .filter(Boolean);
+        if (chars.length === 0) return rawLine;
+        const dialogue = trimmed.includes(":")
+          ? trimmed.slice(trimmed.indexOf(":") + 1).trim()
+          : "";
+        return dialogue
+          ? `${chars.join(" & ")}: ${dialogue}`
+          : chars.join(" & ");
+      }
+
+      if (override.kind === "stage-direction") {
+        return trimmed.startsWith("[") ? rawLine : `[${trimmed}]`;
+      }
+
+      return rawLine;
+    })
+    .join("\n");
 }
 
 interface Scene {
@@ -300,13 +365,35 @@ export default function UnifiedRehearsalPage() {
     return headingLine?.dialogue.trim() || scene.title.trim();
   }, []);
 
-  const buildLibraryScenePage = useCallback(
-    (scene: StoredScene): Scene | null => {
-      const dialogueLines = parseDialogueLines(
-        scene.content,
+  const getImportedSceneLines = useCallback(
+    (scene: StoredScene): DialogueLine[] => {
+      const overrides = loadSceneLineOverrides(scene.id);
+      const contentToImport = applySceneLineOverrides(scene.content, overrides);
+
+      if (overrides.size > 0) {
+        return parseDialogueLines(
+          contentToImport,
+          productionType === "Film" ? "screenplay" : "mixed",
+          buildKnownCharacters(scene.characters ?? []),
+        );
+      }
+
+      if (scene.lines && scene.lines.length > 0) {
+        return scene.lines;
+      }
+
+      return parseDialogueLines(
+        contentToImport,
         productionType === "Film" ? "screenplay" : "mixed",
         buildKnownCharacters(scene.characters ?? []),
       );
+    },
+    [buildKnownCharacters, productionType],
+  );
+
+  const buildLibraryScenePage = useCallback(
+    (scene: StoredScene): Scene | null => {
+      const dialogueLines = getImportedSceneLines(scene);
 
       const lineChars = Array.from(
         new Set(
@@ -335,7 +422,7 @@ export default function UnifiedRehearsalPage() {
         setPiece: scene.setPiece?.trim() || undefined,
       };
     },
-    [buildKnownCharacters, productionType],
+    [getImportedSceneLines],
   );
 
   const buildSetPieceScenePage = useCallback(
@@ -344,11 +431,7 @@ export default function UnifiedRehearsalPage() {
       const mergedChars = new Set<string>();
 
       for (const scene of scenesInSetPiece) {
-        const dialogueLines = parseDialogueLines(
-          scene.content,
-          productionType === "Film" ? "screenplay" : "mixed",
-          buildKnownCharacters(scene.characters ?? []),
-        );
+        const dialogueLines = getImportedSceneLines(scene);
 
         const slugline = parseSceneHeading(scene);
         if (slugline) {
@@ -398,7 +481,7 @@ export default function UnifiedRehearsalPage() {
         setPiece: label,
       };
     },
-    [buildKnownCharacters, parseSceneHeading, productionType],
+    [getImportedSceneLines, parseSceneHeading],
   );
 
   const normalizeScriptInput = useCallback(
@@ -950,53 +1033,16 @@ MOM: See? You were ready.`,
   // Rehearsal playback logic
   const speakLine = useCallback(
     (line: DialogueLine, onDone: () => void) => {
-      // For combined speakers like "MOM + JOEY", use the first individual's voice
-      const isNarratorCue = line.isNarratorCue === true;
-      const primarySpeaker = isNarratorCue
+      // Treat explicit narrator cues and plain narrative lines as the same
+      // cache/voice bucket so they are saved and replayed consistently.
+      const isNarratorLine = isNarratorPlaybackLine(line);
+
+      // For combined speakers like "MOM + JOEY", use the first individual's voice.
+      const primarySpeaker = isNarratorLine
         ? "NARRATOR"
         : splitSpeaker(line.character)[0] || line.character;
       const cacheEnabled = getTTSSettings().enableAudioCache ?? false;
-      if (isNarratorCue) {
-        if (ttsProvider === "kokoro") {
-          const ttsSettings = getTTSSettings();
-          speakTextViaKokoro(line.dialogue, {
-            voice: ttsSettings.kokoroVoice || "am_puck",
-            speed: 1,
-            characterName: primarySpeaker,
-            cacheAudio: cacheEnabled,
-            voiceSignature: `kokoro:${ttsSettings.kokoroVoice || "am_puck"}`,
-          })
-            .then(onDone)
-            .catch(() => onDone());
-          return;
-        }
-
-        if (ttsProvider === "api") {
-          const ttsSettings = getTTSSettings();
-          speakTextViaApi(line.dialogue, {
-            voice: ttsSettings.defaultVoiceId || "",
-            speed: 1,
-            characterName: primarySpeaker,
-            cacheAudio: cacheEnabled,
-          })
-            .then(onDone)
-            .catch(() => onDone());
-          return;
-        }
-
-        const utterance = new SpeechSynthesisUtterance(line.dialogue);
-        utterance.rate = 1;
-        utterance.pitch = 1;
-        if (availableVoices.length && availableVoices[narratorVoiceIndex]) {
-          utterance.voice = availableVoices[narratorVoiceIndex];
-        }
-        utterance.onend = onDone;
-        utterance.onerror = onDone;
-        window.speechSynthesis.speak(utterance);
-        return;
-      }
-
-      if (isNarratorCue) {
+      if (isNarratorLine) {
         if (ttsProvider === "kokoro") {
           const ttsSettings = getTTSSettings();
           speakTextViaKokoro(line.dialogue, {

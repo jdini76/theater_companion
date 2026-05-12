@@ -7,6 +7,7 @@ import type { ProductionType } from "@/types/project";
 import type { DialogueLine } from "@/types/rehearsal";
 import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
+import { useProjects } from "@/contexts/ProjectContext";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
   extractSceneCharacters,
@@ -135,13 +136,16 @@ export function SceneViewer({
   );
   const menuRef = useRef<HTMLDivElement>(null);
   const screenplayScrollRef = useRef<HTMLDivElement>(null);
-  const { getProjectCharacters } = useVoice();
+  const { getProjectCharacters, createCharacter } = useVoice();
+  const { currentProjectId } = useProjects();
   const { navigateToCharacter } = useRehearsalNav();
   const { getProjectScenes, updateScene } = useScenes();
   const { overrides, assign } = useLineOverrides(scene.id);
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
-  const projectCharacters = getProjectCharacters(projectId);
+  const activeProjectId = currentProjectId ?? projectId;
+
+  const projectCharacters = getProjectCharacters(activeProjectId);
   const myRoleChars = projectCharacters.filter((c) => c.isMyRole);
   const projectCast = projectCharacters.map((c) => c.characterName);
   const sceneChars = scene.characters ?? [];
@@ -271,23 +275,44 @@ export function SceneViewer({
     lineIdx: number,
     assignment: LineOverride | undefined,
   ) => {
-    // If a new character name is introduced, add it to scene.characters
-    if (assignment && "char" in assignment) {
-      const newName = assignment.char.trim().toUpperCase();
-      if (newName && !allNames.some((n) => n.toUpperCase() === newName)) {
-        const updatedCharacters = Array.from(
-          new Set([...sceneChars, newName]),
-        ).sort();
-        const updatedLines = parseDialogueLines(
-          scene.content,
-          getSceneParseFormat(productionType),
-          updatedCharacters,
-        );
-        updateScene(scene.id, {
-          characters: updatedCharacters,
-          lines: updatedLines,
-        });
-      }
+    const assignedNames =
+      assignment?.kind === "multi-header"
+        ? assignment.chars
+        : assignment && "char" in assignment
+          ? [assignment.char]
+          : [];
+
+    const normalizedSceneChars = new Set(
+      sceneChars.map((character) => character.trim().toUpperCase()),
+    );
+    const addedNames = assignedNames
+      .map((name) => name.trim().toUpperCase())
+      .filter((name) => name && !normalizedSceneChars.has(name));
+
+    const projectCastSet = new Set(
+      projectCast.map((character) => character.trim().toUpperCase()),
+    );
+    const newProjectNames = addedNames.filter(
+      (name) => !projectCastSet.has(name),
+    );
+
+    for (const name of newProjectNames) {
+      createCharacter(activeProjectId, name);
+    }
+
+    if (addedNames.length > 0) {
+      const updatedCharacters = Array.from(
+        new Set([...sceneChars, ...addedNames]),
+      ).sort();
+      const updatedLines = parseDialogueLines(
+        scene.content,
+        getSceneParseFormat(productionType),
+        updatedCharacters,
+      );
+      updateScene(scene.id, {
+        characters: updatedCharacters,
+        lines: updatedLines,
+      });
     }
     assign(lineIdx, assignment);
   };
@@ -327,6 +352,13 @@ export function SceneViewer({
     return aliasToCanonical.get(upper) ?? upper;
   });
   for (const name of resolvedTagNames) {
+    const upper = name.toUpperCase();
+    if (!sceneCharSet.has(upper)) {
+      sceneCharSet.add(upper);
+      sceneCharacters.push(upper);
+    }
+  }
+  for (const name of sceneChars) {
     const upper = name.toUpperCase();
     if (!sceneCharSet.has(upper)) {
       sceneCharSet.add(upper);
