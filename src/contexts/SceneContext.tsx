@@ -64,6 +64,10 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       characters?: string[];
       songs?: string[];
       lines?: import("@/types/rehearsal").DialogueLine[];
+      lineOverrides?: Record<
+        number,
+        import("@/types/line-override").LineOverride
+      >;
     }>,
     productionType?: import("@/types/project").ProductionType,
   ): Scene[] => {
@@ -105,6 +109,9 @@ export function SceneProvider({ children }: { children: ReactNode }) {
       }
       if (sceneData.songs) {
         scene.songs = sceneData.songs;
+      }
+      if (sceneData.lineOverrides) {
+        scene.lineOverrides = sceneData.lineOverrides;
       }
       // Use pre-parsed lines when provided (avoids a duplicate parse pass)
       if (sceneData.lines && sceneData.lines.length > 0) {

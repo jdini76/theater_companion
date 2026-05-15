@@ -4,27 +4,24 @@ import React, { useMemo, useState, useCallback } from "react";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { extractSongsFromScenes, SongEntry } from "@/lib/songs";
-import { type LineOverride } from "@/components/scenes/SceneHighlight";
+import { type LineOverride } from "@/types/line-override";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import type { ProductionType } from "@/types/project";
 import { SongList } from "./SongList";
 import { SongViewer } from "./SongViewer";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-/** Read stored line overrides for all scenes from localStorage. */
+/** Read canonical line overrides stored on the scene records. */
 function readAllSceneOverrides(
-  sceneIds: string[],
+  scenes: Array<{ id: string; lineOverrides?: Record<number, LineOverride> }>,
 ): Map<string, Map<number, LineOverride>> {
   const result = new Map<string, Map<number, LineOverride>>();
-  if (typeof window === "undefined") return result;
-  for (const id of sceneIds) {
-    try {
-      const raw = localStorage.getItem(`theater_scene_line_overrides_${id}`);
-      if (raw) {
-        result.set(id, new Map(JSON.parse(raw) as [number, LineOverride][]));
-      }
-    } catch {
-      // ignore corrupt entries
+  for (const scene of scenes) {
+    const entries = Object.entries(scene.lineOverrides ?? {}).map(
+      ([index, value]) => [Number(index), value] as const,
+    );
+    if (entries.length > 0) {
+      result.set(scene.id, new Map(entries));
     }
   }
   return result;
@@ -64,8 +61,7 @@ export function SongManager({
   );
 
   const allSongs = useMemo(() => {
-    const sceneIds = scenes.map((s) => s.id);
-    const overrides = readAllSceneOverrides(sceneIds);
+    const overrides = readAllSceneOverrides(scenes);
     return extractSongsFromScenes(
       scenes,
       knownCast.length > 0 ? knownCast : undefined,

@@ -14,7 +14,7 @@ import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
 import { Scene as StoredScene } from "@/types/scene";
 import { DialogueLine } from "@/types/rehearsal";
-import { type LineOverride } from "@/components/scenes/SceneHighlight";
+import { type LineOverride } from "@/types/line-override";
 import {
   getTTSSettings,
   fetchApiVoices,
@@ -63,67 +63,80 @@ function loadSavedForProject(projectId: string | null) {
   }
 }
 
-function loadSceneLineOverrides(sceneId: string): Map<number, LineOverride> {
-  const storageKey = `theater_scene_line_overrides_${sceneId}`;
-  const legacyKey = `scene_line_overrides_${sceneId}`;
-
-  try {
-    const raw =
-      localStorage.getItem(storageKey) ?? localStorage.getItem(legacyKey);
-    return raw
-      ? new Map(JSON.parse(raw) as [number, LineOverride][])
-      : new Map();
-  } catch {
-    return new Map();
+function collectImportedCharacterNames(
+  scene: StoredScene,
+  overrides?: Record<number, LineOverride>,
+): string[] {
+  const names = new Set<string>(
+    (scene.characters ?? []).map((name) => name.toUpperCase()),
+  );
+  for (const override of Object.values(overrides ?? {})) {
+    if (override.kind === "dialogue" || override.kind === "header") {
+      const char = override.char.trim().toUpperCase();
+      if (char) names.add(char);
+    } else if (override.kind === "multi-header") {
+      for (const char of override.chars) {
+        const upper = char.trim().toUpperCase();
+        if (upper) names.add(upper);
+      }
+    }
   }
+  return Array.from(names);
 }
 
-function applySceneLineOverrides(
-  content: string,
-  overrides: Map<number, LineOverride>,
-): string {
-  if (overrides.size === 0) return content;
+function canonicalizeSceneCharacterNames(
+  names: string[],
+  knownCast: string[],
+): string[] {
+  const castUpper = new Set(knownCast.map((name) => name.toUpperCase()));
+  const firstNameMap = new Map<string, string>();
+  const lastNameMap = new Map<string, string>();
 
-  return content
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .map((rawLine, index) => {
-      const override = overrides.get(index);
-      if (!override) return rawLine;
-
-      const trimmed = rawLine.trim();
-      if (!trimmed) return rawLine;
-
-      if (override.kind === "dialogue" || override.kind === "header") {
-        const char = override.char.trim().toUpperCase();
-        if (!char) return rawLine;
-        if (trimmed.includes(":")) {
-          const dialogue = trimmed.slice(trimmed.indexOf(":") + 1).trim();
-          return dialogue ? `${char}: ${dialogue}` : char;
-        }
-        return override.kind === "dialogue" ? char : rawLine;
+  for (const name of knownCast) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length > 1) {
+      const first = parts[0].toUpperCase();
+      if (firstNameMap.has(first)) {
+        firstNameMap.set(first, "");
+      } else {
+        firstNameMap.set(first, name.toUpperCase());
       }
 
-      if (override.kind === "multi-header") {
-        const chars = override.chars
-          .map((name) => name.trim().toUpperCase())
-          .filter(Boolean);
-        if (chars.length === 0) return rawLine;
-        const dialogue = trimmed.includes(":")
-          ? trimmed.slice(trimmed.indexOf(":") + 1).trim()
-          : "";
-        return dialogue
-          ? `${chars.join(" & ")}: ${dialogue}`
-          : chars.join(" & ");
+      const last = parts[parts.length - 1].toUpperCase();
+      if (lastNameMap.has(last)) {
+        lastNameMap.set(last, "");
+      } else {
+        lastNameMap.set(last, name.toUpperCase());
       }
+    }
+  }
 
-      if (override.kind === "stage-direction") {
-        return trimmed.startsWith("[") ? rawLine : `[${trimmed}]`;
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const name of names) {
+    const upper = name.trim().toUpperCase();
+    if (!upper) continue;
+
+    let canonical = upper;
+    if (castUpper.size > 0) {
+      if (castUpper.has(upper)) {
+        canonical = upper;
+      } else {
+        const byFirst = firstNameMap.get(upper);
+        const byLast = lastNameMap.get(upper);
+        if (byFirst) canonical = byFirst;
+        else if (byLast) canonical = byLast;
       }
+    }
 
-      return rawLine;
-    })
-    .join("\n");
+    if (!seen.has(canonical)) {
+      seen.add(canonical);
+      result.push(canonical);
+    }
+  }
+
+  return result;
 }
 
 interface Scene {
@@ -152,15 +165,18 @@ interface RehearsalState {
 }
 
 // Utility to extract unique character names from a scene
-function getCharacters(scene: {
-  lines: DialogueLine[];
-  characters?: string[];
-}): string[] {
+function getCharacters(
+  scene: {
+    lines: DialogueLine[];
+    characters?: string[];
+  },
+  knownCast: string[] = [],
+): string[] {
   // Prefer the curated list from SceneViewer/SceneHighlight (stored on the scene)
   // which uses extractSceneCharacters and any manual overrides applied in the
   // Scenes tab. Fall back to deriving from parsed dialogue lines only when absent.
   if (scene.characters && scene.characters.length > 0) {
-    return scene.characters.map((c) => c.toUpperCase());
+    return canonicalizeSceneCharacterNames(scene.characters, knownCast);
   }
 
   const chars = new Set<string>();
@@ -180,7 +196,7 @@ function getCharacters(scene: {
         .forEach((name) => chars.add(name));
     }
   }
-  return Array.from(chars);
+  return canonicalizeSceneCharacterNames(Array.from(chars), knownCast);
 }
 
 export default function UnifiedRehearsalPage() {
@@ -294,13 +310,21 @@ export default function UnifiedRehearsalPage() {
 
   const currentProject = getCurrentProject();
   const productionType = currentProject?.productionType;
+  const activeProjectId = currentProjectId ?? currentProject?.id ?? null;
+  const projectCast = useMemo(() => {
+    if (!activeProjectId) return [];
+    return getProjectCharacters(activeProjectId).flatMap((character) => [
+      character.characterName,
+      ...(character.aliases ?? []),
+    ]);
+  }, [activeProjectId, getProjectCharacters]);
 
   const buildKnownCharacters = useCallback(
     (sceneCharacters: string[] = []) => {
       const names = new Set<string>();
 
-      if (currentProjectId) {
-        for (const character of getProjectCharacters(currentProjectId)) {
+      if (activeProjectId) {
+        for (const character of getProjectCharacters(activeProjectId)) {
           names.add(character.characterName.toUpperCase());
           for (const alias of character.aliases ?? []) {
             names.add(alias.toUpperCase());
@@ -314,7 +338,7 @@ export default function UnifiedRehearsalPage() {
 
       return Array.from(names);
     },
-    [currentProjectId, getProjectCharacters],
+    [activeProjectId, getProjectCharacters],
   );
 
   const buildSetPieceGroups = useCallback(
@@ -367,26 +391,19 @@ export default function UnifiedRehearsalPage() {
 
   const getImportedSceneLines = useCallback(
     (scene: StoredScene): DialogueLine[] => {
-      const overrides = loadSceneLineOverrides(scene.id);
-      const contentToImport = applySceneLineOverrides(scene.content, overrides);
-
-      if (overrides.size > 0) {
-        return parseDialogueLines(
-          contentToImport,
-          productionType === "Film" ? "screenplay" : "mixed",
-          buildKnownCharacters(scene.characters ?? []),
-        );
-      }
-
-      if (scene.lines && scene.lines.length > 0) {
-        return scene.lines;
-      }
-
-      return parseDialogueLines(
-        contentToImport,
+      // Always re-parse with overrides applied inline during parsing.
+      // Overrides are keyed by text line index — passing them to parseDialogueLines
+      // ensures each line is classified correctly without any index mapping.
+      const lines = parseDialogueLines(
+        scene.content,
         productionType === "Film" ? "screenplay" : "mixed",
-        buildKnownCharacters(scene.characters ?? []),
+        buildKnownCharacters(
+          collectImportedCharacterNames(scene, scene.lineOverrides),
+        ),
+        scene.lineOverrides,
       );
+
+      return lines;
     },
     [buildKnownCharacters, productionType],
   );
@@ -408,11 +425,9 @@ export default function UnifiedRehearsalPage() {
         ),
       );
 
-      const mergedChars = Array.from(
-        new Set([
-          ...(scene.characters ?? []).map((c) => c.toUpperCase()),
-          ...lineChars,
-        ]),
+      const mergedChars = canonicalizeSceneCharacterNames(
+        [...(scene.characters ?? []), ...lineChars],
+        projectCast,
       );
 
       return {
@@ -422,7 +437,7 @@ export default function UnifiedRehearsalPage() {
         setPiece: scene.setPiece?.trim() || undefined,
       };
     },
-    [getImportedSceneLines],
+    [getImportedSceneLines, projectCast],
   );
 
   const buildSetPieceScenePage = useCallback(
@@ -463,10 +478,10 @@ export default function UnifiedRehearsalPage() {
           ),
         );
 
-        for (const characterName of [
-          ...(scene.characters ?? []),
-          ...lineChars,
-        ]) {
+        for (const characterName of canonicalizeSceneCharacterNames(
+          [...(scene.characters ?? []), ...lineChars],
+          projectCast,
+        )) {
           const upper = characterName.trim().toUpperCase();
           if (upper) mergedChars.add(upper);
         }
@@ -481,7 +496,7 @@ export default function UnifiedRehearsalPage() {
         setPiece: label,
       };
     },
-    [getImportedSceneLines, parseSceneHeading],
+    [getImportedSceneLines, parseSceneHeading, projectCast],
   );
 
   const normalizeScriptInput = useCallback(
@@ -650,7 +665,7 @@ export default function UnifiedRehearsalPage() {
   const ensureVoiceAssignments = useCallback(() => {
     if (!scenes[selectedSceneIndex]) return;
     const scene = scenes[selectedSceneIndex];
-    const chars = getCharacters(scene);
+    const chars = getCharacters(scene, projectCast);
     const updatedVoice = { ...voiceAssignments };
     const updatedApi = { ...apiVoiceAssignments };
 
@@ -692,6 +707,7 @@ export default function UnifiedRehearsalPage() {
     apiVoiceAssignments,
     availableVoices,
     getVoiceConfigByCharacter,
+    projectCast,
   ]);
 
   // Parse script
@@ -1581,7 +1597,9 @@ MOM: See? You were ready.`,
   const [voicesOpen, setVoicesOpen] = useState(false);
 
   const currentScene = scenes[selectedSceneIndex];
-  const characters = currentScene ? getCharacters(currentScene) : [];
+  const characters = currentScene
+    ? getCharacters(currentScene, projectCast)
+    : [];
   const isActive = rehearsal.isPlaying || rehearsal.isPaused;
   const isMyTurn = rehearsal.isPaused && currentPrompt.startsWith("Your turn");
 

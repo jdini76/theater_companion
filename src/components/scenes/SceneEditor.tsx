@@ -11,6 +11,7 @@ import { parseDialogueLines } from "@/lib/rehearsal";
 import { Scene } from "@/types/scene";
 import type { ProductionType } from "@/types/project";
 import { useScenes } from "@/contexts/SceneContext";
+import { useVoice } from "@/contexts/VoiceContext";
 import { Button } from "@/components/ui/Button";
 
 interface SceneEditorProps {
@@ -25,6 +26,7 @@ export function SceneEditor({
   onClose,
 }: SceneEditorProps) {
   const { updateScene } = useScenes();
+  const { getProjectCharacters } = useVoice();
   const [title, setTitle] = useState(scene.title);
   const [content, setContent] = useState(() =>
     normalizeSceneContent(scene.content),
@@ -44,6 +46,61 @@ export function SceneEditor({
     );
     setSetPiece(scene.setPiece ?? "");
   }, [scene, productionType]);
+
+  const canonicalizeCharacterNames = (
+    names: string[],
+    knownCast: string[],
+  ): string[] => {
+    const castUpper = new Set(knownCast.map((name) => name.toUpperCase()));
+    const firstNameMap = new Map<string, string>();
+    const lastNameMap = new Map<string, string>();
+
+    for (const name of knownCast) {
+      const parts = name.trim().split(/\s+/);
+      if (parts.length > 1) {
+        const first = parts[0].toUpperCase();
+        if (firstNameMap.has(first)) {
+          firstNameMap.set(first, "");
+        } else {
+          firstNameMap.set(first, name.toUpperCase());
+        }
+
+        const last = parts[parts.length - 1].toUpperCase();
+        if (lastNameMap.has(last)) {
+          lastNameMap.set(last, "");
+        } else {
+          lastNameMap.set(last, name.toUpperCase());
+        }
+      }
+    }
+
+    const result: string[] = [];
+    const seen = new Set<string>();
+
+    for (const name of names) {
+      const upper = name.trim().toUpperCase();
+      if (!upper) continue;
+
+      let canonical = upper;
+      if (castUpper.size > 0) {
+        if (castUpper.has(upper)) {
+          canonical = upper;
+        } else {
+          const byFirst = firstNameMap.get(upper);
+          const byLast = lastNameMap.get(upper);
+          if (byFirst) canonical = byFirst;
+          else if (byLast) canonical = byLast;
+        }
+      }
+
+      if (!seen.has(canonical)) {
+        seen.add(canonical);
+        result.push(canonical);
+      }
+    }
+
+    return result;
+  };
 
   const handleSave = async () => {
     setError(null);
@@ -67,18 +124,24 @@ export function SceneEditor({
         throw new Error("Scene content cannot be empty");
       }
 
+      const knownCast = getProjectCharacters(scene.projectId).flatMap(
+        (character) => [character.characterName, ...(character.aliases ?? [])],
+      );
+
       // Preserve the existing curated cast while refreshing the parse from the
       // updated content so rehearsal views keep the same speaker resolution.
       const detectedCharacters = extractSceneCharacters(
         rawContent,
-        undefined,
+        knownCast,
         productionType,
-      ).map((character) => character.toUpperCase());
-      const existingCharacters = (scene.characters ?? []).map((character) =>
-        character.toUpperCase(),
       );
-      const characters = Array.from(
-        new Set([...existingCharacters, ...detectedCharacters]),
+      const existingCharacters = canonicalizeCharacterNames(
+        scene.characters ?? [],
+        knownCast,
+      );
+      const characters = canonicalizeCharacterNames(
+        [...existingCharacters, ...detectedCharacters],
+        knownCast,
       ).sort();
       console.log("[SceneEditor] parsing scene content", {
         sceneId: scene.id,

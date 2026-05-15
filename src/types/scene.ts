@@ -1,4 +1,5 @@
 import { DialogueLine } from "./rehearsal";
+import type { LineOverride } from "./line-override";
 import type { ProductionType } from "./project";
 
 export interface Scene {
@@ -11,6 +12,7 @@ export interface Scene {
   characters?: string[];
   songs?: string[];
   lines?: DialogueLine[]; // Cached parsed dialogue lines
+  lineOverrides?: Record<number, LineOverride>;
   order: number;
   createdAt: string;
   updatedAt: string;
@@ -68,6 +70,7 @@ export interface SceneContextType {
       characters?: string[];
       songs?: string[];
       lines?: DialogueLine[];
+      lineOverrides?: Record<number, LineOverride>;
     }>,
     productionType?: ProductionType,
   ) => Scene[];

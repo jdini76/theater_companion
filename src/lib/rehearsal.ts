@@ -1,4 +1,5 @@
 import { DialogueLine } from "@/types/rehearsal";
+import type { LineOverride } from "@/types/line-override";
 
 const DEBUG_PARSE_LOGS = process.env.NODE_ENV !== "production";
 
@@ -983,6 +984,7 @@ export function parseDialogueLines(
   sceneContent: string,
   formatHint?: ScriptFormat,
   knownCharacters?: string[],
+  lineOverrides?: Record<number, LineOverride>,
 ): DialogueLine[] {
   const output: DialogueLine[] = [];
   let lineNumber = 0;
@@ -1055,6 +1057,69 @@ export function parseDialogueLines(
       });
       lastDialogueIdx = -1;
       afterBlank = false;
+      continue;
+    }
+
+    // ── User line override (explicit classification from SceneViewer) ──────
+    // Applied before auto-detection so user intent always wins.
+    const override = lineOverrides?.[i];
+    if (override) {
+      switch (override.kind) {
+        case "stage-direction":
+          output.push({ lineNumber: lineNumber++, character: "[Stage Direction]", dialogue: trimmed, isStageDirection: true });
+          afterBlank = false;
+          break;
+
+        case "song-title":
+          output.push({ lineNumber: lineNumber++, character: "[Song]", dialogue: override.text || trimmed, isSong: true, songTitle: override.text || trimmed });
+          inSongBlock = true;
+          currentSongTitle = override.text || null;
+          lastDialogueIdx = -1;
+          afterBlank = false;
+          break;
+
+        case "header":
+          // Sets the current speaker; the header line itself is not emitted as dialogue.
+          lastCharacter = override.char.toUpperCase();
+          pendingStandaloneChar = null;
+          lastDialogueIdx = -1;
+          afterBlank = false;
+          break;
+
+        case "dialogue": {
+          const char = override.char.toUpperCase();
+          lastCharacter = char;
+          pendingStandaloneChar = null;
+          const idx = output.length;
+          const entry: DialogueLine = { lineNumber: lineNumber++, character: char, dialogue: trimmed };
+          if (enableSongParsing && inSongBlock) {
+            entry.isSong = true;
+            if (currentSongTitle) entry.songTitle = currentSongTitle;
+          }
+          output.push(entry);
+          lastDialogueIdx = idx;
+          afterBlank = false;
+          break;
+        }
+
+        case "multi-header": {
+          const chars = override.chars.map((c) => c.toUpperCase());
+          lastCharacter = chars.join(" & ");
+          pendingStandaloneChar = null;
+          lastDialogueIdx = -1;
+          afterBlank = false;
+          break;
+        }
+
+        case "group": {
+          const groupChar = lastCharacter || "ENSEMBLE";
+          const idx = output.length;
+          output.push({ lineNumber: lineNumber++, character: groupChar, dialogue: trimmed });
+          lastDialogueIdx = idx;
+          afterBlank = false;
+          break;
+        }
+      }
       continue;
     }
 
@@ -1813,4 +1878,104 @@ export function getCueLineIndex(
   if (nextUserIdx === -1) return null; // no more user lines
   if (nextUserIdx === 0) return null; // user line is first; no cue before it
   return nextUserIdx - 1;
+}
+
+/**
+ * Apply line overrides to parsed dialogue lines.
+ * Overrides change the classification (character name, stage direction status, etc.) of specific lines.
+ * Returns a new array with modified lines where overrides have been applied.
+ */
+export function applyLineOverrides(
+  lines: DialogueLine[],
+  overrides?: Record<number, { kind: string; char?: string; chars?: string[] }>,
+): DialogueLine[] {
+  if (!overrides || Object.keys(overrides).length === 0) {
+    return lines;
+  }
+
+  const debug = process.env.NODE_ENV !== "production";
+  const overrideIndices = Object.keys(overrides).map(Number);
+
+  if (debug) {
+    console.log(`[applyLineOverrides] Applying overrides to ${lines.length} lines`, {
+      overrideIndices,
+      overrideDetails: Object.entries(overrides).map(([idx, ov]) => ({
+        index: idx,
+        kind: ov.kind,
+        char: ov.char,
+        chars: ov.chars,
+        targetLine: lines[Number(idx)]
+          ? {
+              character: lines[Number(idx)].character,
+              dialogue: lines[Number(idx)].dialogue.substring(0, 50),
+              isStageDirection: lines[Number(idx)].isStageDirection,
+              isSong: lines[Number(idx)].isSong,
+            }
+          : "OUT_OF_BOUNDS",
+      })),
+    });
+  }
+
+  return lines.map((line, index) => {
+    const override = overrides[index];
+    if (!override) return line;
+
+    // Create a new line object with all properties
+    const modified: DialogueLine = {
+      ...line,
+    };
+
+    if (override.kind === "dialogue" || override.kind === "header") {
+      // Change the character name for this line
+      if (override.char) {
+        modified.character = override.char.toUpperCase();
+        modified.characters = [modified.character];
+        modified.isStageDirection = false;
+        modified.isSong = false;
+        modified.isNarratorCue = false;
+        if (debug) {
+          console.log(`  [line ${index}] Changed to dialogue: ${override.char}`);
+        }
+      }
+    } else if (override.kind === "multi-header") {
+      // Multiple characters speak this line together
+      if (override.chars && override.chars.length > 0) {
+        const chars = override.chars.map((c) => c.toUpperCase());
+        modified.character = chars.join(" & ");
+        modified.characters = chars;
+        modified.isStageDirection = false;
+        modified.isSong = false;
+        modified.isNarratorCue = false;
+        if (debug) {
+          console.log(`  [line ${index}] Changed to multi-header: ${chars.join(" & ")}`);
+        }
+      }
+    } else if (override.kind === "stage-direction") {
+      // Mark as stage direction
+      modified.isStageDirection = true;
+      modified.isSong = false;
+      modified.isNarratorCue = false;
+      if (debug) {
+        console.log(`  [line ${index}] Changed to stage-direction`);
+      }
+    } else if (override.kind === "group") {
+      // Mark as group line (special stage direction)
+      modified.isStageDirection = true;
+      modified.isSong = false;
+      modified.isNarratorCue = false;
+      if (debug) {
+        console.log(`  [line ${index}] Changed to group`);
+      }
+    } else if (override.kind === "song-title") {
+      // Mark as song title
+      modified.isSong = true;
+      modified.isStageDirection = false;
+      modified.isNarratorCue = false;
+      if (debug) {
+        console.log(`  [line ${index}] Changed to song-title`);
+      }
+    }
+
+    return modified;
+  });
 }

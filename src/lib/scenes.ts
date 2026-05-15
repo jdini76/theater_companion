@@ -1327,7 +1327,8 @@ export function updateScene(
   const updatedAt =
     newTimestamp > scene.updatedAt ? newTimestamp : scene.updatedAt + "1";
   // Preserve an explicitly refreshed line cache; otherwise invalidate it when
-  // the source content changes.
+  // the source content changes. Overrides do NOT invalidate the cache — they
+  // are applied on top of existing lines, so the cached parse stays valid.
   const lines =
     updates.lines !== undefined
       ? updates.lines

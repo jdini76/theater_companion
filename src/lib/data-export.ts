@@ -7,6 +7,20 @@
 import SAMPLE_PRODUCTION from "@/data/sample-production";
 import { idbGet, idbSet } from "@/lib/idb";
 
+// generateUUID() is unavailable on iOS < 15.4 and some older WebViews.
+// crypto.getRandomValues() is available everywhere (iOS 6+), so use it as a fallback.
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return generateUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant bits
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -97,6 +111,19 @@ export async function buildProjectBundle(
 
   const sceneLineOverrides: Record<string, string> = {};
   for (const scene of scenes) {
+    const storedOverrides = scene.lineOverrides as
+      | Record<number, RawRecord>
+      | undefined;
+    if (storedOverrides && Object.keys(storedOverrides).length > 0) {
+      sceneLineOverrides[getId(scene)] = JSON.stringify(
+        Object.entries(storedOverrides).map(([index, value]) => [
+          Number(index),
+          value,
+        ]),
+      );
+      continue;
+    }
+
     const key = `theater_scene_line_overrides_${getId(scene)}`;
     const val = localStorage.getItem(key);
     if (val) sceneLineOverrides[getId(scene)] = val;
@@ -243,16 +270,16 @@ export async function executeImport(
   let importedCount = 0;
 
   for (const { bundle, name } of importedProjects) {
-    const newProjectId = crypto.randomUUID();
+    const newProjectId = generateUUID();
 
     // Build ID remapping tables
     const sceneIdMap = new Map<string, string>();
     for (const scene of bundle.scenes) {
-      sceneIdMap.set(getId(scene), crypto.randomUUID());
+      sceneIdMap.set(getId(scene), generateUUID());
     }
     const voiceConfigIdMap = new Map<string, string>();
     for (const vc of bundle.voiceConfigs) {
-      voiceConfigIdMap.set(getId(vc), crypto.randomUUID());
+      voiceConfigIdMap.set(getId(vc), generateUUID());
     }
 
     // Project
@@ -260,10 +287,17 @@ export async function executeImport(
 
     // Scenes
     for (const scene of bundle.scenes) {
+      const legacyOverrides = bundle.sceneLineOverrides[getId(scene)];
+      const parsedOverrides =
+        scene.lineOverrides ??
+        (legacyOverrides
+          ? (JSON.parse(legacyOverrides) as Record<number, RawRecord>)
+          : undefined);
       existingScenes.push({
         ...scene,
         id: sceneIdMap.get(getId(scene))!,
         projectId: newProjectId,
+        ...(parsedOverrides ? { lineOverrides: parsedOverrides } : {}),
       });
     }
 
@@ -280,7 +314,7 @@ export async function executeImport(
       const oldVcId = char.voiceConfigId as string | undefined;
       existingChars.push({
         ...char,
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         projectId: newProjectId,
         voiceConfigId: oldVcId
           ? (voiceConfigIdMap.get(oldVcId) ?? undefined)
@@ -301,7 +335,7 @@ export async function executeImport(
       const oldSceneId = entry.sceneId as string | undefined;
       existingHistory.push({
         ...entry,
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         projectId: newProjectId,
         sceneId: oldSceneId
           ? (sceneIdMap.get(oldSceneId) ?? oldSceneId)

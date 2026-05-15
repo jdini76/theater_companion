@@ -16,7 +16,6 @@ import {
 } from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
 import {
-  type LineOverride,
   buildCharColorMap,
   GROUP_COLOR,
   GROUP_CHARACTER_NAMES,
@@ -30,6 +29,108 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
+import type { LineOverride } from "@/types/line-override";
+
+function lineOverridesToMap(
+  lineOverrides?: Record<number, LineOverride>,
+): Map<number, LineOverride> {
+  const entries = Object.entries(lineOverrides ?? {}).map(
+    ([index, value]) => [Number(index), value] as const,
+  );
+  return new Map(entries);
+}
+
+function lineOverridesFromMap(
+  overrides: Map<number, LineOverride>,
+): Record<number, LineOverride> {
+  const result: Record<number, LineOverride> = {};
+  for (const [index, value] of overrides.entries()) {
+    result[index] = value;
+  }
+  return result;
+}
+
+function collectOverrideCharacterNames(
+  sceneCharacters: string[],
+  overrides: Map<number, LineOverride>,
+): string[] {
+  const names = new Set(sceneCharacters.map((name) => name.toUpperCase()));
+
+  for (const override of overrides.values()) {
+    if (override.kind === "dialogue" || override.kind === "header") {
+      const char = override.char.trim().toUpperCase();
+      if (char) names.add(char);
+    } else if (override.kind === "multi-header") {
+      for (const char of override.chars) {
+        const upper = char.trim().toUpperCase();
+        if (upper) names.add(upper);
+      }
+    }
+  }
+
+  return Array.from(names);
+}
+
+function isRedundantAlias(alias: string, canonical: string): boolean {
+  const aliasUpper = alias.trim().toUpperCase();
+  const canonicalUpper = canonical.trim().toUpperCase();
+  if (!aliasUpper || !canonicalUpper || aliasUpper === canonicalUpper) {
+    return true;
+  }
+
+  const canonicalFirstWord = canonicalUpper.split(/\s+/)[0] ?? canonicalUpper;
+  return aliasUpper === canonicalFirstWord;
+}
+
+function canonicalizeSceneCharacterNames(
+  names: string[],
+  aliasToCanonical: Map<string, string>,
+  knownCast: string[],
+): string[] {
+  const castUpper = new Set(knownCast.map((name) => name.toUpperCase()));
+  const firstNameMap = new Map<string, string>();
+  const lastNameMap = new Map<string, string>();
+
+  for (const name of knownCast) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length > 1) {
+      const first = parts[0].toUpperCase();
+      if (firstNameMap.has(first)) {
+        firstNameMap.set(first, "");
+      } else {
+        firstNameMap.set(first, name.toUpperCase());
+      }
+
+      const last = parts[parts.length - 1].toUpperCase();
+      if (lastNameMap.has(last)) {
+        lastNameMap.set(last, "");
+      } else {
+        lastNameMap.set(last, name.toUpperCase());
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const name of names) {
+    const upper = name.trim().toUpperCase();
+    if (!upper) continue;
+    let canonical = aliasToCanonical.get(upper) ?? upper;
+    if (castUpper.size > 0 && canonical === upper) {
+      const byFirst = firstNameMap.get(upper);
+      const byLast = lastNameMap.get(upper);
+      if (byFirst) canonical = byFirst;
+      else if (byLast) canonical = byLast;
+    }
+    if (!seen.has(canonical)) {
+      seen.add(canonical);
+      result.push(canonical);
+    }
+  }
+
+  return result;
+}
 
 interface SceneViewerProps {
   scene: Scene;
@@ -52,60 +153,6 @@ type ScreenplayPageItem =
 type ScreenplayPage = {
   items: ScreenplayPageItem[];
 };
-
-function useLineOverrides(sceneId: string) {
-  const storageKey = `theater_scene_line_overrides_${sceneId}`;
-  const legacyKey = `scene_line_overrides_${sceneId}`;
-
-  const [overrides, setOverrides] = useState<Map<number, LineOverride>>(() => {
-    try {
-      const raw =
-        localStorage.getItem(storageKey) ?? localStorage.getItem(legacyKey);
-      if (raw) return new Map(JSON.parse(raw) as [number, LineOverride][]);
-    } catch {}
-    return new Map();
-  });
-
-  // Re-load when the scene changes; migrate legacy key on first encounter
-  useEffect(() => {
-    try {
-      let raw = localStorage.getItem(storageKey);
-      if (!raw) {
-        const legacy = localStorage.getItem(legacyKey);
-        if (legacy) {
-          localStorage.setItem(storageKey, legacy);
-          localStorage.removeItem(legacyKey);
-          raw = legacy;
-        }
-      }
-      setOverrides(
-        raw ? new Map(JSON.parse(raw) as [number, LineOverride][]) : new Map(),
-      );
-    } catch {
-      setOverrides(new Map());
-    }
-  }, [sceneId, storageKey, legacyKey]);
-
-  const assign = (lineIdx: number, assignment: LineOverride | undefined) => {
-    setOverrides((prev) => {
-      const next = new Map(prev);
-      if (assignment === undefined) {
-        next.delete(lineIdx);
-      } else {
-        next.set(lineIdx, assignment);
-      }
-      const pairs = Array.from(next.entries());
-      if (pairs.length > 0) {
-        localStorage.setItem(storageKey, JSON.stringify(pairs));
-      } else {
-        localStorage.removeItem(storageKey);
-      }
-      return next;
-    });
-  };
-
-  return { overrides, assign };
-}
 
 export function SceneViewer({
   scene,
@@ -140,7 +187,10 @@ export function SceneViewer({
   const { currentProjectId } = useProjects();
   const { navigateToCharacter } = useRehearsalNav();
   const { getProjectScenes, updateScene } = useScenes();
-  const { overrides, assign } = useLineOverrides(scene.id);
+  const overrides = useMemo(
+    () => lineOverridesToMap(scene.lineOverrides),
+    [scene.lineOverrides],
+  );
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
   const activeProjectId = currentProjectId ?? projectId;
@@ -195,7 +245,9 @@ export function SceneViewer({
     projectCast.length > 0
       ? [
           ...canonicalNames,
-          ...Array.from(aliasToCanonical.keys()),
+          ...Array.from(aliasToCanonical.entries())
+            .filter(([alias, canonical]) => !isRedundantAlias(alias, canonical))
+            .map(([alias]) => alias),
           // scene-only chars (textbox-added or group names not in project cast)
           ...sceneChars
             .map((n) => n.toUpperCase())
@@ -223,6 +275,43 @@ export function SceneViewer({
       }
     }
   }
+
+  useEffect(() => {
+    if (scene.lineOverrides && Object.keys(scene.lineOverrides).length > 0) {
+      return;
+    }
+
+    try {
+      const legacyKey = `theater_scene_line_overrides_${scene.id}`;
+      const fallbackKey = `scene_line_overrides_${scene.id}`;
+      const raw =
+        localStorage.getItem(legacyKey) ?? localStorage.getItem(fallbackKey);
+      if (!raw) return;
+
+      const legacyOverrides = new Map(
+        JSON.parse(raw) as [number, LineOverride][],
+      );
+      const importedCharacters = collectOverrideCharacterNames(
+        scene.characters ?? [],
+        legacyOverrides,
+      );
+      const parsedLines = parseDialogueLines(
+        scene.content,
+        getSceneParseFormat(productionType),
+        importedCharacters,
+      );
+
+      updateScene(scene.id, {
+        lineOverrides: lineOverridesFromMap(legacyOverrides),
+        lines: parsedLines,
+      });
+
+      localStorage.removeItem(legacyKey);
+      localStorage.removeItem(fallbackKey);
+    } catch {
+      // ignore corrupt legacy override data
+    }
+  }, [productionType, scene, updateScene]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -275,6 +364,19 @@ export function SceneViewer({
     lineIdx: number,
     assignment: LineOverride | undefined,
   ) => {
+    console.log(`[SceneViewer.handleAssign] START lineIdx=${lineIdx}, assignment=`, assignment);
+    console.log(`[SceneViewer.handleAssign] Current overrides:`, Array.from(overrides.entries()));
+    console.log(`[SceneViewer.handleAssign] Current scene:`, { id: scene.id, title: scene.title, linesCount: scene.lines?.length, overridesCount: Object.keys(scene.lineOverrides ?? {}).length });
+
+    const nextOverrides = new Map(overrides);
+    if (assignment === undefined) {
+      nextOverrides.delete(lineIdx);
+      console.log(`[SceneViewer.handleAssign] Deleted override at ${lineIdx}`);
+    } else {
+      nextOverrides.set(lineIdx, assignment);
+      console.log(`[SceneViewer.handleAssign] Added override at ${lineIdx}:`, assignment);
+    }
+
     const assignedNames =
       assignment?.kind === "multi-header"
         ? assignment.chars
@@ -285,9 +387,11 @@ export function SceneViewer({
     const normalizedSceneChars = new Set(
       sceneChars.map((character) => character.trim().toUpperCase()),
     );
-    const addedNames = assignedNames
-      .map((name) => name.trim().toUpperCase())
-      .filter((name) => name && !normalizedSceneChars.has(name));
+    const addedNames = canonicalizeSceneCharacterNames(
+      assignedNames,
+      aliasToCanonical,
+      projectCast,
+    ).filter((name) => !normalizedSceneChars.has(name));
 
     const projectCastSet = new Set(
       projectCast.map((character) => character.trim().toUpperCase()),
@@ -300,21 +404,25 @@ export function SceneViewer({
       createCharacter(activeProjectId, name);
     }
 
-    if (addedNames.length > 0) {
-      const updatedCharacters = Array.from(
-        new Set([...sceneChars, ...addedNames]),
-      ).sort();
-      const updatedLines = parseDialogueLines(
-        scene.content,
-        getSceneParseFormat(productionType),
-        updatedCharacters,
-      );
-      updateScene(scene.id, {
-        characters: updatedCharacters,
-        lines: updatedLines,
-      });
-    }
-    assign(lineIdx, assignment);
+    const updatedCharacters = canonicalizeSceneCharacterNames(
+      [...sceneChars, ...addedNames],
+      aliasToCanonical,
+      projectCast,
+    ).sort();
+
+    // Only store overrides - don't try to modify scene.lines by index
+    // The overrides will be applied when needed in run lines via applyLineOverrides
+    console.log(`[SceneViewer.handleAssign] Calling updateScene with:`);
+    console.log(`  - characters: ${updatedCharacters.length} items`);
+    console.log(`  - lineOverrides: ${Object.keys(lineOverridesFromMap(nextOverrides)).length} items`);
+    console.log(`  - lineOverridesFromMap result:`, lineOverridesFromMap(nextOverrides));
+
+    updateScene(scene.id, {
+      characters: updatedCharacters,
+      lineOverrides: lineOverridesFromMap(nextOverrides),
+    });
+
+    console.log(`[SceneViewer.handleAssign] END`);
   };
 
   // Character tags: use pre-parsed lines when available; fall back to
@@ -347,22 +455,15 @@ export function SceneViewer({
         ? extractSceneCharacters(scene.content, expandedCast, productionType)
         : sceneChars;
   }
-  const resolvedTagNames = rawTagNames.map((name) => {
-    const upper = name.toUpperCase();
-    return aliasToCanonical.get(upper) ?? upper;
-  });
-  for (const name of resolvedTagNames) {
-    const upper = name.toUpperCase();
-    if (!sceneCharSet.has(upper)) {
-      sceneCharSet.add(upper);
-      sceneCharacters.push(upper);
-    }
-  }
-  for (const name of sceneChars) {
-    const upper = name.toUpperCase();
-    if (!sceneCharSet.has(upper)) {
-      sceneCharSet.add(upper);
-      sceneCharacters.push(upper);
+  const mergedSceneCharacters = canonicalizeSceneCharacterNames(
+    [...rawTagNames, ...sceneChars],
+    aliasToCanonical,
+    projectCast,
+  );
+  for (const name of mergedSceneCharacters) {
+    if (!sceneCharSet.has(name)) {
+      sceneCharSet.add(name);
+      sceneCharacters.push(name);
     }
   }
   const allCharSet = new Set<string>();

@@ -2,6 +2,10 @@
 
 import React, { useState } from "react";
 
+import type { LineOverride } from "@/types/line-override";
+
+export type { LineOverride } from "@/types/line-override";
+
 const DEBUG_SCENE_LOGS = process.env.NODE_ENV !== "production";
 
 function debugSceneLog(
@@ -13,14 +17,6 @@ function debugSceneLog(
 }
 
 export type CharColor = { color: string; bgColor: string };
-
-export type LineOverride =
-  | { kind: "dialogue"; char: string }
-  | { kind: "header"; char: string }
-  | { kind: "multi-header"; chars: string[] }
-  | { kind: "stage-direction" }
-  | { kind: "group" }
-  | { kind: "song-title"; text: string };
 
 // Distinct neutral color for group/ensemble lines — sits outside the hue-based palette.
 export const GROUP_COLOR: CharColor = {
@@ -693,6 +689,7 @@ export function HighlightedContent({
   const [activeLine, setActiveLine] = useState<number | null>(null);
   const charSet = new Set(characters.map((c) => c.toUpperCase()));
   const lines = content.split("\n");
+
   let currentChar: string | null = null;
   let currentIsGroup = false;
   let currentMultiChars: string[] = [];
@@ -760,6 +757,7 @@ export function HighlightedContent({
         }
 
         const isActive = activeLine === i;
+        // Overrides are keyed by text line index (what the UI uses)
         const hasOverride = overrides.has(i);
         const override = overrides.get(i);
         const toggle = () => onAssign && setActiveLine(isActive ? null : i);
