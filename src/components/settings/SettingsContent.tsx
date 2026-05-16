@@ -660,7 +660,8 @@ export function SettingsContent() {
     const loaded = loadTTSSettings();
     return Array.isArray(loaded.voiceLangs) ? loaded.voiceLangs : [];
   });
-  const { voices: browserVoices, triggerLoad: triggerVoiceLoad } = useVoiceList();
+  const { voices: browserVoices, triggerLoad: triggerVoiceLoad } =
+    useVoiceList();
 
   useEffect(() => {
     const loaded = loadTTSSettings();
@@ -927,7 +928,9 @@ export function SettingsContent() {
                       Tap to load voices
                     </button>
                     <span className="text-muted text-xs">
-                      {isIOSDevice ? "Required on iOS Safari" : "Voices may still be loading…"}
+                      {isIOSDevice
+                        ? "Required on iOS Safari"
+                        : "Voices may still be loading…"}
                     </span>
                   </div>
                 )}
@@ -969,7 +972,9 @@ export function SettingsContent() {
             <label className="block text-light font-semibold">
               TTS Provider
             </label>
-            <div className={`grid gap-3 ${canUseKokoro ? "grid-cols-4" : "grid-cols-3"}`}>
+            <div
+              className={`grid gap-3 ${canUseKokoro ? "grid-cols-4" : "grid-cols-3"}`}
+            >
               {(["browser", "proxy", "kokoro", "api"] as const)
                 .filter((p) => p !== "kokoro" || canUseKokoro)
                 .map((provider) => (
@@ -1058,8 +1063,8 @@ export function SettingsContent() {
           {settings.provider === "proxy" && (
             <div className="space-y-4 border-t border-border pt-4">
               <p className="text-muted text-sm">
-                Streams high-quality AI voices through this app's server — no
-                API key or account needed. Requires an internet connection.
+                Streams high-quality AI voices through this app&apos;s server —
+                no API key or account needed. Requires an internet connection.
               </p>
               <div className="space-y-1">
                 <label className="block text-light font-semibold text-sm">
@@ -1073,14 +1078,16 @@ export function SettingsContent() {
                   className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
                 >
                   {[
-                    { id: "alloy",   label: "Alloy — neutral" },
-                    { id: "echo",    label: "Echo — male" },
-                    { id: "fable",   label: "Fable — expressive male" },
-                    { id: "onyx",    label: "Onyx — deep male" },
-                    { id: "nova",    label: "Nova — female (default)" },
+                    { id: "alloy", label: "Alloy — neutral" },
+                    { id: "echo", label: "Echo — male" },
+                    { id: "fable", label: "Fable — expressive male" },
+                    { id: "onyx", label: "Onyx — deep male" },
+                    { id: "nova", label: "Nova — female (default)" },
                     { id: "shimmer", label: "Shimmer — female" },
                   ].map((v) => (
-                    <option key={v.id} value={v.id}>{v.label}</option>
+                    <option key={v.id} value={v.id}>
+                      {v.label}
+                    </option>
                   ))}
                 </select>
               </div>
