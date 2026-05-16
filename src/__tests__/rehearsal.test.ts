@@ -290,7 +290,7 @@ describe("detectScriptFormat", () => {
   it("allows formatHint to override auto-detection in parseDialogueLines", () => {
     // A short snippet that auto-detects as colon but should be parsed standalone
     const text = "HANRATTY\nStop right there.";
-    const auto = parseDialogueLines(text);
+    parseDialogueLines(text);
     const hinted = parseDialogueLines(text, "standalone");
     const hanrattyHinted = hinted.find((l) => l.character === "HANRATTY");
     expect(hanrattyHinted).toBeDefined();

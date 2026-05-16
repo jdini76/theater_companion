@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   generateProjectId,
   createProject,
@@ -46,7 +46,7 @@ describe("Project utilities", () => {
       expect(renamed.name).toBe("New Name");
       expect(renamed.id).toBe(project.id);
       expect(new Date(renamed.updatedAt).getTime()).toBeGreaterThanOrEqual(
-        new Date(project.updatedAt).getTime()
+        new Date(project.updatedAt).getTime(),
       );
     });
   });
@@ -101,13 +101,13 @@ describe("Project utilities", () => {
   describe("sortProjectsByUpdated", () => {
     it("should sort projects by updated date descending", async () => {
       const project1 = createProject("Project 1");
-      
+
       // Simulate time passing
       await new Promise((resolve) => setTimeout(resolve, 10));
-      
+
       const project2 = createProject("Project 2");
       const projects = [project1, project2];
-      
+
       const sorted = sortProjectsByUpdated(projects);
       expect(sorted[0].id).toBe(project2.id);
       expect(sorted[1].id).toBe(project1.id);

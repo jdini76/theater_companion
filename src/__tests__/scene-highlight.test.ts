@@ -234,8 +234,8 @@ describe("matchStandaloneHeaderInLine", () => {
     expect(result).not.toBeNull();
     expect(result!.kind).toBe("multi");
     if (result!.kind === "multi") {
-      expect(result.chars).toEqual(["NORA", "ELI"]);
-      expect(result.rawPrefix).toBe("NORA & ELI");
+      expect(result!.chars).toEqual(["NORA", "ELI"]);
+      expect(result!.rawPrefix).toBe("NORA & ELI");
     }
   });
 

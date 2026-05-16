@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { VoiceConfig } from "@/types/voice";
 import { characterNamesMatch } from "@/lib/voice";
 
@@ -20,7 +20,8 @@ describe("TTS Voice Config Integration", () => {
       pitch: 1.0,
       volume: 1.0,
       muted: false,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     JULIET: {
       id: "vc_2",
@@ -30,7 +31,8 @@ describe("TTS Voice Config Integration", () => {
       pitch: 1.2,
       volume: 0.95,
       muted: false,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     NURSE: {
       id: "vc_3",
@@ -40,7 +42,8 @@ describe("TTS Voice Config Integration", () => {
       pitch: 0.9,
       volume: 0.9,
       muted: false,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
   };
 
@@ -129,7 +132,8 @@ describe("TTS Voice Config Integration", () => {
           pitch: options?.pitch ?? 1.0,
           volume: options?.volume ?? 1.0,
           muted: false,
-          createdAt: new Date(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         voiceContextStorage[characterName] = config;
         return config;
@@ -167,7 +171,8 @@ describe("TTS Voice Config Integration", () => {
           pitch: options?.pitch ?? 1.0,
           volume: options?.volume ?? 1.0,
           muted: false,
-          createdAt: new Date(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         voiceContextStorage[characterName] = config;
         return config;
@@ -212,7 +217,7 @@ describe("TTS Voice Config Integration", () => {
       } as any;
 
       // Mock speakText function
-      const speakText = (text: string, voiceConfig: VoiceConfig) => {
+      const speakText = (_text: string, voiceConfig: VoiceConfig) => {
         appliedConfig = voiceConfig;
         if (!voiceConfig.muted) {
           global.speechSynthesis.speak("" as any);
@@ -232,8 +237,10 @@ describe("TTS Voice Config Integration", () => {
       // Verify
       expect(speakCalled).toBe(true);
       expect(appliedConfig).toBeDefined();
-      expect(appliedConfig?.characterName).toBe("ROMEO");
-      expect(appliedConfig?.rate).toBe(1.0);
+      expect((appliedConfig as unknown as VoiceConfig).characterName).toBe(
+        "ROMEO",
+      );
+      expect((appliedConfig as unknown as VoiceConfig).rate).toBe(1.0);
     });
 
     it("should skip audio if voice config is muted", () => {
@@ -245,7 +252,7 @@ describe("TTS Voice Config Integration", () => {
         }),
       } as any;
 
-      const speakText = (text: string, voiceConfig: VoiceConfig) => {
+      const speakText = (_text: string, voiceConfig: VoiceConfig) => {
         if (!voiceConfig.muted) {
           global.speechSynthesis.speak("" as any);
         }
@@ -273,7 +280,7 @@ describe("TTS Voice Config Integration", () => {
 
       // Should not throw when iterating
       expect(() => {
-        configArray.forEach((config) => {
+        configArray.forEach((_config) => {
           // Process config
         });
       }).not.toThrow();
@@ -293,7 +300,8 @@ describe("TTS Voice Config Integration", () => {
         pitch: 1.0,
         volume: 1.0,
         muted: false,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       mockVoiceConfigs["SPIRIT OF MARS"] = specialConfig;
