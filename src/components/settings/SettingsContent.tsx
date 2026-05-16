@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { getAvailableVoices } from "@/lib/voice";
+import { useVoiceList } from "@/hooks/useVoiceList";
 import { Button } from "@/components/ui/Button";
 import { TTSSettings } from "@/types/voice";
 import {
@@ -86,10 +86,7 @@ interface KnownVoice {
   lang: string;
 }
 const KNOWN_VOICES: KnownVoice[] = [
-  // ── iOS English ───────────────────────────────────────────────────────
-  // Note: iOS Web Speech API returns only the base name regardless of whether
-  // the standard, Enhanced, or Premium version is downloaded. The downloaded
-  // quality tier is used automatically when the voice speaks.
+  // ── iOS English (base names — older iOS / novelty voices) ────────────
   { name: "Albert", lang: "en-US" },
   { name: "Bad News", lang: "en-US" },
   { name: "Bahh", lang: "en-US" },
@@ -104,17 +101,57 @@ const KNOWN_VOICES: KnownVoice[] = [
   { name: "Kathy", lang: "en-US" },
   { name: "Organ", lang: "en-US" },
   { name: "Ralph", lang: "en-US" },
-  { name: "Samantha", lang: "en-US" },
   { name: "Superstar", lang: "en-US" },
   { name: "Trinoids", lang: "en-US" },
   { name: "Whisper", lang: "en-US" },
   { name: "Wobble", lang: "en-US" },
   { name: "Zarvox", lang: "en-US" },
+  // ── iOS English (iOS 16+ natural voices — base, Enhanced, Premium) ────
+  { name: "Aaron", lang: "en-US" },
+  { name: "Aaron (Enhanced)", lang: "en-US" },
+  { name: "Allison", lang: "en-US" },
+  { name: "Allison (Enhanced)", lang: "en-US" },
+  { name: "Allison (Premium)", lang: "en-US" },
+  { name: "Ava", lang: "en-US" },
+  { name: "Ava (Enhanced)", lang: "en-US" },
+  { name: "Ava (Premium)", lang: "en-US" },
+  { name: "Evan", lang: "en-US" },
+  { name: "Evan (Enhanced)", lang: "en-US" },
+  { name: "Evan (Premium)", lang: "en-US" },
+  { name: "Joelle", lang: "en-US" },
+  { name: "Joelle (Enhanced)", lang: "en-US" },
+  { name: "Nora", lang: "en-US" },
+  { name: "Nora (Enhanced)", lang: "en-US" },
+  { name: "Nora (Premium)", lang: "en-US" },
+  { name: "Reed", lang: "en-US" },
+  { name: "Reed (Enhanced)", lang: "en-US" },
+  { name: "Reed (Premium)", lang: "en-US" },
+  { name: "Samantha", lang: "en-US" },
+  { name: "Samantha (Enhanced)", lang: "en-US" },
+  { name: "Samantha (Premium)", lang: "en-US" },
+  { name: "Sandy", lang: "en-US" },
+  { name: "Sandy (Enhanced)", lang: "en-US" },
+  { name: "Sandy (Premium)", lang: "en-US" },
+  { name: "Tom", lang: "en-US" },
+  { name: "Tom (Enhanced)", lang: "en-US" },
+  { name: "Tom (Premium)", lang: "en-US" },
+  { name: "Zoe", lang: "en-US" },
+  { name: "Zoe (Enhanced)", lang: "en-US" },
+  { name: "Zoe (Premium)", lang: "en-US" },
+  // ── iOS English (UK / AU / IE / IN / ZA) ─────────────────────────────
   { name: "Daniel", lang: "en-GB" },
+  { name: "Daniel (Enhanced)", lang: "en-GB" },
+  { name: "Daniel (Premium)", lang: "en-GB" },
   { name: "Karen", lang: "en-AU" },
+  { name: "Karen (Enhanced)", lang: "en-AU" },
+  { name: "Karen (Premium)", lang: "en-AU" },
   { name: "Moira", lang: "en-IE" },
+  { name: "Moira (Enhanced)", lang: "en-IE" },
   { name: "Rishi", lang: "en-IN" },
+  { name: "Rishi (Enhanced)", lang: "en-IN" },
   { name: "Tessa", lang: "en-ZA" },
+  { name: "Tessa (Enhanced)", lang: "en-ZA" },
+  { name: "Tessa (Premium)", lang: "en-ZA" },
   // ── Chrome / Desktop – English ────────────────────────────────────────
   { name: "Google US English", lang: "en-US" },
   { name: "Google UK English Female", lang: "en-GB" },
@@ -623,51 +660,13 @@ export function SettingsContent() {
     const loaded = loadTTSSettings();
     return Array.isArray(loaded.voiceLangs) ? loaded.voiceLangs : [];
   });
-  const [browserVoices, setBrowserVoices] = useState<
-    ReturnType<typeof getAvailableVoices>
-  >([]);
-
-  useEffect(() => {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-
-    const updateVoices = () => {
-      // Access getVoices() directly to bypass any wrapper caching
-      const raw = synth.getVoices();
-      if (raw.length > 0) {
-        setBrowserVoices(
-          raw.map((v) => ({
-            name: v.name,
-            lang: v.lang,
-            voiceURI: v.voiceURI,
-          })),
-        );
-      }
-    };
-
-    synth.onvoiceschanged = updateVoices;
-    synth.addEventListener?.("voiceschanged", updateVoices);
-
-    // Try immediately, then at staggered intervals to catch all browser timing
-    updateVoices();
-    const timers = [
-      setTimeout(updateVoices, 100),
-      setTimeout(updateVoices, 500),
-      setTimeout(updateVoices, 1000),
-      setTimeout(updateVoices, 2500),
-    ];
-
-    return () => {
-      timers.forEach(clearTimeout);
-      synth.removeEventListener?.("voiceschanged", updateVoices);
-      // Do NOT null out onvoiceschanged here — it can wipe a handler set by
-      // another effect if this cleanup runs mid-StrictMode double-invoke.
-    };
-  }, []);
+  const { voices: browserVoices, triggerLoad: triggerVoiceLoad } = useVoiceList();
 
   useEffect(() => {
     const loaded = loadTTSSettings();
-    // If this device can't run Kokoro (e.g. iOS), fall back to browser
+    // Sanitize provider for this device:
+    // - Kokoro not available on iOS → fall back to browser
+    // - Proxy (Built-in AI) not shown on desktop → fall back to api
     const provider =
       loaded.provider === "kokoro" && !canUseKokoro
         ? "browser"
@@ -920,9 +919,17 @@ export function SettingsContent() {
                   })()}
                 </div>
                 {browserVoices.length === 0 && (
-                  <p className="text-muted text-xs mt-1">
-                    No voices detected yet — they may still be loading.
-                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <button
+                      onClick={triggerVoiceLoad}
+                      className="px-3 py-1 text-xs rounded border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
+                    >
+                      Tap to load voices
+                    </button>
+                    <span className="text-muted text-xs">
+                      {isIOSDevice ? "Required on iOS Safari" : "Voices may still be loading…"}
+                    </span>
+                  </div>
                 )}
                 {/* DEBUG: show raw names reported by the browser */}
                 {browserVoices.length > 0 && (
@@ -962,34 +969,41 @@ export function SettingsContent() {
             <label className="block text-light font-semibold">
               TTS Provider
             </label>
-            <div
-              className={`grid gap-3 ${canUseKokoro ? "grid-cols-3" : "grid-cols-2"}`}
-            >
-              {(["browser", "kokoro", "api"] as const)
+            <div className={`grid gap-3 ${canUseKokoro ? "grid-cols-4" : "grid-cols-3"}`}>
+              {(["browser", "proxy", "kokoro", "api"] as const)
                 .filter((p) => p !== "kokoro" || canUseKokoro)
                 .map((provider) => (
                   <button
                     key={provider}
                     onClick={() => setSettings({ ...settings, provider })}
-                    className={`p-3 rounded border transition-all ${
+                    className={`p-3 rounded border transition-all relative ${
                       settings.provider === provider
                         ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
                         : "border-border text-muted hover:border-accent-cyan hover:text-light"
                     }`}
                   >
+                    {provider === "proxy" && isIOSDevice && (
+                      <span className="absolute -top-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full bg-accent-cyan text-dark font-bold uppercase tracking-wide">
+                        Recommended
+                      </span>
+                    )}
                     <div className="font-semibold">
                       {provider === "browser"
                         ? "Browser"
-                        : provider === "kokoro"
-                          ? "Kokoro AI"
-                          : "External API"}
+                        : provider === "proxy"
+                          ? "Built-in AI"
+                          : provider === "kokoro"
+                            ? "Kokoro AI"
+                            : "External API"}
                     </div>
                     <div className="text-xs mt-1">
                       {provider === "browser"
                         ? "Built-in Web Speech API"
-                        : provider === "kokoro"
-                          ? "Local AI, no API needed"
-                          : "Custom TTS service endpoint"}
+                        : provider === "proxy"
+                          ? "AI voices, no setup needed"
+                          : provider === "kokoro"
+                            ? "Local AI, no API needed"
+                            : "Custom TTS service endpoint"}
                     </div>
                   </button>
                 ))}
@@ -1037,6 +1051,39 @@ export function SettingsContent() {
                   Clear audio cache
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Built-in AI (proxy) settings */}
+          {settings.provider === "proxy" && (
+            <div className="space-y-4 border-t border-border pt-4">
+              <p className="text-muted text-sm">
+                Streams high-quality AI voices through this app's server — no
+                API key or account needed. Requires an internet connection.
+              </p>
+              <div className="space-y-1">
+                <label className="block text-light font-semibold text-sm">
+                  Voice
+                </label>
+                <select
+                  value={settings.defaultVoiceId || "nova"}
+                  onChange={(e) =>
+                    setSettings({ ...settings, defaultVoiceId: e.target.value })
+                  }
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                >
+                  {[
+                    { id: "alloy",   label: "Alloy — neutral" },
+                    { id: "echo",    label: "Echo — male" },
+                    { id: "fable",   label: "Fable — expressive male" },
+                    { id: "onyx",    label: "Onyx — deep male" },
+                    { id: "nova",    label: "Nova — female (default)" },
+                    { id: "shimmer", label: "Shimmer — female" },
+                  ].map((v) => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 

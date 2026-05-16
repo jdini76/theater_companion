@@ -12,6 +12,7 @@ import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
 import { parseDialogueLines } from "@/lib/rehearsal";
 import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
+import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
 import { Scene as StoredScene } from "@/types/scene";
 import { DialogueLine } from "@/types/rehearsal";
 import { type LineOverride } from "@/types/line-override";
@@ -203,6 +204,7 @@ export default function UnifiedRehearsalPage() {
   // Access saved scenes from the Scene Library (scenes page)
   const { getProjectScenes } = useScenes();
   const { getCurrentProject } = useProjects();
+  const { canUseKokoro } = useDeviceCapabilities();
 
   // Access cast voice configs
   const {
@@ -258,7 +260,7 @@ export default function UnifiedRehearsalPage() {
   );
 
   // TTS provider
-  const [ttsProvider, setTtsProvider] = useState<"browser" | "api" | "kokoro">(
+  const [ttsProvider, setTtsProvider] = useState<"browser" | "api" | "kokoro" | "proxy">(
     "browser",
   );
   const [kokoroStatus, setKokoroStatus] = useState<string | null>(null);
@@ -553,7 +555,7 @@ export default function UnifiedRehearsalPage() {
     if (typeof saved.narratorVoiceIndex === "number")
       setNarratorVoiceIndex(saved.narratorVoiceIndex);
     if (saved.ttsProvider)
-      setTtsProvider(saved.ttsProvider as "browser" | "api" | "kokoro");
+      setTtsProvider(saved.ttsProvider as "browser" | "api" | "kokoro" | "proxy");
     if (saved.apiVoiceAssignments)
       setApiVoiceAssignments(
         saved.apiVoiceAssignments as Record<string, string>,
@@ -590,17 +592,42 @@ export default function UnifiedRehearsalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load browser voices
+  // Load browser voices (with iOS primer)
   useEffect(() => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
     const loadVoices = () => {
-      setAvailableVoices(window.speechSynthesis.getVoices());
+      const raw = synth.getVoices();
+      if (raw.length > 0) setAvailableVoices(raw);
     };
 
+    synth.onvoiceschanged = loadVoices;
+    synth.addEventListener?.("voiceschanged", loadVoices);
     loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+    const timers = [setTimeout(loadVoices, 100), setTimeout(loadVoices, 600)];
+
+    // iOS Safari: getVoices() returns [] until speak() is called from a user gesture.
+    let primed = false;
+    const prime = () => {
+      if (primed) return;
+      primed = true;
+      try {
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0;
+        u.rate = 10;
+        synth.speak(u);
+        setTimeout(() => { synth.cancel(); loadVoices(); }, 50);
+      } catch { /* non-iOS */ }
+    };
+    document.addEventListener("click", prime, { once: true, passive: true });
+    document.addEventListener("touchstart", prime, { once: true, passive: true });
 
     return () => {
-      window.speechSynthesis.onvoiceschanged = null;
+      timers.forEach(clearTimeout);
+      synth.removeEventListener?.("voiceschanged", loadVoices);
+      document.removeEventListener("click", prime);
+      document.removeEventListener("touchstart", prime);
     };
   }, []);
 
@@ -883,9 +910,10 @@ MOM: See? You were ready.`,
           const voice =
             apiVoiceAssignments[char] || ttsSettings.kokoroVoice || "am_puck";
           await speakTextViaKokoro(text, { voice, speed: cfg.rate });
-        } else if (ttsProvider === "api") {
+        } else if (ttsProvider === "api" || ttsProvider === "proxy") {
           const apiVoiceId =
-            apiVoiceAssignments[char] || ttsSettings.defaultVoiceId;
+            apiVoiceAssignments[char] ||
+            (ttsProvider === "proxy" ? "nova" : ttsSettings.defaultVoiceId);
           await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate });
         } else {
           window.speechSynthesis.cancel();
@@ -1073,10 +1101,13 @@ MOM: See? You were ready.`,
           return;
         }
 
-        if (ttsProvider === "api") {
+        if (ttsProvider === "api" || ttsProvider === "proxy") {
           const ttsSettings = getTTSSettings();
           speakTextViaApi(line.dialogue, {
-            voice: ttsSettings.defaultVoiceId || "",
+            voice:
+              ttsProvider === "proxy"
+                ? apiVoiceAssignments[primarySpeaker] || "nova"
+                : ttsSettings.defaultVoiceId || "",
             speed: 1,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
@@ -1186,8 +1217,10 @@ MOM: See? You were ready.`,
       }
 
       // â”€â”€ API TTS path â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      if (ttsProvider === "api") {
-        const voiceId = apiVoiceAssignments[primarySpeaker] || "";
+      if (ttsProvider === "api" || ttsProvider === "proxy") {
+        const voiceId =
+          apiVoiceAssignments[primarySpeaker] ||
+          (ttsProvider === "proxy" ? "nova" : "");
         const ttsSettings = getTTSSettings();
         const apiType = ttsSettings.externalApiType ?? "custom";
         const voiceSig = `${apiType}:${voiceId}`;
@@ -2332,8 +2365,19 @@ MOM: See? You were ready.`,
                         const provider = e.target.value as
                           | "browser"
                           | "api"
-                          | "kokoro";
-                        if (provider === "api") {
+                          | "kokoro"
+                          | "proxy";
+                        if (provider === "proxy") {
+                          setTtsProvider("proxy");
+                          setApiVoices([
+                            { id: "alloy",   name: "Alloy — neutral" },
+                            { id: "echo",    name: "Echo — male" },
+                            { id: "fable",   name: "Fable — expressive male" },
+                            { id: "onyx",    name: "Onyx — deep male" },
+                            { id: "nova",    name: "Nova — female" },
+                            { id: "shimmer", name: "Shimmer — female" },
+                          ]);
+                        } else if (provider === "api") {
                           const s = getTTSSettings();
                           if (!s.apiUrl) {
                             alert(
@@ -2382,7 +2426,8 @@ MOM: See? You were ready.`,
                       className={`${inputCls} w-auto`}
                     >
                       <option value="browser">Browser</option>
-                      <option value="kokoro">Kokoro AI</option>
+                      {canUseKokoro && <option value="kokoro">Kokoro AI</option>}
+                      <option value="proxy">Built-in AI</option>
                       <option value="api">External API</option>
                     </select>
                   </div>

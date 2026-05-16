@@ -508,7 +508,10 @@ export async function speakTextViaApi(
 ): Promise<void> {
   const settings = getTTSSettings();
 
-  if (!settings.apiUrl) {
+  // Proxy provider uses the app's own /api/tts route — no client-side API key needed.
+  const isProxy = settings.provider === "proxy";
+
+  if (!isProxy && !settings.apiUrl) {
     throw new Error(
       "TTS API URL is not configured. Go to Settings to set it up.",
     );
@@ -518,14 +521,22 @@ export async function speakTextViaApi(
   cleanupAudio();
 
   const apiType = settings.externalApiType ?? "custom";
-  const isElevenLabs = apiType === "elevenlabs";
-  const isDeepgram = apiType === "deepgram";
+  const isElevenLabs = !isProxy && apiType === "elevenlabs";
+  const isDeepgram = !isProxy && apiType === "deepgram";
   const voiceId = options.voice || settings.defaultVoiceId;
-  const baseUrl = settings.apiUrl.replace(/\/+$/, "");
+  const baseUrl = isProxy ? "" : settings.apiUrl.replace(/\/+$/, "");
 
   let url: string;
   let payload: Record<string, unknown>;
-  if (isElevenLabs) {
+  if (isProxy) {
+    url = "/api/tts";
+    payload = {
+      input: text,
+      voice: voiceId || "nova",
+      speed: options.speed ?? 1,
+      response_format: "mp3",
+    };
+  } else if (isElevenLabs) {
     url = `${baseUrl}/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
     payload = {
       text,
@@ -550,11 +561,13 @@ export async function speakTextViaApi(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const effectiveKey = isElevenLabs
-    ? settings.elevenLabsApiKey || settings.apiKey
-    : isDeepgram
-      ? settings.deepgramApiKey || settings.apiKey
-      : settings.apiKey;
+  const effectiveKey = isProxy
+    ? null // key stays server-side
+    : isElevenLabs
+      ? settings.elevenLabsApiKey || settings.apiKey
+      : isDeepgram
+        ? settings.deepgramApiKey || settings.apiKey
+        : settings.apiKey;
   if (effectiveKey) {
     if (isElevenLabs) {
       headers["xi-api-key"] = effectiveKey;
@@ -642,15 +655,14 @@ export async function speakLine(
 
   // Check global cache first
   if (cacheEnabled) {
-    const apiType = settings.externalApiType ?? "custom";
     const voiceId =
       voiceConfig?.apiVoiceId ||
       settings.defaultVoiceId ||
       settings.kokoroVoice ||
       "";
     const voiceSig =
-      settings.provider === "api"
-        ? `${apiType}:${voiceId}`
+      settings.provider === "api" || settings.provider === "proxy"
+        ? `${settings.provider}:${voiceId}`
         : settings.provider === "kokoro"
           ? `kokoro:${voiceId}`
           : undefined;
@@ -694,7 +706,7 @@ export async function speakLine(
       cacheAudio: cacheEnabled,
       voiceSignature: `kokoro:${kokoroVoice}`,
     });
-  } else if (settings.provider === "api") {
+  } else if (settings.provider === "api" || settings.provider === "proxy") {
     const apiVoice = voiceConfig?.apiVoiceId || settings.defaultVoiceId;
     await speakTextViaApi(text, {
       voice: apiVoice,
@@ -727,7 +739,7 @@ export function stopLine(): void {
 
   if (settings.provider === "kokoro") {
     import("./kokoro-tts").then(({ stopKokoroAudio }) => stopKokoroAudio());
-  } else if (settings.provider === "api") {
+  } else if (settings.provider === "api" || settings.provider === "proxy") {
     stopApiAudio();
   } else {
     stopSpeaking();

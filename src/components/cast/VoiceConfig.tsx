@@ -5,13 +5,13 @@ import { useVoice } from "@/contexts/VoiceContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
 import {
-  getAvailableVoices,
   getTTSSettings,
   fetchApiVoices,
   speakLine,
   stopLine,
   ApiVoice,
 } from "@/lib/voice";
+import { useVoiceList } from "@/hooks/useVoiceList";
 import { KOKORO_VOICES } from "@/lib/kokoro-tts";
 import { TTSSettings } from "@/types/voice";
 import { Button } from "@/components/ui/Button";
@@ -54,7 +54,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
       : null;
 
   const [activeTab, setActiveTab] = useState<Tab>("general");
-  const [voices, setVoices] = useState(getAvailableVoices());
+  const { voices, triggerLoad: triggerVoiceLoad } = useVoiceList();
   const [ttsSettings, setTtsSettings] = useState<TTSSettings | null>(null);
   const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
   const [apiVoicesLoading, setApiVoicesLoading] = useState(false);
@@ -151,34 +151,6 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
     isApiMode && (ttsSettings?.externalApiType ?? "custom") === "elevenlabs";
   const isDeepgram = isApiMode && ttsSettings?.externalApiType === "deepgram";
 
-  useEffect(() => {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-
-    const loadVoices = () => {
-      const raw = synth.getVoices();
-      if (raw.length > 0)
-        setVoices(
-          raw.map((v) => ({
-            name: v.name,
-            lang: v.lang,
-            voiceURI: v.voiceURI,
-          })),
-        );
-    };
-    synth.onvoiceschanged = loadVoices;
-    synth.addEventListener?.("voiceschanged", loadVoices);
-    loadVoices();
-    const timers = [
-      setTimeout(loadVoices, 100),
-      setTimeout(loadVoices, 500),
-      setTimeout(loadVoices, 1500),
-    ];
-    return () => {
-      timers.forEach(clearTimeout);
-      synth.removeEventListener?.("voiceschanged", loadVoices);
-    };
-  }, []);
 
   useEffect(() => {
     if (!isApiMode || !ttsSettings || apiVoices.length > 0) return;
@@ -647,30 +619,38 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                 <label className="block text-light font-semibold mb-2">
                   🎙️ Voice
                 </label>
-                <select
-                  value={voiceConfig.voiceName}
-                  onChange={(e) => handleVoiceChange(e.target.value)}
-                  disabled={voiceConfig.muted}
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
-                >
-                  <option value="">-- Select Voice --</option>
-                  {voices.map((voice) => (
-                    <option
-                      key={voice.voiceURI || voice.name}
-                      value={voice.name}
-                    >
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
-                  {/* If saved voice name no longer matches (e.g. had quality suffix),
-                      show it as a placeholder option so the selector isn't blank */}
-                  {voiceConfig.voiceName &&
-                    !voices.some((v) => v.name === voiceConfig.voiceName) && (
-                      <option value={voiceConfig.voiceName} disabled>
-                        {voiceConfig.voiceName} (not found — please reselect)
+                {voices.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={triggerVoiceLoad}
+                    className="w-full py-2 text-sm rounded border border-accent-cyan text-accent-cyan hover:bg-accent-cyan/10 transition-colors"
+                  >
+                    Tap to load voices
+                  </button>
+                ) : (
+                  <select
+                    value={voiceConfig.voiceName}
+                    onChange={(e) => handleVoiceChange(e.target.value)}
+                    disabled={voiceConfig.muted}
+                    className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan disabled:opacity-50"
+                  >
+                    <option value="">-- Select Voice --</option>
+                    {voices.map((voice) => (
+                      <option
+                        key={voice.voiceURI || voice.name}
+                        value={voice.name}
+                      >
+                        {voice.name} ({voice.lang})
                       </option>
-                    )}
-                </select>
+                    ))}
+                    {voiceConfig.voiceName &&
+                      !voices.some((v) => v.name === voiceConfig.voiceName) && (
+                        <option value={voiceConfig.voiceName} disabled>
+                          {voiceConfig.voiceName} (not found — please reselect)
+                        </option>
+                      )}
+                  </select>
+                )}
                 <p className="text-muted text-xs mt-1">
                   Select the voice for this character
                 </p>

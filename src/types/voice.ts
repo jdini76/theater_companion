@@ -36,7 +36,7 @@ export interface VoiceOption {
 }
 
 export interface TTSSettings {
-  provider: "browser" | "api" | "kokoro";
+  provider: "browser" | "api" | "kokoro" | "proxy";
   externalApiType?: "custom" | "elevenlabs" | "deepgram";
   apiUrl: string;
   apiPath: string;
