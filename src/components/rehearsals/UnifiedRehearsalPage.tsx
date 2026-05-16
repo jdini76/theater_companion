@@ -914,7 +914,7 @@ MOM: See? You were ready.`,
           const apiVoiceId =
             apiVoiceAssignments[char] ||
             (ttsProvider === "proxy" ? "nova" : ttsSettings.defaultVoiceId);
-          await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate });
+          await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate, forceProxy: ttsProvider === "proxy" });
         } else {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
@@ -1111,6 +1111,7 @@ MOM: See? You were ready.`,
             speed: 1,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
+            forceProxy: ttsProvider === "proxy",
           })
             .then(onDone)
             .catch(() => onDone());
@@ -1245,6 +1246,7 @@ MOM: See? You were ready.`,
             speed,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabledApi,
+            forceProxy: ttsProvider === "proxy",
           });
 
         const playCachedBlobApi = (blob: Blob): Promise<void> =>

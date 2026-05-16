@@ -504,12 +504,13 @@ export async function speakTextViaApi(
     volume?: number;
     characterName?: string;
     cacheAudio?: boolean;
+    forceProxy?: boolean;
   } = {},
 ): Promise<void> {
   const settings = getTTSSettings();
 
   // Proxy provider uses the app's own /api/tts route — no client-side API key needed.
-  const isProxy = settings.provider === "proxy";
+  const isProxy = options.forceProxy === true || settings.provider === "proxy";
 
   if (!isProxy && !settings.apiUrl) {
     throw new Error(
