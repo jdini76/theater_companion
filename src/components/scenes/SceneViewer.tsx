@@ -31,6 +31,51 @@ import {
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 import type { LineOverride } from "@/types/line-override";
 
+// Resolve a character name detected from raw text (e.g. "LILA") to the
+// canonical project name (e.g. "LILA MOON") so colorMap lookups succeed.
+// Checks alias map first, then falls back to first-word prefix matching.
+function resolveCharToCanonical(
+  char: string,
+  aliasToCanonical: Map<string, string>,
+  canonicalNames: string[],
+): string {
+  const upper = char.toUpperCase();
+  const alias = aliasToCanonical.get(upper);
+  if (alias) return alias;
+  const prefix = canonicalNames.find(
+    (n) => n === upper || n.startsWith(upper + " "),
+  );
+  return prefix ?? char;
+}
+
+// Normalize all char fields in a displayMap to canonical names so
+// HighlightedContent's colorMap lookups produce the right colors.
+function normalizeDisplayMapChars(
+  displayMap: Record<number, LineOverride>,
+  aliasToCanonical: Map<string, string>,
+  canonicalNames: string[],
+): Record<number, LineOverride> {
+  const result: Record<number, LineOverride> = {};
+  for (const [k, v] of Object.entries(displayMap)) {
+    const key = k as unknown as number;
+    if (v.kind === "dialogue" || v.kind === "header") {
+      result[key] = {
+        ...v,
+        char: resolveCharToCanonical(v.char, aliasToCanonical, canonicalNames),
+      };
+    } else if (v.kind === "multi-header") {
+      result[key] = {
+        ...v,
+        chars: v.chars.map((c) =>
+          resolveCharToCanonical(c, aliasToCanonical, canonicalNames),
+        ),
+      };
+    } else {
+      result[key] = v;
+    }
+  }
+  return result;
+}
 
 function lineOverridesFromMap(
   overrides: Map<number, LineOverride>,
@@ -309,13 +354,17 @@ export function SceneViewer({
     }
   }, [productionType, scene, updateScene]);
 
-  // On scene open, ensure scene.lines and displayMap are up to date.
-  // displayMap drives HighlightedContent so its colors match parseDialogueLines.
-  // The ref guard ensures this runs once per scene switch.
+  // On scene open, if the user has saved overrides, ensure scene.lines and
+  // displayMap reflect them. Without overrides, HighlightedContent auto-detects
+  // (it's more accurate for unedited scenes). The ref guard runs this once per
+  // scene switch.
   useEffect(() => {
     if (!scene.id || lastMigratedSceneId.current === scene.id) return;
     lastMigratedSceneId.current = scene.id;
-    if (scene.displayMap) return; // Already computed (e.g. by a previous handleAssign)
+    const hasOverrides =
+      scene.lineOverrides && Object.keys(scene.lineOverrides).length > 0;
+    if (!hasOverrides) return; // Let HighlightedContent auto-detect for clean scenes
+    if (scene.displayMap) return; // Already computed
     const displayMap: Record<number, LineOverride> = {};
     const updatedLines = parseDialogueLines(
       scene.content,
@@ -324,7 +373,10 @@ export function SceneViewer({
       scene.lineOverrides,
       displayMap,
     );
-    updateScene(scene.id, { lines: updatedLines, displayMap });
+    updateScene(scene.id, {
+      lines: updatedLines,
+      displayMap: normalizeDisplayMapChars(displayMap, aliasToCanonical, canonicalNames),
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id]);
 
@@ -442,7 +494,7 @@ export function SceneViewer({
       characters: updatedCharacters,
       lineOverrides: newLineOverrides,
       lines: updatedLines,
-      displayMap,
+      displayMap: normalizeDisplayMapChars(displayMap, aliasToCanonical, canonicalNames),
     });
   };
 

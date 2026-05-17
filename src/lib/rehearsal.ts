@@ -1186,7 +1186,9 @@ export function parseDialogueLines(
       });
       // These directions don't change speaker context or song state —
       // a playwright may write "Enter JOHN." between two of MARY's lines.
-      afterBlank = false;
+      // If no speaker is active, signal that the next ALL-CAPS line may be
+      // a character name (same logic as standalone stage direction).
+      afterBlank = useStandalone && lastCharacter === null && pendingStandaloneChar === null;
       if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
       continue;
     }
