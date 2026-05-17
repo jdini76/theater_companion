@@ -31,14 +31,6 @@ import {
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 import type { LineOverride } from "@/types/line-override";
 
-function lineOverridesToMap(
-  lineOverrides?: Record<number, LineOverride>,
-): Map<number, LineOverride> {
-  const entries = Object.entries(lineOverrides ?? {}).map(
-    ([index, value]) => [Number(index), value] as const,
-  );
-  return new Map(entries);
-}
 
 function lineOverridesFromMap(
   overrides: Map<number, LineOverride>,
@@ -183,14 +175,18 @@ export function SceneViewer({
   );
   const menuRef = useRef<HTMLDivElement>(null);
   const screenplayScrollRef = useRef<HTMLDivElement>(null);
+  const lastMigratedSceneId = useRef<string | null>(null);
   const { getProjectCharacters, createCharacter } = useVoice();
   const { currentProjectId } = useProjects();
   const { navigateToCharacter } = useRehearsalNav();
   const { getProjectScenes, updateScene } = useScenes();
-  const overrides = useMemo(
-    () => lineOverridesToMap(scene.lineOverrides),
-    [scene.lineOverrides],
-  );
+  const overrides = useMemo(() => {
+    const source = scene.displayMap ?? scene.lineOverrides;
+    if (!source) return new Map<number, LineOverride>();
+    return new Map(
+      Object.entries(source).map(([k, v]) => [parseInt(k, 10), v]),
+    );
+  }, [scene.displayMap, scene.lineOverrides]);
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
   const activeProjectId = currentProjectId ?? projectId;
@@ -313,6 +309,25 @@ export function SceneViewer({
     }
   }, [productionType, scene, updateScene]);
 
+  // On scene open, ensure scene.lines and displayMap are up to date.
+  // displayMap drives HighlightedContent so its colors match parseDialogueLines.
+  // The ref guard ensures this runs once per scene switch.
+  useEffect(() => {
+    if (!scene.id || lastMigratedSceneId.current === scene.id) return;
+    lastMigratedSceneId.current = scene.id;
+    if (scene.displayMap) return; // Already computed (e.g. by a previous handleAssign)
+    const displayMap: Record<number, LineOverride> = {};
+    const updatedLines = parseDialogueLines(
+      scene.content,
+      getSceneParseFormat(productionType),
+      scene.characters ?? [],
+      scene.lineOverrides,
+      displayMap,
+    );
+    updateScene(scene.id, { lines: updatedLines, displayMap });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.id]);
+
   useEffect(() => {
     if (!isFullscreen) return;
     const handler = (e: KeyboardEvent) => {
@@ -410,19 +425,25 @@ export function SceneViewer({
       projectCast,
     ).sort();
 
-    // Only store overrides - don't try to modify scene.lines by index
-    // The overrides will be applied when needed in run lines via applyLineOverrides
-    console.log(`[SceneViewer.handleAssign] Calling updateScene with:`);
-    console.log(`  - characters: ${updatedCharacters.length} items`);
-    console.log(`  - lineOverrides: ${Object.keys(lineOverridesFromMap(nextOverrides)).length} items`);
-    console.log(`  - lineOverridesFromMap result:`, lineOverridesFromMap(nextOverrides));
+    const newLineOverrides = lineOverridesFromMap(nextOverrides);
+
+    // Re-parse with the new overrides so scene.lines and displayMap stay in sync.
+    // Run lines reads scene.lines directly — this keeps both views consistent.
+    const displayMap: Record<number, LineOverride> = {};
+    const updatedLines = parseDialogueLines(
+      scene.content,
+      getSceneParseFormat(productionType),
+      updatedCharacters,
+      newLineOverrides,
+      displayMap,
+    );
 
     updateScene(scene.id, {
       characters: updatedCharacters,
-      lineOverrides: lineOverridesFromMap(nextOverrides),
+      lineOverrides: newLineOverrides,
+      lines: updatedLines,
+      displayMap,
     });
-
-    console.log(`[SceneViewer.handleAssign] END`);
   };
 
   // Character tags: use pre-parsed lines when available; fall back to

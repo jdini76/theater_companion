@@ -393,19 +393,15 @@ export default function UnifiedRehearsalPage() {
 
   const getImportedSceneLines = useCallback(
     (scene: StoredScene): DialogueLine[] => {
-      // Always re-parse with overrides applied inline during parsing.
-      // Overrides are keyed by text line index — passing them to parseDialogueLines
-      // ensures each line is classified correctly without any index mapping.
-      const lines = parseDialogueLines(
+      if (scene.lines && scene.lines.length > 0) {
+        return scene.lines;
+      }
+      // Fallback for scenes never opened in SceneViewer (no stored lines).
+      return parseDialogueLines(
         scene.content,
         productionType === "Film" ? "screenplay" : "mixed",
-        buildKnownCharacters(
-          collectImportedCharacterNames(scene, scene.lineOverrides),
-        ),
-        scene.lineOverrides,
+        buildKnownCharacters(collectImportedCharacterNames(scene, undefined)),
       );
-
-      return lines;
     },
     [buildKnownCharacters, productionType],
   );
@@ -913,7 +909,7 @@ MOM: See? You were ready.`,
         } else if (ttsProvider === "api" || ttsProvider === "proxy") {
           const apiVoiceId =
             apiVoiceAssignments[char] ||
-            (ttsProvider === "proxy" ? "nova" : ttsSettings.defaultVoiceId);
+            (ttsProvider === "proxy" ? getTTSSettings().defaultVoiceId || "af_heart" : ttsSettings.defaultVoiceId);
           await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate, forceProxy: ttsProvider === "proxy" });
         } else {
           window.speechSynthesis.cancel();
@@ -1106,7 +1102,7 @@ MOM: See? You were ready.`,
           speakTextViaApi(line.dialogue, {
             voice:
               ttsProvider === "proxy"
-                ? apiVoiceAssignments[primarySpeaker] || "nova"
+                ? apiVoiceAssignments[primarySpeaker] || getTTSSettings().defaultVoiceId || "af_heart"
                 : ttsSettings.defaultVoiceId || "",
             speed: 1,
             characterName: primarySpeaker,
@@ -1221,7 +1217,7 @@ MOM: See? You were ready.`,
       if (ttsProvider === "api" || ttsProvider === "proxy") {
         const voiceId =
           apiVoiceAssignments[primarySpeaker] ||
-          (ttsProvider === "proxy" ? "nova" : "");
+          (ttsProvider === "proxy" ? getTTSSettings().defaultVoiceId || "af_heart" : "");
         const ttsSettings = getTTSSettings();
         const apiType = ttsSettings.externalApiType ?? "custom";
         const voiceSig = `${apiType}:${voiceId}`;
@@ -2372,12 +2368,22 @@ MOM: See? You were ready.`,
                         if (provider === "proxy") {
                           setTtsProvider("proxy");
                           setApiVoices([
-                            { id: "alloy",   name: "Alloy — neutral" },
-                            { id: "echo",    name: "Echo — male" },
-                            { id: "fable",   name: "Fable — expressive male" },
-                            { id: "onyx",    name: "Onyx — deep male" },
-                            { id: "nova",    name: "Nova — female" },
-                            { id: "shimmer", name: "Shimmer — female" },
+                            { id: "af_heart",    name: "af_heart — US female (warm)" },
+                            { id: "af_bella",    name: "af_bella — US female" },
+                            { id: "af_nicole",   name: "af_nicole — US female" },
+                            { id: "af_aoede",    name: "af_aoede — US female" },
+                            { id: "af_kore",     name: "af_kore — US female" },
+                            { id: "am_adam",     name: "am_adam — US male" },
+                            { id: "am_echo",     name: "am_echo — US male" },
+                            { id: "am_eric",     name: "am_eric — US male" },
+                            { id: "am_fenrir",   name: "am_fenrir — US male" },
+                            { id: "am_liam",     name: "am_liam — US male" },
+                            { id: "am_michael",  name: "am_michael — US male" },
+                            { id: "am_onyx",     name: "am_onyx — US male (deep)" },
+                            { id: "bf_emma",     name: "bf_emma — UK female" },
+                            { id: "bf_isabella", name: "bf_isabella — UK female" },
+                            { id: "bm_george",   name: "bm_george — UK male" },
+                            { id: "bm_lewis",    name: "bm_lewis — UK male" },
                           ]);
                         } else if (provider === "api") {
                           const s = getTTSSettings();
@@ -2433,6 +2439,17 @@ MOM: See? You were ready.`,
                       <option value="api">External API</option>
                     </select>
                   </div>
+                  {ttsProvider === "browser" && (
+                    <button
+                      onClick={() => {
+                        const voices = window.speechSynthesis.getVoices();
+                        if (voices.length > 0) setAvailableVoices(voices);
+                      }}
+                      className={btnSecondary}
+                    >
+                      ↻ Load Voices
+                    </button>
+                  )}
                   {ttsProvider === "api" && (
                     <button
                       onClick={() => {
@@ -2455,6 +2472,54 @@ MOM: See? You were ready.`,
                       className={btnSecondary}
                     >
                       {apiVoicesLoading ? "Loading…" : "↻ Refresh Voices"}
+                    </button>
+                  )}
+                  {ttsProvider === "kokoro" && (
+                    <button
+                      onClick={async () => {
+                        setKokoroStatus("Loading model…");
+                        try {
+                          await loadKokoro({
+                            device: getTTSSettings().kokoroDevice ?? "wasm",
+                          });
+                          setKokoroStatus(null);
+                        } catch (err) {
+                          setKokoroStatus(
+                            err instanceof Error ? err.message : "Load failed",
+                          );
+                        }
+                      }}
+                      disabled={getKokoroLoadState() === "loading"}
+                      className={btnSecondary}
+                    >
+                      {getKokoroLoadState() === "loading" ? "Loading…" : "↻ Reload Model"}
+                    </button>
+                  )}
+                  {ttsProvider === "proxy" && (
+                    <button
+                      onClick={() => {
+                        setApiVoices([
+                          { id: "af_heart",    name: "af_heart — US female (warm)" },
+                          { id: "af_bella",    name: "af_bella — US female" },
+                          { id: "af_nicole",   name: "af_nicole — US female" },
+                          { id: "af_aoede",    name: "af_aoede — US female" },
+                          { id: "af_kore",     name: "af_kore — US female" },
+                          { id: "am_adam",     name: "am_adam — US male" },
+                          { id: "am_echo",     name: "am_echo — US male" },
+                          { id: "am_eric",     name: "am_eric — US male" },
+                          { id: "am_fenrir",   name: "am_fenrir — US male" },
+                          { id: "am_liam",     name: "am_liam — US male" },
+                          { id: "am_michael",  name: "am_michael — US male" },
+                          { id: "am_onyx",     name: "am_onyx — US male (deep)" },
+                          { id: "bf_emma",     name: "bf_emma — UK female" },
+                          { id: "bf_isabella", name: "bf_isabella — UK female" },
+                          { id: "bm_george",   name: "bm_george — UK male" },
+                          { id: "bm_lewis",    name: "bm_lewis — UK male" },
+                        ]);
+                      }}
+                      className={btnSecondary}
+                    >
+                      ↻ Load Voices
                     </button>
                   )}
                   {ttsProvider === "kokoro" && kokoroStatus && (

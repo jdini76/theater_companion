@@ -505,6 +505,7 @@ export async function speakTextViaApi(
     characterName?: string;
     cacheAudio?: boolean;
     forceProxy?: boolean;
+    model?: string;
   } = {},
 ): Promise<void> {
   const settings = getTTSSettings();
@@ -527,13 +528,19 @@ export async function speakTextViaApi(
   const voiceId = options.voice || settings.defaultVoiceId;
   const baseUrl = isProxy ? "" : settings.apiUrl.replace(/\/+$/, "");
 
+  const PROXY_VOICES = [
+    "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore",
+    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
+    "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
+  ];
   let url: string;
   let payload: Record<string, unknown>;
   if (isProxy) {
+    const safeVoice = PROXY_VOICES.includes(voiceId) ? voiceId : (settings.defaultVoiceId && PROXY_VOICES.includes(settings.defaultVoiceId) ? settings.defaultVoiceId : "af_heart");
     url = "/api/tts";
     payload = {
       input: text,
-      voice: voiceId || "nova",
+      voice: safeVoice,
       speed: options.speed ?? 1,
       response_format: "mp3",
     };

@@ -459,6 +459,8 @@ function looksLikeActionProseLine(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
   if (!/[a-z]/.test(trimmed)) return false;
+  // Personal pronouns at sentence start are dialogue, not stage directions.
+  if (/^['"""]*(?:you|he|she|they|we|it|i)\b/i.test(trimmed)) return false;
   if (!ACTION_PROSE_START_RE.test(trimmed)) {
     return false;
   }
@@ -985,6 +987,7 @@ export function parseDialogueLines(
   formatHint?: ScriptFormat,
   knownCharacters?: string[],
   lineOverrides?: Record<number, LineOverride>,
+  outTextLineMap?: Record<number, LineOverride>,
 ): DialogueLine[] {
   const output: DialogueLine[] = [];
   let lineNumber = 0;
@@ -1120,10 +1123,9 @@ export function parseDialogueLines(
           break;
         }
       }
+      if (outTextLineMap) outTextLineMap[i] = override;
       continue;
     }
-
-    // ── Scene heading ───────────────────────────────────────────────
     if (SCENE_HEADING_RE.test(trimmed)) {
       debugParse("scene heading", { text: trimmed });
       output.push({
@@ -1139,6 +1141,7 @@ export function parseDialogueLines(
       // Scene headings always end any active song block.
       inSongBlock = false;
       currentSongTitle = null;
+      if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
       continue;
     }
 
@@ -1160,6 +1163,7 @@ export function parseDialogueLines(
       afterBlank = false;
       inSongBlock = false;
       currentSongTitle = null;
+      if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
       continue;
     }
 
@@ -1183,6 +1187,7 @@ export function parseDialogueLines(
       // These directions don't change speaker context or song state —
       // a playwright may write "Enter JOHN." between two of MARY's lines.
       afterBlank = false;
+      if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
       continue;
     }
 
@@ -1227,6 +1232,7 @@ export function parseDialogueLines(
         useStandalone &&
         lastCharacter === null &&
         pendingStandaloneChar === null;
+      if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
       continue;
     }
 
@@ -1269,12 +1275,14 @@ export function parseDialogueLines(
             output.push(entry);
             lastCharacter = character;
             lastDialogueIdx = idx;
+            if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: character };
           } else {
             // Song/verse mode: CHARACTER: with no inline text.
             // The empty cue header signals that lyrics follow.
             lastCharacter = character;
             lastDialogueIdx = -1;
             if (enableSongParsing) inSongBlock = true;
+            if (outTextLineMap) outTextLineMap[i] = { kind: "header", char: character };
           }
           afterBlank = false;
           continue;
@@ -1328,6 +1336,7 @@ export function parseDialogueLines(
             lastDialogueIdx = idx;
           }
           afterBlank = false;
+          if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter };
           continue;
         }
 
@@ -1342,6 +1351,7 @@ export function parseDialogueLines(
         lastDialogueIdx = -1;
         pendingStandaloneChar = null;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
         continue;
       }
     }
@@ -1366,6 +1376,7 @@ export function parseDialogueLines(
         output.push(entry);
         lastDialogueIdx = idx;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter ?? "[Song]" };
         continue;
       }
     }
@@ -1441,6 +1452,7 @@ export function parseDialogueLines(
           lastDialogueIdx = idx;
           lastCharacter = null;
           afterBlank = false;
+          if (outTextLineMap) outTextLineMap[i] = { kind: "group" };
           continue;
         }
 
@@ -1471,6 +1483,7 @@ export function parseDialogueLines(
           currentSongTitle = null;
           lastDialogueIdx = -1;
           afterBlank = false;
+          if (outTextLineMap) outTextLineMap[i] = { kind: "header", char: nameCandidate };
           continue;
         }
       }
@@ -1492,6 +1505,7 @@ export function parseDialogueLines(
         lastCharacter = character;
         lastDialogueIdx = idx;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: character };
         continue;
       }
     }
@@ -1508,6 +1522,7 @@ export function parseDialogueLines(
 
       const mixedProseSplit = splitDialogueFromNarrativeProse(trimmed);
       if (mixedProseSplit) {
+        const charForMap = lastCharacter;
         const dialogueIdx = output.length;
         output.push({
           lineNumber: lineNumber++,
@@ -1522,6 +1537,7 @@ export function parseDialogueLines(
         lastDialogueIdx = dialogueIdx;
         lastCharacter = null;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: charForMap ?? "" };
         continue;
       }
 
@@ -1533,6 +1549,7 @@ export function parseDialogueLines(
       });
       lastDialogueIdx = idx;
       afterBlank = false;
+      if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter };
       continue;
     }
 
@@ -1566,10 +1583,12 @@ export function parseDialogueLines(
           character: "[Narrative]",
           dialogue: mixedProseSplit.narrative,
         });
+        const charForMap = lastCharacter;
         lastCharacter = null;
         lastDialogueIdx = -1;
         pendingStandaloneChar = null;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: charForMap ?? "" };
         continue;
       }
 
@@ -1587,6 +1606,7 @@ export function parseDialogueLines(
         lastDialogueIdx = -1;
         pendingStandaloneChar = null;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
         continue;
       }
 
@@ -1623,6 +1643,7 @@ export function parseDialogueLines(
         output[lastDialogueIdx].dialogue += " " + trimmed;
         if (enableSongParsing && inSongBlock)
           output[lastDialogueIdx].isSong = true;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter };
       } else if (
         !standaloneCharLooksLikeSpeaker &&
         (fmt === "screenplay" || fmt === "mixed") &&
@@ -1643,6 +1664,7 @@ export function parseDialogueLines(
         lastDialogueIdx = -1;
         pendingStandaloneChar = null;
         afterBlank = false;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "stage-direction" };
         continue;
       } else if (!standaloneCharLooksLikeSpeaker) {
         // Verse break (blank-separated) or first lyric after CHARACTER:
@@ -1663,6 +1685,7 @@ export function parseDialogueLines(
         }
         output.push(entry);
         lastDialogueIdx = idx;
+        if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter };
       }
       afterBlank = false;
       continue;
@@ -1682,6 +1705,7 @@ export function parseDialogueLines(
         if (currentSongTitle) entry.songTitle = currentSongTitle;
       }
       output.push(entry);
+      if (outTextLineMap) outTextLineMap[i] = inSongBlock ? { kind: "group" } : { kind: "stage-direction" };
     }
     lastDialogueIdx = -1;
     afterBlank = false;
