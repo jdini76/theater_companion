@@ -473,6 +473,48 @@ function looksLikeActionProseLine(text: string): boolean {
 }
 
 /**
+ * Returns true when a line is almost certainly a stage direction that
+ * describes what a character *does* or what the scene looks like — as opposed
+ * to something a character *says*.  Used as a lookahead at scene start to
+ * avoid misclassifying the ALL-CAPS name on the preceding line as a speaker
+ * header.
+ *
+ * Catches four classic patterns:
+ *   "enters from stage left, looking tired."  — bare lowercase action verb
+ *   "He walks to the center of the stage."   — 3rd-person pronoun + action verb
+ *   "The lights come up on a small town."    — "The" + stage/environment noun
+ *   "The stage is set in a small Pennsylvania town…" — long "The/A/An" scene-setter
+ */
+function looksLikeStageDirAtSceneStart(text: string): boolean {
+  const t = text.trim();
+  if (!t || !/[a-z]/.test(t)) return false;
+  // Bare lowercase action verb at the start of the line.
+  if (
+    /^[a-z]/.test(t) &&
+    /^(?:enters?|exits?|crosses?|walks?|runs?|turns?|looks?|sits?|stands?|moves?|returns?|follows?|joins?|passes?|arrives?|leaves?|pulls?|pushes?|reaches?|holds?|raises?|picks?|starts?|stops?|watches?|heads?|gestures?|pauses?|speaks?|smiles?|nods?|sighs?|laughs?|cries?|weeps?|kneels?)\b/i.test(t)
+  )
+    return true;
+  // Third-person pronoun subject + action verb: "He walks…", "She enters…"
+  if (/^(?:he|she|they|it)\s+/i.test(t) && ACTION_PROSE_VERBS.test(t))
+    return true;
+  // "The [stage/environment noun]…" — physical scene-setting descriptions.
+  if (
+    /^the\s+(?:lights?|stage|curtain|scene|set|room|audience|backdrop|spotlight|fog|mist|music|sound|house|theater|theatre)\b/i.test(t)
+  )
+    return true;
+  // Long descriptive sentence starting with an article — typical scene-setting
+  // prose ("The small town of Punxsutawney is blanketed in snow…").
+  // Eight words is enough to rule out short one-liners while keeping brevity.
+  if (
+    /^(?:the|a|an)\s+/i.test(t) &&
+    t.split(/\s+/).length >= 8 &&
+    /[.!?…]\s*$/.test(t)
+  )
+    return true;
+  return false;
+}
+
+/**
  * Post-process parsed dialogue lines to extract inline parentheticals
  * from dialogue and emit them as separate stage direction entries.
  *
@@ -1246,7 +1288,7 @@ export function parseDialogueLines(
         const character = charMatch[1].trim();
         const dialogue = charMatch[2].trim();
 
-        if (isValidCharacterName(character)) {
+        if (isValidCharacterName(character) && (knownCharSet.size === 0 || isKnownCharacter(character, knownCharSet))) {
           debugParse("colon character line", {
             character,
             dialogue,
@@ -1433,6 +1475,25 @@ export function parseDialogueLines(
         // If we have a known cast list and this name isn't in it, the line
         // is almost certainly a song lyric (e.g. "TOMORROW, TOMORROW…")
         // rather than a new speaker label. Enter song mode.
+
+        // ── Scene-start stage direction guard ───────────────────────
+        // When no speaker has been established yet (lastCharacter===null),
+        // be conservative: if the next meaningful line looks like a physical
+        // action description (stage direction), the ALL-CAPS line above it
+        // is probably a character description ("ELI MARCH enters…") not a
+        // speaker label.
+        if (acceptAsCharacter && lastCharacter === null) {
+          for (let j = i + 1; j < allLines.length; j++) {
+            const peek = allLines[j].trim();
+            if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
+            if (looksLikeStageDirAtSceneStart(peek)) {
+              debugParse("standalone rejected: next line is scene-start stage direction", { nameCandidate, peek });
+              acceptAsCharacter = false;
+            }
+            break;
+          }
+        }
+
         if (
           acceptAsCharacter &&
           knownCharSet.size > 0 &&

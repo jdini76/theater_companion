@@ -3,5 +3,5 @@ export type LineOverride =
   | { kind: "header"; char: string }
   | { kind: "multi-header"; chars: string[] }
   | { kind: "stage-direction" }
-  | { kind: "group" }
+  | { kind: "group"; mode?: "dialogue" | "header" }
   | { kind: "song-title"; text: string };

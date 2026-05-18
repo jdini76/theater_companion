@@ -27,6 +27,7 @@ import {
   Minimize2,
   ChevronUp,
   ChevronDown,
+  RotateCcw,
 } from "lucide-react";
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 import type { LineOverride } from "@/types/line-override";
@@ -225,7 +226,7 @@ export function SceneViewer({
   const { currentProjectId } = useProjects();
   const { navigateToCharacter } = useRehearsalNav();
   const { getProjectScenes, updateScene } = useScenes();
-  const overrides = useMemo(() => {
+  const highlightOverrides = useMemo(() => {
     const source = scene.displayMap ?? scene.lineOverrides;
     if (!source) return new Map<number, LineOverride>();
     return new Map(
@@ -277,9 +278,9 @@ export function SceneViewer({
   }
 
   // allNames: canonical + alias names so HighlightedContent can match both forms.
-  // When no project cast exists, fall back to scene.characters.
-  // Always include sceneChars so manually textbox-added characters appear in
-  // the colored-buttons list even when a project cast exists.
+  // When a project cast exists, only cast members (and standard ensemble names) are
+  // recognized as characters — unknown names are left as prose/dialogue.
+  // Without a project cast, fall back to scene.characters for backwards compat.
   const allNamesSet = new Set<string>();
   const allNames: string[] = [];
   const highlightSource =
@@ -289,10 +290,11 @@ export function SceneViewer({
           ...Array.from(aliasToCanonical.entries())
             .filter(([alias, canonical]) => !isRedundantAlias(alias, canonical))
             .map(([alias]) => alias),
-          // scene-only chars (textbox-added or group names not in project cast)
+          // Keep ensemble group names (ALL, EVERYONE, etc.) even if not in project cast.
+          // Exclude all other scene-only chars — user must add them to the cast first.
           ...sceneChars
             .map((n) => n.toUpperCase())
-            .filter((n) => !canonicalUpperSet.has(n)),
+            .filter((n) => !canonicalUpperSet.has(n) && GROUP_CHARACTER_NAMES.has(n)),
         ]
       : sceneChars.map((n) => n.toUpperCase());
   for (const name of highlightSource) {
@@ -369,7 +371,7 @@ export function SceneViewer({
     const updatedLines = parseDialogueLines(
       scene.content,
       getSceneParseFormat(productionType),
-      scene.characters ?? [],
+      projectCast.length > 0 ? projectCast : scene.characters ?? [],
       scene.lineOverrides,
       displayMap,
     );
@@ -432,10 +434,12 @@ export function SceneViewer({
     assignment: LineOverride | undefined,
   ) => {
     console.log(`[SceneViewer.handleAssign] START lineIdx=${lineIdx}, assignment=`, assignment);
-    console.log(`[SceneViewer.handleAssign] Current overrides:`, Array.from(overrides.entries()));
+    console.log(`[SceneViewer.handleAssign] Current overrides:`, Array.from(highlightOverrides.entries()));
     console.log(`[SceneViewer.handleAssign] Current scene:`, { id: scene.id, title: scene.title, linesCount: scene.lines?.length, overridesCount: Object.keys(scene.lineOverrides ?? {}).length });
 
-    const nextOverrides = new Map(overrides);
+    const nextOverrides = new Map(
+      Object.entries(scene.lineOverrides ?? {}).map(([k, v]) => [parseInt(k, 10), v] as [number, LineOverride]),
+    );
     if (assignment === undefined) {
       nextOverrides.delete(lineIdx);
       console.log(`[SceneViewer.handleAssign] Deleted override at ${lineIdx}`);
@@ -481,21 +485,37 @@ export function SceneViewer({
 
     // Re-parse with the new overrides so scene.lines and displayMap stay in sync.
     // Run lines reads scene.lines directly — this keeps both views consistent.
+    // When all user overrides are cleared, drop displayMap entirely so
+    // HighlightedContent falls back to its own auto-detection (same as the
+    // "Auto-detect all" button), rather than pinning to parseDialogueLines output.
+    const hasRemainingOverrides = nextOverrides.size > 0;
     const displayMap: Record<number, LineOverride> = {};
     const updatedLines = parseDialogueLines(
       scene.content,
       getSceneParseFormat(productionType),
       updatedCharacters,
       newLineOverrides,
-      displayMap,
+      hasRemainingOverrides ? displayMap : undefined,
     );
 
     updateScene(scene.id, {
       characters: updatedCharacters,
       lineOverrides: newLineOverrides,
       lines: updatedLines,
-      displayMap: normalizeDisplayMapChars(displayMap, aliasToCanonical, canonicalNames),
+      displayMap: hasRemainingOverrides
+        ? normalizeDisplayMapChars(displayMap, aliasToCanonical, canonicalNames)
+        : undefined,
     });
+  };
+
+  const handleAutoDetectAll = () => {
+    const freshLines = parseDialogueLines(
+      scene.content,
+      getSceneParseFormat(productionType),
+      projectCast.length > 0 ? projectCast : scene.characters ?? [],
+    );
+    lastMigratedSceneId.current = null;
+    updateScene(scene.id, { lineOverrides: {}, displayMap: undefined, lines: freshLines });
   };
 
   // Character tags: use pre-parsed lines when available; fall back to
@@ -965,6 +985,14 @@ export function SceneViewer({
           );
         })}
 
+        <button
+          onClick={handleAutoDetectAll}
+          title="Reset all classifications to auto-detect"
+          className="p-1 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+        >
+          <RotateCcw size={13} />
+        </button>
+
         <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
           {/* My lines only toggle */}
           {myRoleChars.length > 0 && (
@@ -1039,7 +1067,7 @@ export function SceneViewer({
           content={displayContent}
           characters={allNames}
           colorMap={displayColorMap}
-          overrides={overrides}
+          overrides={highlightOverrides}
           onAssign={handleAssign}
           maxHeight="max-h-[calc(160vh-20rem)]"
           textSize={scriptTextSize}
@@ -1281,6 +1309,13 @@ export function SceneViewer({
                   </span>
                 );
               })}
+              <button
+                onClick={handleAutoDetectAll}
+                title="Reset all classifications to auto-detect"
+                className="p-1 rounded hover:bg-white/10 text-muted hover:text-light transition-colors"
+              >
+                <RotateCcw size={13} />
+              </button>
               {showSongs &&
                 songs.map((song) => (
                   <span
@@ -1300,7 +1335,7 @@ export function SceneViewer({
                 content={displayContent}
                 characters={allNames}
                 colorMap={displayColorMap}
-                overrides={overrides}
+                overrides={highlightOverrides}
                 onAssign={handleAssign}
                 maxHeight="max-h-[calc(100vh-5rem)]"
                 textSize={scriptTextSize}

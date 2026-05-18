@@ -223,6 +223,8 @@ export default function UnifiedRehearsalPage() {
 
   // Track whether initial load from storage has happened
   const loadedRef = useRef(false);
+  // Track whether current scenes came from the library (vs paste/sample)
+  const loadedFromLibraryRef = useRef(false);
 
   // Script loading
   const [loadSource, setLoadSource] = useState<"paste" | "library">("paste");
@@ -497,6 +499,53 @@ export default function UnifiedRehearsalPage() {
     [getImportedSceneLines, parseSceneHeading, projectCast],
   );
 
+  // Keep run-lines scenes in sync when SceneViewer edits scene.lines in the library
+  useEffect(() => {
+    if (!loadedFromLibraryRef.current) return;
+
+    let rebuilt: Scene[] = [];
+
+    if (libraryLoadMode === "set-pieces") {
+      const selectedLabels =
+        selectedLibrarySetPieces.size > 0
+          ? librarySetPieceGroups
+              .map((g) => g.label)
+              .filter((label) => selectedLibrarySetPieces.has(label))
+          : librarySetPieceGroups.map((g) => g.label);
+
+      rebuilt = selectedLabels
+        .map((label) => {
+          const group = librarySetPieceGroups.find(
+            (g) => g.label.toLowerCase() === label.toLowerCase(),
+          );
+          if (!group) return null;
+          return buildSetPieceScenePage(group.label, group.scenes);
+        })
+        .filter((s): s is Scene => s !== null);
+    } else {
+      const toLoad: StoredScene[] =
+        selectedLibrarySceneIds.size > 0
+          ? libraryScenes.filter((s) => selectedLibrarySceneIds.has(s.id))
+          : libraryScenes;
+
+      rebuilt = toLoad
+        .map((s) => buildLibraryScenePage(s))
+        .filter((s): s is Scene => s !== null);
+    }
+
+    if (rebuilt.length > 0) {
+      setScenes(rebuilt);
+    }
+  }, [
+    libraryScenes,
+    libraryLoadMode,
+    selectedLibrarySetPieces,
+    librarySetPieceGroups,
+    selectedLibrarySceneIds,
+    buildLibraryScenePage,
+    buildSetPieceScenePage,
+  ]);
+
   const normalizeScriptInput = useCallback(
     (text: string) => decodeHtmlEntities(text),
     [],
@@ -506,6 +555,7 @@ export default function UnifiedRehearsalPage() {
   const applySettings = useCallback((saved: Record<string, unknown> | null) => {
     // Reset to defaults first so stale state from another project is cleared
     window.speechSynthesis.cancel();
+    loadedFromLibraryRef.current = false;
     setScriptInput("");
     setSceneMode("single");
     setScenes([]);
@@ -775,6 +825,7 @@ export default function UnifiedRehearsalPage() {
       return;
     }
 
+    loadedFromLibraryRef.current = false;
     setScenes(scenesWithDialogue);
     setSelectedSceneIndex(0);
     setCurrentSpeaker("READY");
@@ -845,6 +896,7 @@ MOM: See? You were ready.`,
       return;
     }
 
+    loadedFromLibraryRef.current = true;
     setScenes(processedScenes);
     setSelectedSceneIndex(0);
     setCurrentSpeaker("READY");
@@ -1084,13 +1136,13 @@ MOM: See? You were ready.`,
       const cacheEnabled = getTTSSettings().enableAudioCache ?? false;
       if (isNarratorLine) {
         if (ttsProvider === "kokoro") {
-          const ttsSettings = getTTSSettings();
+          const narratorVoice = apiVoiceAssignments["NARRATOR"] || getTTSSettings().kokoroVoice || "am_puck";
           speakTextViaKokoro(line.dialogue, {
-            voice: ttsSettings.kokoroVoice || "am_puck",
+            voice: narratorVoice,
             speed: 1,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
-            voiceSignature: `kokoro:${ttsSettings.kokoroVoice || "am_puck"}`,
+            voiceSignature: `kokoro:${narratorVoice}`,
           })
             .then(onDone)
             .catch(() => onDone());
@@ -1099,11 +1151,9 @@ MOM: See? You were ready.`,
 
         if (ttsProvider === "api" || ttsProvider === "proxy") {
           const ttsSettings = getTTSSettings();
+          const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.defaultVoiceId || "af_heart";
           speakTextViaApi(line.dialogue, {
-            voice:
-              ttsProvider === "proxy"
-                ? apiVoiceAssignments[primarySpeaker] || getTTSSettings().defaultVoiceId || "af_heart"
-                : ttsSettings.defaultVoiceId || "",
+            voice: narratorVoice,
             speed: 1,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
@@ -2540,27 +2590,79 @@ MOM: See? You were ready.`,
                 </div>
 
                 {speakNames && (
-                  <div className="flex items-center gap-3 p-3 bg-dark-input border border-border rounded-lg">
-                    <span className="text-sm font-semibold text-light w-20 flex-shrink-0">
+                  <div
+                    className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
+                    style={{ gridTemplateColumns: "6rem 1fr auto auto auto" }}
+                  >
+                    <span className="text-sm font-semibold text-light truncate">
                       🎙 Narrator
                     </span>
-                    <select
-                      value={narratorVoiceIndex}
-                      onChange={(e) =>
-                        setNarratorVoiceIndex(parseInt(e.target.value))
-                      }
-                      className={`${inputCls} flex-1`}
-                    >
-                      {availableVoices.length === 0 ? (
-                        <option>Default browser voice</option>
-                      ) : (
-                        availableVoices.map((v, i) => (
-                          <option key={i} value={i}>
-                            {v.name} ({v.lang})
+                    {ttsProvider === "browser" ? (
+                      <select
+                        value={narratorVoiceIndex}
+                        onChange={(e) =>
+                          setNarratorVoiceIndex(parseInt(e.target.value))
+                        }
+                        className={inputCls}
+                      >
+                        {availableVoices.length === 0 ? (
+                          <option>Default browser voice</option>
+                        ) : (
+                          availableVoices.map((v, i) => (
+                            <option key={i} value={i}>
+                              {v.name} ({v.lang})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    ) : ttsProvider === "kokoro" ? (
+                      <select
+                        value={apiVoiceAssignments["NARRATOR"] || ""}
+                        onChange={(e) =>
+                          setApiVoiceAssignments((p) => ({
+                            ...p,
+                            NARRATOR: e.target.value,
+                          }))
+                        }
+                        className={inputCls}
+                      >
+                        <option value="">
+                          Default ({getTTSSettings().kokoroVoice || "am_puck"})
+                        </option>
+                        {KOKORO_VOICES.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name}
                           </option>
-                        ))
-                      )}
-                    </select>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={apiVoiceAssignments["NARRATOR"] || ""}
+                        onChange={(e) =>
+                          setApiVoiceAssignments((p) => ({
+                            ...p,
+                            NARRATOR: e.target.value,
+                          }))
+                        }
+                        className={inputCls}
+                      >
+                        <option value="">
+                          {apiVoices.length === 0
+                            ? apiVoicesLoading
+                              ? "Loading…"
+                              : "Refresh voices"
+                            : "Default"}
+                        </option>
+                        {apiVoices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name ? `${v.name} (${v.id})` : v.id}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div />
+                    <div />
+                    <div />
                   </div>
                 )}
 

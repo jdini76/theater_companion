@@ -91,12 +91,15 @@ export function matchCharInLine(
   charSet: Set<string>,
 ): { char: string; prefix: string } | null {
   const trimmed = line.trim();
-  const upper = trimmed.toUpperCase();
-  if (!upper) return null;
-
-  // This helper is only for colon-style dialogue lines. Bare prose should be
-  // handled by the standalone or narrative branches instead.
   if (!trimmed.includes(":")) return null;
+
+  // Step 1: the character name (before the colon) must be all-caps.
+  // Mixed-case text before a colon is prose, not a speaker cue.
+  const colonIdx = trimmed.indexOf(":");
+  const beforeColon = trimmed.slice(0, colonIdx).trim();
+  if (!beforeColon || /[a-z]/.test(beforeColon)) return null;
+
+  const upper = trimmed.toUpperCase();
 
   const isMatch = (u: string, name: string) =>
     u === name ||
@@ -194,6 +197,10 @@ export function matchMultiCharInLine(
   if (colonIdx === -1) return null;
   const hasColon = true;
   const rawPrefix = trimmed.slice(0, colonIdx);
+
+  // Step 1: the prefix (character names) must be all-caps.
+  if (!rawPrefix.trim() || /[a-z]/.test(rawPrefix)) return null;
+
   const upperPrefix = rawPrefix.toUpperCase();
   const afterColon = trimmed.slice(colonIdx + 1).trim();
 
@@ -359,7 +366,9 @@ export function LineAssignPanel({
   const [mode, setMode] = useState<
     "dialogue" | "header" | "multi-header" | "song-title"
   >(
-    currentAssignment?.kind === "header"
+    currentAssignment?.kind === "header" ||
+      (currentAssignment?.kind === "group" &&
+        currentAssignment.mode === "header")
       ? "header"
       : currentAssignment?.kind === "multi-header"
         ? "multi-header"
@@ -532,7 +541,7 @@ export function LineAssignPanel({
             <p className="text-muted">
               Selected:{" "}
               <span className="text-light font-mono">
-                {[...selectedChars].join(" & ")}
+                {[...selectedChars].map((c) => c.split(" ")[0]).join(" & ")}
               </span>
             </p>
           )}
@@ -619,7 +628,12 @@ export function LineAssignPanel({
       )}
       <div className="flex gap-2 pt-1 border-t border-border">
         <button
-          onClick={() => onAssign({ kind: "group" })}
+          onClick={() =>
+            onAssign({
+              kind: "group",
+              mode: mode === "header" ? "header" : "dialogue",
+            })
+          }
           style={
             currentAssignment?.kind === "group"
               ? {
@@ -878,29 +892,44 @@ export function HighlightedContent({
             afterBlank = false;
             currentIsGroup = true;
             currentMultiChars = [];
-            const { header, dialogue } = splitAtColon("", trimmed);
-            debugLine("override: group");
+            debugLine("override: group", { mode: override.mode });
+            if (override.mode === "header") {
+              const { header, dialogue } = splitAtColon("", trimmed);
+              return (
+                <div key={i}>
+                  <div
+                    style={{
+                      color: GROUP_COLOR.color,
+                      backgroundColor: GROUP_COLOR.bgColor,
+                    }}
+                    className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                    onClick={toggle}
+                  >
+                    <span className="flex-1">{header}</span>
+                    {editIcon}
+                  </div>
+                  {dialogue && (
+                    <div
+                      style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                      className="pl-3"
+                    >
+                      {dialogue}
+                    </div>
+                  )}
+                  {isActive && makePanel(i, override)}
+                </div>
+              );
+            }
             return (
               <div key={i}>
                 <div
-                  style={{
-                    color: GROUP_COLOR.color,
-                    backgroundColor: GROUP_COLOR.bgColor,
-                  }}
-                  className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
+                  style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                  className={`pl-3 flex items-center gap-1 group ${clickClass}`}
                   onClick={toggle}
                 >
-                  <span className="flex-1">{header}</span>
+                  <span className="flex-1">{line}</span>
                   {editIcon}
                 </div>
-                {dialogue && (
-                  <div
-                    style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
-                    className="pl-3"
-                  >
-                    {dialogue}
-                  </div>
-                )}
                 {isActive && makePanel(i, override)}
               </div>
             );
@@ -937,7 +966,7 @@ export function HighlightedContent({
                             }
                             className="rounded-sm px-0.5"
                           >
-                            {char}
+                            {char.split(" ")[0]}
                           </span>
                         </React.Fragment>
                       );
@@ -1150,6 +1179,40 @@ export function HighlightedContent({
               continue;
             }
             allowStandaloneHeader = /[a-z]/.test(peek);
+            break;
+          }
+        }
+
+        // When no character is active (scene start or after a blank following
+        // non-dialogue), be conservative: if the next line looks like a
+        // physical action description or scene-setting prose, this ALL-CAPS
+        // line is stage direction, not a speaker label.
+        if (allowStandaloneHeader && currentChar === null) {
+          for (let j = i + 1; j < lines.length; j++) {
+            const peek = lines[j].trim();
+            if (!peek || parenStageLines.has(j)) continue;
+            const ACTION_VERBS =
+              /\b(?:enters?|exits?|crosses|walks?|runs?|turns?|looks?|sits?|stands?|moves?|returns?|follows?|joins?|passes|arrives?|leaves?|pulls|pushes|reaches|holds?|raises|picks|starts?|stops?|watches|heads)\b/i;
+            if (
+              // Bare lowercase action verb: "enters from stage left…"
+              (/^[a-z]/.test(peek) &&
+                /^(?:enters?|exits?|crosses?|walks?|runs?|turns?|looks?|sits?|stands?|moves?|returns?|follows?|joins?|passes?|arrives?|leaves?|raises?|gestures?|pauses?|speaks?|smiles?|nods?|sighs?|laughs?|weeps?|kneels?)\b/i.test(
+                  peek,
+                )) ||
+              // Third-person pronoun + action verb: "He walks…", "She enters…"
+              (/^(?:he|she|they|it)\s+/i.test(peek) &&
+                ACTION_VERBS.test(peek)) ||
+              // "The lights/stage/curtain…" — physical scene noun
+              /^the\s+(?:lights?|stage|curtain|scene|set|room|audience|backdrop|spotlight|fog|mist|music|sound|house|theater|theatre)\b/i.test(
+                peek,
+              ) ||
+              // Long article-started sentence — scene-setting prose
+              (/^(?:the|a|an)\s+/i.test(peek) &&
+                peek.split(/\s+/).length >= 8 &&
+                /[.!?…]\s*$/.test(peek))
+            ) {
+              allowStandaloneHeader = false;
+            }
             break;
           }
         }
