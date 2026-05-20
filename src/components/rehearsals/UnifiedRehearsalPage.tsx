@@ -171,33 +171,29 @@ function getCharacters(
     lines: DialogueLine[];
     characters?: string[];
   },
-  knownCast: string[] = [],
+  _knownCast: string[] = [],
 ): string[] {
-  // Prefer the curated list from SceneViewer/SceneHighlight (stored on the scene)
-  // which uses extractSceneCharacters and any manual overrides applied in the
-  // Scenes tab. Fall back to deriving from parsed dialogue lines only when absent.
-  if (scene.characters && scene.characters.length > 0) {
-    return canonicalizeSceneCharacterNames(scene.characters, knownCast);
-  }
-
+  // Always derive from scene.lines so names exactly match line.character at
+  // playback time. scene.characters may hold old canonicalized names
+  // (e.g. "JASPER REED") while lines now store source-text names ("JASPER"),
+  // causing voice assignment key mismatches.
   const chars = new Set<string>();
-  for (const line of scene.lines) {
-    if (
-      line.character &&
-      line.character !== "[Narrative]" &&
-      line.character !== "[Stage Direction]" &&
-      line.character !== "[Scene Heading]" &&
-      !line.isNarratorCue
-    ) {
-      // Split combined speakers ("MOM + JOEY", "A & B") into individuals
-      line.character
-        .split(/\s*[,&+]\s*/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((name) => chars.add(name));
+  for (const line of scene.lines ?? []) {
+    if (!line.character || line.character.startsWith("[") || line.isNarratorCue)
+      continue;
+    for (const part of line.character.split(/\s*[,&+]\s*/)) {
+      const upper = part.trim().toUpperCase();
+      if (upper) chars.add(upper);
     }
   }
-  return canonicalizeSceneCharacterNames(Array.from(chars), knownCast);
+  // Fall back to scene.characters only when lines are absent.
+  if (chars.size === 0 && scene.characters) {
+    for (const name of scene.characters) {
+      const upper = name.trim().toUpperCase();
+      if (upper) chars.add(upper);
+    }
+  }
+  return Array.from(chars);
 }
 
 export default function UnifiedRehearsalPage() {
