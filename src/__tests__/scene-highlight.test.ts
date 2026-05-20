@@ -124,7 +124,7 @@ describe("matchMultiCharInLine", () => {
       // Simulates the SceneViewer token-render loop that calls
       // upperPrefix.indexOf(textParts[ci], pos) then colorMap.get(chars[ci])
       const charSet = new Set(["JOHN DOE", "JANE DOE"]);
-      const result = matchMultiCharInLine("John & Jane: Hi there.", charSet);
+      const result = matchMultiCharInLine("JOHN & JANE: Hi there.", charSet);
       expect(result).not.toBeNull();
 
       const colorMap = buildCharColorMap(["JOHN DOE", "JANE DOE"]);

@@ -1490,13 +1490,15 @@ export function parseDialogueLines(
 
         // ── Song block speaker detection ────────────────────────────
         // Within a song block, lyrics are ALL-CAPS so the lowercase lookahead
-        // above always fails. If the candidate is a known character, accept it
-        // as a speaker change even without a lowercase next-line.
+        // above always fails. Accept known characters as speaker changes.
+        // When no cast is provided, only single-word names qualify — multi-word
+        // ALL-CAPS lines (e.g. "LUMPY BED, UGLY CURTAINS") are song lyrics.
         if (!acceptAsCharacter && inSongBlock) {
+          const isSingleWord = !nameCandidate.includes(" ");
           if (
-            knownCharSet.size === 0 ||
-            isKnownCharacter(nameCandidate, knownCharSet) ||
-            !nameCandidate.includes(" ")
+            knownCharSet.size > 0
+              ? isKnownCharacter(nameCandidate, knownCharSet) || isSingleWord
+              : isSingleWord
           ) {
             debugParse("song block speaker change accepted", { nameCandidate });
             acceptAsCharacter = true;
