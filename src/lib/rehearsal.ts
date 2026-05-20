@@ -1452,6 +1452,16 @@ export function parseDialogueLines(
             acceptAsCharacter = /[a-z]/.test(peek);
             break;
           }
+          // Single-word known characters should always be accepted even when
+          // the next line is ALL-CAPS (e.g. song lyrics). "NORA" switching
+          // speakers mid-song should be detected even without a lowercase line.
+          if (
+            !acceptAsCharacter &&
+            !nameCandidate.includes(" ") &&
+            (knownCharSet.size === 0 || isKnownCharacter(nameCandidate, knownCharSet))
+          ) {
+            acceptAsCharacter = true;
+          }
         }
 
         if (
@@ -1460,15 +1470,36 @@ export function parseDialogueLines(
           lastDialogueIdx === -1
         ) {
           // After an opening narrative block, a character name may appear without
-          // a blank line separating it from the prose. If the next meaningful line
-          // contains lowercase it's almost certainly dialogue — accept the cue.
-          // (Originally screenplay-only; extended to mixed/standalone because
-          // stage plays commonly open with prose scene descriptions too.)
+          // a blank line. Accept it if the next line has lowercase, OR if the
+          // candidate is a single-word known character (handles all-caps song
+          // lyrics following the first speaker in a scene).
           for (let j = i + 1; j < allLines.length; j++) {
             const peek = allLines[j].trim();
             if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
             acceptAsCharacter = /[a-z]/.test(peek);
             break;
+          }
+          if (
+            !acceptAsCharacter &&
+            !nameCandidate.includes(" ") &&
+            (knownCharSet.size === 0 || isKnownCharacter(nameCandidate, knownCharSet))
+          ) {
+            acceptAsCharacter = true;
+          }
+        }
+
+        // ── Song block speaker detection ────────────────────────────
+        // Within a song block, lyrics are ALL-CAPS so the lowercase lookahead
+        // above always fails. If the candidate is a known character, accept it
+        // as a speaker change even without a lowercase next-line.
+        if (!acceptAsCharacter && inSongBlock) {
+          if (
+            knownCharSet.size === 0 ||
+            isKnownCharacter(nameCandidate, knownCharSet) ||
+            !nameCandidate.includes(" ")
+          ) {
+            debugParse("song block speaker change accepted", { nameCandidate });
+            acceptAsCharacter = true;
           }
         }
 

@@ -444,6 +444,62 @@ export function SceneViewer({
     });
   };
 
+  const handleMergeAbove = (lineIdx: number) => {
+    if (lineIdx === 0) return;
+    const above = displayLines[lineIdx - 1];
+    const current = displayLines[lineIdx];
+    if (!above || !current) return;
+    const merged: DialogueLine = {
+      ...above,
+      dialogue: above.dialogue
+        ? `${above.dialogue} ${current.dialogue}`
+        : current.dialogue,
+    };
+    const updatedLines = [
+      ...displayLines.slice(0, lineIdx - 1),
+      merged,
+      ...displayLines.slice(lineIdx + 1),
+    ];
+    updateScene(scene.id, {
+      lines: updatedLines,
+      content: serializeDialogueLines(updatedLines),
+      lineOverrides: {},
+      displayMap: undefined,
+    });
+  };
+
+  const handleSplit = (lineIdx: number, rawText: string) => {
+    if (!rawText.trim()) return;
+    // Re-parse the edited text so embedded character names (e.g. "MARA") are
+    // detected as proper speakers rather than dialogue continuation.
+    const knownCast = projectCast.length > 0 ? projectCast : [];
+    const extracted = extractSceneCharacters(rawText, knownCast, productionType);
+    const characters = [
+      ...new Set([
+        ...knownCast.map((c) => c.toUpperCase()),
+        ...sceneChars.map((c) => c.toUpperCase()),
+        ...extracted.map((c) => c.toUpperCase()),
+      ]),
+    ];
+    const reparsed = parseDialogueLines(
+      rawText,
+      getSceneParseFormat(productionType),
+      characters,
+    );
+    if (reparsed.length === 0) return;
+    const updatedLines = [
+      ...displayLines.slice(0, lineIdx),
+      ...reparsed,
+      ...displayLines.slice(lineIdx + 1),
+    ];
+    updateScene(scene.id, {
+      lines: updatedLines,
+      content: serializeDialogueLines(updatedLines),
+      lineOverrides: {},
+      displayMap: undefined,
+    });
+  };
+
   const handleReset = () => {
     if (!resetPending) {
       setResetPending(true);
@@ -1003,6 +1059,8 @@ export function SceneViewer({
           lines={displayLines}
           colorMap={displayColorMap}
           onLineUpdate={handleLineUpdate}
+          onMergeAbove={handleMergeAbove}
+          onSplit={handleSplit}
           maxHeight="max-h-[calc(160vh-20rem)]"
           textSize={scriptTextSize}
           allowSongMenus={productionType !== "Film"}
@@ -1268,6 +1326,8 @@ export function SceneViewer({
                 lines={displayLines}
                 colorMap={displayColorMap}
                 onLineUpdate={handleLineUpdate}
+                onMergeAbove={handleMergeAbove}
+                onSplit={handleSplit}
                 maxHeight="max-h-[calc(100vh-5rem)]"
                 textSize={scriptTextSize}
                 allowSongMenus={productionType !== "Film"}

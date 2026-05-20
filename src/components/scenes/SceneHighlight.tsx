@@ -350,6 +350,9 @@ interface LineAssignPanelProps {
   lineText?: string;
   allowSongMenus?: boolean;
   stageDirectionLabel?: string;
+  onMergeAbove?: () => void;
+  onSplit?: (rawText: string) => void;
+  splitInitialText?: string;
 }
 
 export function LineAssignPanel({
@@ -363,9 +366,13 @@ export function LineAssignPanel({
   lineText = "",
   allowSongMenus = true,
   stageDirectionLabel = "Stage Direction",
+  onMergeAbove,
+  onSplit,
+  splitInitialText,
 }: LineAssignPanelProps) {
+  const [splitText, setSplitText] = useState(splitInitialText ?? lineText);
   const [mode, setMode] = useState<
-    "dialogue" | "header" | "multi-header" | "song-title"
+    "dialogue" | "header" | "multi-header" | "song-title" | "split"
   >(
     currentAssignment?.kind === "header" ||
       (currentAssignment?.kind === "group" &&
@@ -627,7 +634,39 @@ export function LineAssignPanel({
           </div>
         </>
       )}
-      <div className="flex gap-2 pt-1 border-t border-border">
+      {mode === "split" && (
+        <div className="space-y-1">
+          <p className="text-muted text-xs">Add a line break where you want to split:</p>
+          <textarea
+            value={splitText}
+            onChange={(e) => setSplitText(e.target.value)}
+            rows={4}
+            className="w-full bg-background border border-border rounded px-2 py-1 text-light font-mono text-xs focus:outline-none focus:border-accent-cyan resize-none"
+            autoFocus
+          />
+          <div className="flex gap-1">
+            <button
+              onClick={() => {
+                if (splitText.split("\n").filter((p) => p.trim()).length >= 2) {
+                  onSplit?.(splitText);
+                  onClose();
+                }
+              }}
+              disabled={splitText.split("\n").filter((p) => p.trim()).length < 2}
+              className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Apply split
+            </button>
+            <button
+              onClick={() => setMode("dialogue")}
+              className="px-2 py-0.5 text-muted hover:text-light transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="flex gap-2 pt-1 border-t border-border flex-wrap">
         <button
           onClick={() =>
             onAssign({
@@ -660,6 +699,24 @@ export function LineAssignPanel({
         >
           Auto-detect
         </button>
+        {onMergeAbove && (
+          <button
+            onClick={() => { onMergeAbove(); onClose(); }}
+            className="px-2 py-0.5 rounded border border-border text-muted hover:text-light transition-colors"
+            title="Merge this line's text into the line above"
+          >
+            ↑ Merge above
+          </button>
+        )}
+        {onSplit && (
+          <button
+            onClick={() => { setSplitText(splitInitialText ?? lineText); setMode("split"); }}
+            className={`px-2 py-0.5 rounded border transition-colors ${mode === "split" ? "border-accent-cyan text-accent-cyan" : "border-border text-muted hover:text-light"}`}
+            title="Split this line into two lines"
+          >
+            Split
+          </button>
+        )}
         <button
           onClick={onClose}
           className="ml-auto px-2 py-0.5 text-muted hover:text-light transition-colors"
@@ -715,6 +772,8 @@ export interface HighlightedLinesProps {
     lineIdx: number,
     update: Partial<DialogueLine> | "reset",
   ) => void;
+  onMergeAbove?: (lineIdx: number) => void;
+  onSplit?: (lineIdx: number, rawText: string) => void;
   maxHeight?: string;
   textSize?: string;
   allowSongMenus?: boolean;
@@ -729,6 +788,8 @@ export function HighlightedLines({
   lines,
   colorMap,
   onLineUpdate,
+  onMergeAbove,
+  onSplit,
   maxHeight = "max-h-80",
   textSize = "text-xs",
   allowSongMenus = true,
@@ -883,6 +944,9 @@ export function HighlightedLines({
                 setActiveLine(null);
               }}
               onClose={() => setActiveLine(null)}
+              onMergeAbove={idx > 0 && onMergeAbove ? () => { onMergeAbove(idx); setActiveLine(null); } : undefined}
+              onSplit={onSplit ? (rawText) => { onSplit(idx, rawText); setActiveLine(null); } : undefined}
+              splitInitialText={dl.dialogue ? `${dl.character}\n${dl.dialogue}` : dl.character}
             />
           );
         }
