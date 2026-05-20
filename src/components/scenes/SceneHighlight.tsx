@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 
 import type { LineOverride } from "@/types/line-override";
+import type { DialogueLine } from "@/types/rehearsal";
 
 export type { LineOverride } from "@/types/line-override";
 
@@ -666,6 +667,226 @@ export function LineAssignPanel({
           ✕
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Translation helpers — bridge between LineOverride (panel output) and
+// the Partial<DialogueLine> updates stored in scene.lines.
+// ---------------------------------------------------------------------------
+
+function dialogueLineToOverride(line: DialogueLine): LineOverride | undefined {
+  if (line.isStageDirection) return { kind: "stage-direction" };
+  if (line.songTitle) return { kind: "song-title", text: line.songTitle };
+  if (line.characters && line.characters.length > 1)
+    return { kind: "multi-header", chars: line.characters };
+  if (GROUP_CHARACTER_NAMES.has(line.character.toUpperCase()))
+    return { kind: "group" };
+  return { kind: "dialogue", char: line.character };
+}
+
+function overrideToDialogueUpdate(override: LineOverride): Partial<DialogueLine> {
+  switch (override.kind) {
+    case "dialogue":
+    case "header":
+      // Both modes just reassign the character — no isHeader concept in DialogueLine
+      return { character: override.char, characters: [override.char], isStageDirection: false, isSong: false, songTitle: undefined, isNarratorCue: false };
+    case "multi-header":
+      return { character: override.chars.join(" & "), characters: override.chars, isStageDirection: false, isSong: false, songTitle: undefined, isNarratorCue: false };
+    case "song-title":
+      return { songTitle: override.text, isSong: false, isStageDirection: false };
+    case "group":
+      return { character: "ALL", characters: ["ALL"], isStageDirection: false, isSong: false, songTitle: undefined };
+    case "stage-direction":
+      return { isStageDirection: true, isSong: false, songTitle: undefined };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HighlightedLines — renders DialogueLine[] directly (scene.lines as source of
+// truth). Replaces HighlightedContent in SceneViewer's interactive view.
+// ---------------------------------------------------------------------------
+
+export interface HighlightedLinesProps {
+  lines: DialogueLine[];
+  colorMap: Map<string, CharColor>;
+  onLineUpdate?: (
+    lineIdx: number,
+    update: Partial<DialogueLine> | "reset",
+  ) => void;
+  maxHeight?: string;
+  textSize?: string;
+  allowSongMenus?: boolean;
+  stageDirectionLabel?: string;
+  assignPanelProps?: {
+    sceneCharacters: string[];
+    allCharacters: string[];
+  };
+}
+
+export function HighlightedLines({
+  lines,
+  colorMap,
+  onLineUpdate,
+  maxHeight = "max-h-80",
+  textSize = "text-xs",
+  allowSongMenus = true,
+  stageDirectionLabel = "Stage Direction",
+  assignPanelProps,
+}: HighlightedLinesProps) {
+  const [activeLine, setActiveLine] = useState<number | null>(null);
+
+  const editIcon = onLineUpdate ? (
+    <span className="opacity-0 group-hover:opacity-50 text-muted transition-opacity select-none flex-shrink-0">
+      ✎
+    </span>
+  ) : null;
+
+  return (
+    <div
+      className={`font-mono ${textSize} ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}
+    >
+      {lines.map((line, i) => {
+        const isActive = activeLine === i;
+        const toggle = () => onLineUpdate && setActiveLine(isActive ? null : i);
+        const clickClass = onLineUpdate ? "cursor-pointer" : "";
+
+        // Single-row lines: stage directions, song titles, system markers, bare headers
+        if (line.songTitle) {
+          return (
+            <div key={i} className="mb-1">
+              <div
+                className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
+                style={{ backgroundColor: SONG_TITLE_COLOR.bgColor }}
+                onClick={toggle}
+              >
+                <span className="flex-1" style={{ color: SONG_TITLE_COLOR.color }}>
+                  {line.songTitle}
+                </span>
+                {editIcon}
+              </div>
+              {isActive && onLineUpdate && renderPanel(i, line)}
+            </div>
+          );
+        }
+
+        if (line.isStageDirection) {
+          return (
+            <div key={i} className="mb-1">
+              <div
+                className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
+                onClick={toggle}
+              >
+                <span className="flex-1 text-muted italic">{line.dialogue}</span>
+                {editIcon}
+              </div>
+              {isActive && onLineUpdate && renderPanel(i, line)}
+            </div>
+          );
+        }
+
+        if (line.character.startsWith("[")) {
+          // [Scene Heading], [Narrative], [Song]
+          return (
+            <div key={i} className="mb-1">
+              <div
+                className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
+                onClick={toggle}
+              >
+                <span className="flex-1 text-muted italic">{line.dialogue}</span>
+                {editIcon}
+              </div>
+              {isActive && onLineUpdate && renderPanel(i, line)}
+            </div>
+          );
+        }
+
+        // Two-row lines: character name row + dialogue text row
+        const isGroup = GROUP_CHARACTER_NAMES.has(line.character.toUpperCase());
+        const charColor = isGroup
+          ? GROUP_COLOR
+          : colorMap.get(line.character.toUpperCase());
+        const bgColor = charColor?.bgColor;
+
+        const charNameRow = line.characters && line.characters.length > 1 ? (
+          // Multi-character name row
+          <div
+            className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
+            style={bgColor ? { backgroundColor: bgColor } : undefined}
+            onClick={toggle}
+          >
+            <span className="flex-1 font-bold uppercase tracking-wide">
+              {line.characters.map((char, ci) => {
+                const c = colorMap.get(char.toUpperCase());
+                return (
+                  <span key={ci} style={{ color: c?.color }}>
+                    {ci > 0 ? " & " : ""}
+                    {char}
+                  </span>
+                );
+              })}
+            </span>
+            {editIcon}
+          </div>
+        ) : (
+          // Single character name row
+          <div
+            className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
+            style={bgColor ? { backgroundColor: bgColor } : undefined}
+            onClick={toggle}
+          >
+            <span
+              className="flex-1 font-bold uppercase tracking-wide"
+              style={{ color: charColor?.color }}
+            >
+              {line.character}
+            </span>
+            {editIcon}
+          </div>
+        );
+
+        const dialogueRow = line.dialogue ? (
+          <div
+            className={`pl-2 ${clickClass}`}
+            style={{ color: charColor?.color ?? SONG_TITLE_COLOR.color }}
+            onClick={toggle}
+          >
+            {line.dialogue}
+          </div>
+        ) : null;
+
+        return (
+          <div key={i} className="mb-2">
+            {charNameRow}
+            {dialogueRow}
+            {isActive && onLineUpdate && renderPanel(i, line)}
+          </div>
+        );
+
+        function renderPanel(idx: number, dl: DialogueLine) {
+          return (
+            <LineAssignPanel
+              characters={assignPanelProps?.sceneCharacters ?? []}
+              allCharacters={assignPanelProps?.allCharacters ?? []}
+              colorMap={colorMap}
+              currentAssignment={dialogueLineToOverride(dl)}
+              lineText={dl.dialogue}
+              allowSongMenus={allowSongMenus}
+              stageDirectionLabel={stageDirectionLabel}
+              onAssign={(override) => {
+                onLineUpdate!(idx, overrideToDialogueUpdate(override));
+                setActiveLine(null);
+              }}
+              onReset={() => {
+                onLineUpdate!(idx, "reset");
+                setActiveLine(null);
+              }}
+              onClose={() => setActiveLine(null)}
+            />
+          );
+        }
+      })}
     </div>
   );
 }

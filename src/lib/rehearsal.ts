@@ -1457,12 +1457,13 @@ export function parseDialogueLines(
         if (
           !acceptAsCharacter &&
           lastCharacter === null &&
-          lastDialogueIdx === -1 &&
-          fmt === "screenplay"
+          lastDialogueIdx === -1
         ) {
-          // Screenplay action lines often introduce the next speaker without a
-          // blank line. If the next meaningful line starts with lowercase, treat
-          // this all-caps line as the cue.
+          // After an opening narrative block, a character name may appear without
+          // a blank line separating it from the prose. If the next meaningful line
+          // contains lowercase it's almost certainly dialogue — accept the cue.
+          // (Originally screenplay-only; extended to mixed/standalone because
+          // stage plays commonly open with prose scene descriptions too.)
           for (let j = i + 1; j < allLines.length; j++) {
             const peek = allLines[j].trim();
             if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
@@ -1483,21 +1484,28 @@ export function parseDialogueLines(
         // is probably a character description ("ELI MARCH enters…") not a
         // speaker label.
         if (acceptAsCharacter && lastCharacter === null) {
-          for (let j = i + 1; j < allLines.length; j++) {
-            const peek = allLines[j].trim();
-            if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
-            if (looksLikeStageDirAtSceneStart(peek)) {
-              debugParse("standalone rejected: next line is scene-start stage direction", { nameCandidate, peek });
-              acceptAsCharacter = false;
+          // Single all-caps words (MARA, NORA, ELI) are almost always character
+          // names — skip the scene-start stage direction guard for them.
+          // Only apply it for multi-word candidates like "INT. LOBBY" or "AT RISE".
+          const isSingleWordCandidate = !nameCandidate.includes(" ");
+          if (!isSingleWordCandidate) {
+            for (let j = i + 1; j < allLines.length; j++) {
+              const peek = allLines[j].trim();
+              if (!peek || STANDALONE_STAGE_DIR_RE.test(peek)) continue;
+              if (looksLikeStageDirAtSceneStart(peek)) {
+                debugParse("standalone rejected: next line is scene-start stage direction", { nameCandidate, peek });
+                acceptAsCharacter = false;
+              }
+              break;
             }
-            break;
           }
         }
 
         if (
           acceptAsCharacter &&
           knownCharSet.size > 0 &&
-          !isKnownCharacter(nameCandidate, knownCharSet)
+          !isKnownCharacter(nameCandidate, knownCharSet) &&
+          nameCandidate.includes(" ")  // single-word all-caps → treat as character, not song
         ) {
           debugParse("standalone candidate treated as song", {
             nameCandidate,
@@ -1972,6 +1980,38 @@ export function getCueLineIndex(
  * Overrides change the classification (character name, stage direction status, etc.) of specific lines.
  * Returns a new array with modified lines where overrides have been applied.
  */
+/**
+ * Convert a DialogueLine[] back to a canonical colon-format text that
+ * parseDialogueLines can re-parse. Used to keep scene.content in sync when
+ * scene.lines is edited directly.
+ */
+export function serializeDialogueLines(lines: DialogueLine[]): string {
+  const parts: string[] = [];
+
+  for (const line of lines) {
+    if (line.songTitle) {
+      parts.push(`(Song: "${line.songTitle}")`);
+    } else if (line.isStageDirection) {
+      parts.push(`(${line.dialogue})`);
+    } else if (line.character.startsWith("[")) {
+      // System markers ([Song], [Narrative], [Scene Heading]) — emit raw dialogue
+      parts.push(line.dialogue);
+    } else if (line.characters && line.characters.length > 1) {
+      // Multi-character: name header then dialogue
+      parts.push(line.characters.join(" & "));
+      if (line.dialogue) parts.push(line.dialogue);
+    } else {
+      // Single character: standalone format — name on its own line, dialogue below
+      parts.push(line.character);
+      if (line.dialogue) parts.push(line.dialogue);
+    }
+    parts.push("");
+  }
+
+  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+  return parts.join("\n");
+}
+
 export function applyLineOverrides(
   lines: DialogueLine[],
   overrides?: Record<number, { kind: string; char?: string; chars?: string[] }>,
