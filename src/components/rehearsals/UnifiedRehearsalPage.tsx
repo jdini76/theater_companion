@@ -171,33 +171,29 @@ function getCharacters(
     lines: DialogueLine[];
     characters?: string[];
   },
-  knownCast: string[] = [],
+  _knownCast: string[] = [],
 ): string[] {
-  // Prefer the curated list from SceneViewer/SceneHighlight (stored on the scene)
-  // which uses extractSceneCharacters and any manual overrides applied in the
-  // Scenes tab. Fall back to deriving from parsed dialogue lines only when absent.
-  if (scene.characters && scene.characters.length > 0) {
-    return canonicalizeSceneCharacterNames(scene.characters, knownCast);
-  }
-
+  // Always derive from scene.lines so names exactly match line.character at
+  // playback time. scene.characters may hold old canonicalized names
+  // (e.g. "JASPER REED") while lines now store source-text names ("JASPER"),
+  // causing voice assignment key mismatches.
   const chars = new Set<string>();
-  for (const line of scene.lines) {
-    if (
-      line.character &&
-      line.character !== "[Narrative]" &&
-      line.character !== "[Stage Direction]" &&
-      line.character !== "[Scene Heading]" &&
-      !line.isNarratorCue
-    ) {
-      // Split combined speakers ("MOM + JOEY", "A & B") into individuals
-      line.character
-        .split(/\s*[,&+]\s*/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((name) => chars.add(name));
+  for (const line of scene.lines ?? []) {
+    if (!line.character || line.character.startsWith("[") || line.isNarratorCue)
+      continue;
+    for (const part of line.character.split(/\s*[,&+]\s*/)) {
+      const upper = part.trim().toUpperCase();
+      if (upper) chars.add(upper);
     }
   }
-  return canonicalizeSceneCharacterNames(Array.from(chars), knownCast);
+  // Fall back to scene.characters only when lines are absent.
+  if (chars.size === 0 && scene.characters) {
+    for (const name of scene.characters) {
+      const upper = name.trim().toUpperCase();
+      if (upper) chars.add(upper);
+    }
+  }
+  return Array.from(chars);
 }
 
 export default function UnifiedRehearsalPage() {
@@ -223,6 +219,8 @@ export default function UnifiedRehearsalPage() {
 
   // Track whether initial load from storage has happened
   const loadedRef = useRef(false);
+  // Track whether current scenes came from the library (vs paste/sample)
+  const loadedFromLibraryRef = useRef(false);
 
   // Script loading
   const [loadSource, setLoadSource] = useState<"paste" | "library">("paste");
@@ -393,19 +391,15 @@ export default function UnifiedRehearsalPage() {
 
   const getImportedSceneLines = useCallback(
     (scene: StoredScene): DialogueLine[] => {
-      // Always re-parse with overrides applied inline during parsing.
-      // Overrides are keyed by text line index — passing them to parseDialogueLines
-      // ensures each line is classified correctly without any index mapping.
-      const lines = parseDialogueLines(
+      if (scene.lines && scene.lines.length > 0) {
+        return scene.lines;
+      }
+      // Fallback for scenes never opened in SceneViewer (no stored lines).
+      return parseDialogueLines(
         scene.content,
         productionType === "Film" ? "screenplay" : "mixed",
-        buildKnownCharacters(
-          collectImportedCharacterNames(scene, scene.lineOverrides),
-        ),
-        scene.lineOverrides,
+        buildKnownCharacters(collectImportedCharacterNames(scene, undefined)),
       );
-
-      return lines;
     },
     [buildKnownCharacters, productionType],
   );
@@ -501,6 +495,53 @@ export default function UnifiedRehearsalPage() {
     [getImportedSceneLines, parseSceneHeading, projectCast],
   );
 
+  // Keep run-lines scenes in sync when SceneViewer edits scene.lines in the library
+  useEffect(() => {
+    if (!loadedFromLibraryRef.current) return;
+
+    let rebuilt: Scene[] = [];
+
+    if (libraryLoadMode === "set-pieces") {
+      const selectedLabels =
+        selectedLibrarySetPieces.size > 0
+          ? librarySetPieceGroups
+              .map((g) => g.label)
+              .filter((label) => selectedLibrarySetPieces.has(label))
+          : librarySetPieceGroups.map((g) => g.label);
+
+      rebuilt = selectedLabels
+        .map((label) => {
+          const group = librarySetPieceGroups.find(
+            (g) => g.label.toLowerCase() === label.toLowerCase(),
+          );
+          if (!group) return null;
+          return buildSetPieceScenePage(group.label, group.scenes);
+        })
+        .filter((s): s is Scene => s !== null);
+    } else {
+      const toLoad: StoredScene[] =
+        selectedLibrarySceneIds.size > 0
+          ? libraryScenes.filter((s) => selectedLibrarySceneIds.has(s.id))
+          : libraryScenes;
+
+      rebuilt = toLoad
+        .map((s) => buildLibraryScenePage(s))
+        .filter((s): s is Scene => s !== null);
+    }
+
+    if (rebuilt.length > 0) {
+      setScenes(rebuilt);
+    }
+  }, [
+    libraryScenes,
+    libraryLoadMode,
+    selectedLibrarySetPieces,
+    librarySetPieceGroups,
+    selectedLibrarySceneIds,
+    buildLibraryScenePage,
+    buildSetPieceScenePage,
+  ]);
+
   const normalizeScriptInput = useCallback(
     (text: string) => decodeHtmlEntities(text),
     [],
@@ -510,6 +551,7 @@ export default function UnifiedRehearsalPage() {
   const applySettings = useCallback((saved: Record<string, unknown> | null) => {
     // Reset to defaults first so stale state from another project is cleared
     window.speechSynthesis.cancel();
+    loadedFromLibraryRef.current = false;
     setScriptInput("");
     setSceneMode("single");
     setScenes([]);
@@ -779,6 +821,7 @@ export default function UnifiedRehearsalPage() {
       return;
     }
 
+    loadedFromLibraryRef.current = false;
     setScenes(scenesWithDialogue);
     setSelectedSceneIndex(0);
     setCurrentSpeaker("READY");
@@ -849,6 +892,7 @@ MOM: See? You were ready.`,
       return;
     }
 
+    loadedFromLibraryRef.current = true;
     setScenes(processedScenes);
     setSelectedSceneIndex(0);
     setCurrentSpeaker("READY");
@@ -913,7 +957,7 @@ MOM: See? You were ready.`,
         } else if (ttsProvider === "api" || ttsProvider === "proxy") {
           const apiVoiceId =
             apiVoiceAssignments[char] ||
-            (ttsProvider === "proxy" ? "nova" : ttsSettings.defaultVoiceId);
+            (ttsProvider === "proxy" ? getTTSSettings().defaultVoiceId || "af_heart" : ttsSettings.defaultVoiceId);
           await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate, forceProxy: ttsProvider === "proxy" });
         } else {
           window.speechSynthesis.cancel();
@@ -1088,13 +1132,13 @@ MOM: See? You were ready.`,
       const cacheEnabled = getTTSSettings().enableAudioCache ?? false;
       if (isNarratorLine) {
         if (ttsProvider === "kokoro") {
-          const ttsSettings = getTTSSettings();
+          const narratorVoice = apiVoiceAssignments["NARRATOR"] || getTTSSettings().kokoroVoice || "am_puck";
           speakTextViaKokoro(line.dialogue, {
-            voice: ttsSettings.kokoroVoice || "am_puck",
+            voice: narratorVoice,
             speed: 1,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
-            voiceSignature: `kokoro:${ttsSettings.kokoroVoice || "am_puck"}`,
+            voiceSignature: `kokoro:${narratorVoice}`,
           })
             .then(onDone)
             .catch(() => onDone());
@@ -1103,11 +1147,9 @@ MOM: See? You were ready.`,
 
         if (ttsProvider === "api" || ttsProvider === "proxy") {
           const ttsSettings = getTTSSettings();
+          const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.defaultVoiceId || "af_heart";
           speakTextViaApi(line.dialogue, {
-            voice:
-              ttsProvider === "proxy"
-                ? apiVoiceAssignments[primarySpeaker] || "nova"
-                : ttsSettings.defaultVoiceId || "",
+            voice: narratorVoice,
             speed: 1,
             characterName: primarySpeaker,
             cacheAudio: cacheEnabled,
@@ -1221,7 +1263,7 @@ MOM: See? You were ready.`,
       if (ttsProvider === "api" || ttsProvider === "proxy") {
         const voiceId =
           apiVoiceAssignments[primarySpeaker] ||
-          (ttsProvider === "proxy" ? "nova" : "");
+          (ttsProvider === "proxy" ? getTTSSettings().defaultVoiceId || "af_heart" : "");
         const ttsSettings = getTTSSettings();
         const apiType = ttsSettings.externalApiType ?? "custom";
         const voiceSig = `${apiType}:${voiceId}`;
@@ -2372,12 +2414,22 @@ MOM: See? You were ready.`,
                         if (provider === "proxy") {
                           setTtsProvider("proxy");
                           setApiVoices([
-                            { id: "alloy",   name: "Alloy — neutral" },
-                            { id: "echo",    name: "Echo — male" },
-                            { id: "fable",   name: "Fable — expressive male" },
-                            { id: "onyx",    name: "Onyx — deep male" },
-                            { id: "nova",    name: "Nova — female" },
-                            { id: "shimmer", name: "Shimmer — female" },
+                            { id: "af_heart",    name: "af_heart — US female (warm)" },
+                            { id: "af_bella",    name: "af_bella — US female" },
+                            { id: "af_nicole",   name: "af_nicole — US female" },
+                            { id: "af_aoede",    name: "af_aoede — US female" },
+                            { id: "af_kore",     name: "af_kore — US female" },
+                            { id: "am_adam",     name: "am_adam — US male" },
+                            { id: "am_echo",     name: "am_echo — US male" },
+                            { id: "am_eric",     name: "am_eric — US male" },
+                            { id: "am_fenrir",   name: "am_fenrir — US male" },
+                            { id: "am_liam",     name: "am_liam — US male" },
+                            { id: "am_michael",  name: "am_michael — US male" },
+                            { id: "am_onyx",     name: "am_onyx — US male (deep)" },
+                            { id: "bf_emma",     name: "bf_emma — UK female" },
+                            { id: "bf_isabella", name: "bf_isabella — UK female" },
+                            { id: "bm_george",   name: "bm_george — UK male" },
+                            { id: "bm_lewis",    name: "bm_lewis — UK male" },
                           ]);
                         } else if (provider === "api") {
                           const s = getTTSSettings();
@@ -2433,6 +2485,17 @@ MOM: See? You were ready.`,
                       <option value="api">External API</option>
                     </select>
                   </div>
+                  {ttsProvider === "browser" && (
+                    <button
+                      onClick={() => {
+                        const voices = window.speechSynthesis.getVoices();
+                        if (voices.length > 0) setAvailableVoices(voices);
+                      }}
+                      className={btnSecondary}
+                    >
+                      ↻ Load Voices
+                    </button>
+                  )}
                   {ttsProvider === "api" && (
                     <button
                       onClick={() => {
@@ -2457,6 +2520,54 @@ MOM: See? You were ready.`,
                       {apiVoicesLoading ? "Loading…" : "↻ Refresh Voices"}
                     </button>
                   )}
+                  {ttsProvider === "kokoro" && (
+                    <button
+                      onClick={async () => {
+                        setKokoroStatus("Loading model…");
+                        try {
+                          await loadKokoro({
+                            device: getTTSSettings().kokoroDevice ?? "wasm",
+                          });
+                          setKokoroStatus(null);
+                        } catch (err) {
+                          setKokoroStatus(
+                            err instanceof Error ? err.message : "Load failed",
+                          );
+                        }
+                      }}
+                      disabled={getKokoroLoadState() === "loading"}
+                      className={btnSecondary}
+                    >
+                      {getKokoroLoadState() === "loading" ? "Loading…" : "↻ Reload Model"}
+                    </button>
+                  )}
+                  {ttsProvider === "proxy" && (
+                    <button
+                      onClick={() => {
+                        setApiVoices([
+                          { id: "af_heart",    name: "af_heart — US female (warm)" },
+                          { id: "af_bella",    name: "af_bella — US female" },
+                          { id: "af_nicole",   name: "af_nicole — US female" },
+                          { id: "af_aoede",    name: "af_aoede — US female" },
+                          { id: "af_kore",     name: "af_kore — US female" },
+                          { id: "am_adam",     name: "am_adam — US male" },
+                          { id: "am_echo",     name: "am_echo — US male" },
+                          { id: "am_eric",     name: "am_eric — US male" },
+                          { id: "am_fenrir",   name: "am_fenrir — US male" },
+                          { id: "am_liam",     name: "am_liam — US male" },
+                          { id: "am_michael",  name: "am_michael — US male" },
+                          { id: "am_onyx",     name: "am_onyx — US male (deep)" },
+                          { id: "bf_emma",     name: "bf_emma — UK female" },
+                          { id: "bf_isabella", name: "bf_isabella — UK female" },
+                          { id: "bm_george",   name: "bm_george — UK male" },
+                          { id: "bm_lewis",    name: "bm_lewis — UK male" },
+                        ]);
+                      }}
+                      className={btnSecondary}
+                    >
+                      ↻ Load Voices
+                    </button>
+                  )}
                   {ttsProvider === "kokoro" && kokoroStatus && (
                     <span className="text-xs text-muted">{kokoroStatus}</span>
                   )}
@@ -2475,27 +2586,79 @@ MOM: See? You were ready.`,
                 </div>
 
                 {speakNames && (
-                  <div className="flex items-center gap-3 p-3 bg-dark-input border border-border rounded-lg">
-                    <span className="text-sm font-semibold text-light w-20 flex-shrink-0">
+                  <div
+                    className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
+                    style={{ gridTemplateColumns: "6rem 1fr auto auto auto" }}
+                  >
+                    <span className="text-sm font-semibold text-light truncate">
                       🎙 Narrator
                     </span>
-                    <select
-                      value={narratorVoiceIndex}
-                      onChange={(e) =>
-                        setNarratorVoiceIndex(parseInt(e.target.value))
-                      }
-                      className={`${inputCls} flex-1`}
-                    >
-                      {availableVoices.length === 0 ? (
-                        <option>Default browser voice</option>
-                      ) : (
-                        availableVoices.map((v, i) => (
-                          <option key={i} value={i}>
-                            {v.name} ({v.lang})
+                    {ttsProvider === "browser" ? (
+                      <select
+                        value={narratorVoiceIndex}
+                        onChange={(e) =>
+                          setNarratorVoiceIndex(parseInt(e.target.value))
+                        }
+                        className={inputCls}
+                      >
+                        {availableVoices.length === 0 ? (
+                          <option>Default browser voice</option>
+                        ) : (
+                          availableVoices.map((v, i) => (
+                            <option key={i} value={i}>
+                              {v.name} ({v.lang})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    ) : ttsProvider === "kokoro" ? (
+                      <select
+                        value={apiVoiceAssignments["NARRATOR"] || ""}
+                        onChange={(e) =>
+                          setApiVoiceAssignments((p) => ({
+                            ...p,
+                            NARRATOR: e.target.value,
+                          }))
+                        }
+                        className={inputCls}
+                      >
+                        <option value="">
+                          Default ({getTTSSettings().kokoroVoice || "am_puck"})
+                        </option>
+                        {KOKORO_VOICES.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name}
                           </option>
-                        ))
-                      )}
-                    </select>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={apiVoiceAssignments["NARRATOR"] || ""}
+                        onChange={(e) =>
+                          setApiVoiceAssignments((p) => ({
+                            ...p,
+                            NARRATOR: e.target.value,
+                          }))
+                        }
+                        className={inputCls}
+                      >
+                        <option value="">
+                          {apiVoices.length === 0
+                            ? apiVoicesLoading
+                              ? "Loading…"
+                              : "Refresh voices"
+                            : "Default"}
+                        </option>
+                        {apiVoices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name ? `${v.name} (${v.id})` : v.id}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <div />
+                    <div />
+                    <div />
                   </div>
                 )}
 

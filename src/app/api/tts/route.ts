@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Server-side TTS proxy — keeps API keys out of the browser.
 // Forwards OpenAI-compatible /v1/audio/speech requests to the configured
-// provider (defaults to OpenRouter).
+// provider (defaults to OpenRouter + hexgrad/kokoro-82m).
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -30,7 +30,21 @@ export async function POST(req: NextRequest) {
   const model =
     (body.model as string | undefined) ??
     process.env.OPENROUTER_MODEL ??
-    "openai/tts-1";
+    "hexgrad/kokoro-82m";
+
+  // Build upstream payload — omit speed for models that don't support it
+  const openAiModels = ["openai/"];
+  const supportsSpeed = openAiModels.some((prefix) => model.startsWith(prefix));
+
+  const upstreamBody: Record<string, unknown> = {
+    model,
+    input: (body.input as string | undefined) ?? "",
+    voice: (body.voice as string | undefined) ?? "nova",
+    response_format: (body.response_format as string | undefined) ?? "mp3",
+  };
+  if (supportsSpeed) {
+    upstreamBody.speed = (body.speed as number | undefined) ?? 1.0;
+  }
 
   let upstream: Response;
   try {
@@ -39,17 +53,10 @@ export async function POST(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer":
-          process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
         "X-Title": "Theater Companion",
       },
-      body: JSON.stringify({
-        model,
-        input: (body.input as string | undefined) ?? "",
-        voice: (body.voice as string | undefined) ?? "nova",
-        speed: (body.speed as number | undefined) ?? 1.0,
-        response_format: (body.response_format as string | undefined) ?? "mp3",
-      }),
+      body: JSON.stringify(upstreamBody),
     });
   } catch (err) {
     console.error("[/api/tts] fetch failed:", err);
@@ -62,7 +69,10 @@ export async function POST(req: NextRequest) {
   if (!upstream.ok) {
     const errText = await upstream.text();
     console.error(`[/api/tts] upstream ${upstream.status}:`, errText);
-    return NextResponse.json({ error: errText }, { status: upstream.status });
+    return NextResponse.json(
+      { error: errText },
+      { status: upstream.status },
+    );
   }
 
   const audio = await upstream.arrayBuffer();

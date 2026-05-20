@@ -1242,10 +1242,18 @@ export function createScene(
   const normalizedContent = normalizeSceneContent(content);
   const normalizedSetPiece = setPiece?.trim() || undefined;
 
-  // Parse and cache dialogue lines
+  // Extract characters first so the parser can recognise every speaker,
+  // including standalone all-caps names (e.g. "JASPER") that appear without
+  // a colon in the source text.
+  const extractedChars = extractSceneCharacters(
+    normalizedContent,
+    [],
+    productionType,
+  );
   const lines = parseDialogueLines(
     normalizedContent,
     getSceneParseFormat(productionType),
+    extractedChars,
   );
 
   return {
@@ -1253,6 +1261,7 @@ export function createScene(
     projectId,
     title: title || "Untitled Scene",
     content: normalizedContent,
+    rawContent: normalizedContent,
     description,
     setPiece: normalizedSetPiece,
     lines,
@@ -1340,6 +1349,8 @@ export function updateScene(
     ...updates,
     lines,
     updatedAt,
+    // rawContent is write-once — never overwritten after creation.
+    rawContent: scene.rawContent,
   };
 }
 

@@ -1070,26 +1070,97 @@ export function SettingsContent() {
                 <label className="block text-light font-semibold text-sm">
                   Voice
                 </label>
-                <select
-                  value={settings.defaultVoiceId || "nova"}
-                  onChange={(e) =>
-                    setSettings({ ...settings, defaultVoiceId: e.target.value })
-                  }
-                  className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
-                >
-                  {[
-                    { id: "alloy", label: "Alloy — neutral" },
-                    { id: "echo", label: "Echo — male" },
-                    { id: "fable", label: "Fable — expressive male" },
-                    { id: "onyx", label: "Onyx — deep male" },
-                    { id: "nova", label: "Nova — female (default)" },
-                    { id: "shimmer", label: "Shimmer — female" },
-                  ].map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.label}
-                    </option>
-                  ))}
-                </select>
+                {(() => {
+                  const PROXY_VOICES = [
+                    "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore",
+                    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
+                    "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
+                  ];
+                  const proxyVoice = PROXY_VOICES.includes(settings.defaultVoiceId) ? settings.defaultVoiceId : "af_heart";
+                  return (
+                    <select
+                      value={proxyVoice}
+                      onChange={(e) =>
+                        setSettings({ ...settings, defaultVoiceId: e.target.value })
+                      }
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                    >
+                      <optgroup label="Kokoro voices">
+                        <option value="af_heart">af_heart — US female (warm)</option>
+                        <option value="af_bella">af_bella — US female</option>
+                        <option value="af_nicole">af_nicole — US female</option>
+                        <option value="af_aoede">af_aoede — US female</option>
+                        <option value="af_kore">af_kore — US female</option>
+                        <option value="am_adam">am_adam — US male</option>
+                        <option value="am_echo">am_echo — US male</option>
+                        <option value="am_eric">am_eric — US male</option>
+                        <option value="am_fenrir">am_fenrir — US male</option>
+                        <option value="am_liam">am_liam — US male</option>
+                        <option value="am_michael">am_michael — US male</option>
+                        <option value="am_onyx">am_onyx — US male (deep)</option>
+                        <option value="bf_emma">bf_emma — UK female</option>
+                        <option value="bf_isabella">bf_isabella — UK female</option>
+                        <option value="bm_george">bm_george — UK male</option>
+                        <option value="bm_lewis">bm_lewis — UK male</option>
+                      </optgroup>
+                    </select>
+                  );
+                })()}
+              </div>
+              {/* Test */}
+              <div className="space-y-3 border-t border-border pt-4">
+                <label className="block text-light font-semibold">
+                  Test Voice
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={testText}
+                    onChange={(e) => setTestText(e.target.value)}
+                    placeholder="Enter test text…"
+                    className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                  />
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      if (testPlaying) {
+                        stopApiAudio();
+                        setTestPlaying(false);
+                        return;
+                      }
+                      setTestPlaying(true);
+                      setTestStatus(null);
+                      try {
+                        saveTTSSettings(settings);
+                        await speakTextViaApi(testText, {
+                          voice: settings.defaultVoiceId || "af_heart",
+                          forceProxy: true,
+                        });
+                        setTestStatus("Playback complete!");
+                      } catch (err) {
+                        setTestStatus(
+                          err instanceof Error ? err.message : "Playback failed",
+                        );
+                      } finally {
+                        setTestPlaying(false);
+                      }
+                    }}
+                    disabled={!testText.trim()}
+                  >
+                    {testPlaying ? "⏹ Stop" : "▶ Play"}
+                  </Button>
+                </div>
+                {testStatus && (
+                  <span
+                    className={`text-sm block ${
+                      testStatus === "Playback complete!"
+                        ? "text-green-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {testStatus}
+                  </span>
+                )}
               </div>
             </div>
           )}

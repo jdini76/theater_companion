@@ -7,12 +7,15 @@ export interface Scene {
   projectId: string;
   title: string;
   content: string;
+  /** Original text as first imported — never modified after creation. Used to revert. */
+  rawContent?: string;
   description?: string;
   setPiece?: string;
   characters?: string[];
   songs?: string[];
   lines?: DialogueLine[]; // Cached parsed dialogue lines
   lineOverrides?: Record<number, LineOverride>;
+  displayMap?: Record<number, LineOverride>; // Complete text-line-index → classification map for HighlightedContent
   order: number;
   createdAt: string;
   updatedAt: string;

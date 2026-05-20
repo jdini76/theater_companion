@@ -19,26 +19,19 @@ import {
   buildCharColorMap,
   GROUP_COLOR,
   GROUP_CHARACTER_NAMES,
-  HighlightedContent,
+  HighlightedLines,
 } from "./SceneHighlight";
+import { serializeDialogueLines } from "@/lib/rehearsal";
 import {
   MoreHorizontal,
   Maximize2,
   Minimize2,
   ChevronUp,
   ChevronDown,
+  RotateCcw,
 } from "lucide-react";
 import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 import type { LineOverride } from "@/types/line-override";
-
-function lineOverridesToMap(
-  lineOverrides?: Record<number, LineOverride>,
-): Map<number, LineOverride> {
-  const entries = Object.entries(lineOverrides ?? {}).map(
-    ([index, value]) => [Number(index), value] as const,
-  );
-  return new Map(entries);
-}
 
 function lineOverridesFromMap(
   overrides: Map<number, LineOverride>,
@@ -82,55 +75,6 @@ function isRedundantAlias(alias: string, canonical: string): boolean {
   return aliasUpper === canonicalFirstWord;
 }
 
-function canonicalizeSceneCharacterNames(
-  names: string[],
-  aliasToCanonical: Map<string, string>,
-  knownCast: string[],
-): string[] {
-  const castUpper = new Set(knownCast.map((name) => name.toUpperCase()));
-  const firstNameMap = new Map<string, string>();
-  const lastNameMap = new Map<string, string>();
-
-  for (const name of knownCast) {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length > 1) {
-      const first = parts[0].toUpperCase();
-      if (firstNameMap.has(first)) {
-        firstNameMap.set(first, "");
-      } else {
-        firstNameMap.set(first, name.toUpperCase());
-      }
-
-      const last = parts[parts.length - 1].toUpperCase();
-      if (lastNameMap.has(last)) {
-        lastNameMap.set(last, "");
-      } else {
-        lastNameMap.set(last, name.toUpperCase());
-      }
-    }
-  }
-
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const name of names) {
-    const upper = name.trim().toUpperCase();
-    if (!upper) continue;
-    let canonical = aliasToCanonical.get(upper) ?? upper;
-    if (castUpper.size > 0 && canonical === upper) {
-      const byFirst = firstNameMap.get(upper);
-      const byLast = lastNameMap.get(upper);
-      if (byFirst) canonical = byFirst;
-      else if (byLast) canonical = byLast;
-    }
-    if (!seen.has(canonical)) {
-      seen.add(canonical);
-      result.push(canonical);
-    }
-  }
-
-  return result;
-}
 
 interface SceneViewerProps {
   scene: Scene;
@@ -170,6 +114,8 @@ export function SceneViewer({
   const [isCopied, setIsCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
+  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fullscreenView, setFullscreenView] = useState<
     "interactive" | "screenplay"
   >("interactive");
@@ -183,21 +129,22 @@ export function SceneViewer({
   );
   const menuRef = useRef<HTMLDivElement>(null);
   const screenplayScrollRef = useRef<HTMLDivElement>(null);
+  const lastMigratedSceneId = useRef<string | null>(null);
   const { getProjectCharacters, createCharacter } = useVoice();
   const { currentProjectId } = useProjects();
   const { navigateToCharacter } = useRehearsalNav();
   const { getProjectScenes, updateScene } = useScenes();
-  const overrides = useMemo(
-    () => lineOverridesToMap(scene.lineOverrides),
-    [scene.lineOverrides],
-  );
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
   const activeProjectId = currentProjectId ?? projectId;
 
   const projectCharacters = getProjectCharacters(activeProjectId);
   const myRoleChars = projectCharacters.filter((c) => c.isMyRole);
-  const projectCast = projectCharacters.map((c) => c.characterName);
+  const projectCast = useMemo(
+    () => projectCharacters.map((c) => c.characterName),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeProjectId, projectCharacters.length],
+  );
   const sceneChars = scene.characters ?? [];
 
   // Build alias → canonical map (uppercase) so merged names resolve correctly.
@@ -234,11 +181,23 @@ export function SceneViewer({
     const color = colorMap.get(canonical);
     if (color) colorMap.set(alias, color);
   }
+  // Add first-word shorthand entries so "JASPER" resolves to the same color
+  // as "JASPER REED" when the source text uses the short form.
+  for (const name of canonicalNames) {
+    const parts = name.split(/\s+/);
+    if (parts.length > 1) {
+      const firstName = parts[0];
+      if (!colorMap.has(firstName)) {
+        const color = colorMap.get(name);
+        if (color) colorMap.set(firstName, color);
+      }
+    }
+  }
 
   // allNames: canonical + alias names so HighlightedContent can match both forms.
-  // When no project cast exists, fall back to scene.characters.
-  // Always include sceneChars so manually textbox-added characters appear in
-  // the colored-buttons list even when a project cast exists.
+  // When a project cast exists, only cast members (and standard ensemble names) are
+  // recognized as characters — unknown names are left as prose/dialogue.
+  // Without a project cast, fall back to scene.characters for backwards compat.
   const allNamesSet = new Set<string>();
   const allNames: string[] = [];
   const highlightSource =
@@ -248,10 +207,11 @@ export function SceneViewer({
           ...Array.from(aliasToCanonical.entries())
             .filter(([alias, canonical]) => !isRedundantAlias(alias, canonical))
             .map(([alias]) => alias),
-          // scene-only chars (textbox-added or group names not in project cast)
+          // Keep ensemble group names (ALL, EVERYONE, etc.) even if not in project cast.
+          // Exclude all other scene-only chars — user must add them to the cast first.
           ...sceneChars
             .map((n) => n.toUpperCase())
-            .filter((n) => !canonicalUpperSet.has(n)),
+            .filter((n) => !canonicalUpperSet.has(n) && GROUP_CHARACTER_NAMES.has(n)),
         ]
       : sceneChars.map((n) => n.toUpperCase());
   for (const name of highlightSource) {
@@ -313,6 +273,66 @@ export function SceneViewer({
     }
   }, [productionType, scene, updateScene]);
 
+  // Synchronously compute lines for rendering. If scene.lines is already
+  // populated use it directly; otherwise parse from content so the view never
+  // renders blank on first open.
+  // Use scene.lines as the display source when populated — this is the source
+  // of truth and matches what handleLineUpdate / handleReset write.
+  // Fall back to parsing from scene.content only for scenes that have never
+  // been opened since the rearchitecture (scene.lines is empty).
+  const displayLines = useMemo(() => {
+    if (scene.lines && scene.lines.length > 0) return scene.lines;
+    if (!scene.content?.trim()) return [];
+    const knownCast = projectCast.length > 0 ? projectCast : [];
+    const extracted = extractSceneCharacters(scene.content, knownCast, productionType);
+    const characters = [
+      ...new Set([
+        ...knownCast.map((c) => c.toUpperCase()),
+        ...(scene.characters ?? []).map((c) => c.toUpperCase()),
+        ...extracted.map((c) => c.toUpperCase()),
+      ]),
+    ];
+    return parseDialogueLines(
+      scene.content,
+      getSceneParseFormat(productionType),
+      characters,
+      scene.lineOverrides,
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.lines, scene.content]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    console.log("[SceneViewer] scene.lines", {
+      sceneId: scene.id,
+      title: scene.title,
+      lineCount: displayLines.length,
+      lines: displayLines.map((l, i) => ({
+        index: i,
+        character: l.character,
+        dialogue: l.dialogue,
+        isStageDirection: l.isStageDirection,
+        isSong: l.isSong,
+        songTitle: l.songTitle,
+      })),
+    });
+  }, [displayLines, scene.id, scene.title]);
+
+  // When scene.lines is empty, the useMemo parsed from content as a fallback.
+  // Persist that result once so subsequent opens use scene.lines directly.
+  useEffect(() => {
+    if (!scene.id || lastMigratedSceneId.current === scene.id) return;
+    if (scene.lines && scene.lines.length > 0) {
+      lastMigratedSceneId.current = scene.id;
+      return;
+    }
+    lastMigratedSceneId.current = scene.id;
+    if (displayLines.length > 0) {
+      updateScene(scene.id, { lines: displayLines });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.id, displayLines]);
+
   useEffect(() => {
     if (!isFullscreen) return;
     const handler = (e: KeyboardEvent) => {
@@ -360,110 +380,171 @@ export function SceneViewer({
     setMenuOpen(false);
   };
 
-  const handleAssign = (
+  const handleLineUpdate = (
     lineIdx: number,
-    assignment: LineOverride | undefined,
+    update: Partial<DialogueLine> | "reset",
   ) => {
-    console.log(`[SceneViewer.handleAssign] START lineIdx=${lineIdx}, assignment=`, assignment);
-    console.log(`[SceneViewer.handleAssign] Current overrides:`, Array.from(overrides.entries()));
-    console.log(`[SceneViewer.handleAssign] Current scene:`, { id: scene.id, title: scene.title, linesCount: scene.lines?.length, overridesCount: Object.keys(scene.lineOverrides ?? {}).length });
+    const line = displayLines[lineIdx];
+    if (!line) return;
 
-    const nextOverrides = new Map(overrides);
-    if (assignment === undefined) {
-      nextOverrides.delete(lineIdx);
-      console.log(`[SceneViewer.handleAssign] Deleted override at ${lineIdx}`);
+    let updatedLines: DialogueLine[];
+    if (update === "reset") {
+      // Re-parse just this line from its serialized text so the parser
+      // re-detects its classification from scratch.
+      const singleLineText = serializeDialogueLines([line]);
+      const reparsed = parseDialogueLines(
+        singleLineText,
+        getSceneParseFormat(productionType),
+        projectCast.length > 0 ? projectCast : sceneChars,
+      );
+      updatedLines = displayLines.map((l, i) =>
+        i === lineIdx ? { ...(reparsed[0] ?? l), lineNumber: l.lineNumber } : l,
+      );
     } else {
-      nextOverrides.set(lineIdx, assignment);
-      console.log(`[SceneViewer.handleAssign] Added override at ${lineIdx}:`, assignment);
+      updatedLines = displayLines.map((l, i) =>
+        i === lineIdx ? { ...l, ...update } : l,
+      );
     }
 
-    const assignedNames =
-      assignment?.kind === "multi-header"
-        ? assignment.chars
-        : assignment && "char" in assignment
-          ? [assignment.char]
-          : [];
+    const newContent = serializeDialogueLines(updatedLines);
 
-    const normalizedSceneChars = new Set(
-      sceneChars.map((character) => character.trim().toUpperCase()),
-    );
-    const addedNames = canonicalizeSceneCharacterNames(
-      assignedNames,
-      aliasToCanonical,
-      projectCast,
-    ).filter((name) => !normalizedSceneChars.has(name));
-
-    const projectCastSet = new Set(
-      projectCast.map((character) => character.trim().toUpperCase()),
-    );
-    const newProjectNames = addedNames.filter(
-      (name) => !projectCastSet.has(name),
-    );
-
-    for (const name of newProjectNames) {
+    // Add any newly assigned character names to the scene character list.
+    const updateChars: string[] =
+      update !== "reset"
+        ? (update.characters ?? (update.character ? [update.character] : []))
+        : [];
+    const sceneCharUpper = new Set(sceneChars.map((c) => c.trim().toUpperCase()));
+    // True when a short name like "JASPER" is already covered by a known full
+    // name like "JASPER REED" — any word match is sufficient.
+    const isPartOfKnownCast = (name: string): boolean => {
+      const upper = name.trim().toUpperCase();
+      for (const castName of projectCast) {
+        const parts = castName.trim().toUpperCase().split(/\s+/);
+        if (parts.includes(upper) || castName.trim().toUpperCase() === upper)
+          return true;
+      }
+      return false;
+    };
+    const newNames = updateChars
+      .map((c) => c.trim().toUpperCase())
+      .filter((c) => c && !c.startsWith("[") && !sceneCharUpper.has(c));
+    for (const name of newNames.filter((n) => !isPartOfKnownCast(n))) {
       createCharacter(activeProjectId, name);
     }
-
-    const updatedCharacters = canonicalizeSceneCharacterNames(
-      [...sceneChars, ...addedNames],
-      aliasToCanonical,
-      projectCast,
-    ).sort();
-
-    // Only store overrides - don't try to modify scene.lines by index
-    // The overrides will be applied when needed in run lines via applyLineOverrides
-    console.log(`[SceneViewer.handleAssign] Calling updateScene with:`);
-    console.log(`  - characters: ${updatedCharacters.length} items`);
-    console.log(`  - lineOverrides: ${Object.keys(lineOverridesFromMap(nextOverrides)).length} items`);
-    console.log(`  - lineOverridesFromMap result:`, lineOverridesFromMap(nextOverrides));
+    const updatedCharacters = [
+      ...new Set([...sceneChars.map((c) => c.toUpperCase()), ...newNames]),
+    ].sort();
 
     updateScene(scene.id, {
+      lines: updatedLines,
+      content: newContent,
       characters: updatedCharacters,
-      lineOverrides: lineOverridesFromMap(nextOverrides),
+      lineOverrides: {},
+      displayMap: undefined,
     });
-
-    console.log(`[SceneViewer.handleAssign] END`);
   };
 
-  // Character tags: use pre-parsed lines when available; fall back to
-  // re-extracting from raw content for scenes that pre-date persistent lines.
-  // Results are remapped to canonical names so each character appears once.
+  const handleMergeAbove = (lineIdx: number) => {
+    if (lineIdx === 0) return;
+    const above = displayLines[lineIdx - 1];
+    const current = displayLines[lineIdx];
+    if (!above || !current) return;
+    const merged: DialogueLine = {
+      ...above,
+      dialogue: above.dialogue
+        ? `${above.dialogue} ${current.dialogue}`
+        : current.dialogue,
+    };
+    const updatedLines = [
+      ...displayLines.slice(0, lineIdx - 1),
+      merged,
+      ...displayLines.slice(lineIdx + 1),
+    ];
+    updateScene(scene.id, {
+      lines: updatedLines,
+      content: serializeDialogueLines(updatedLines),
+      lineOverrides: {},
+      displayMap: undefined,
+    });
+  };
+
+  const handleSplit = (lineIdx: number, rawText: string) => {
+    if (!rawText.trim()) return;
+    // Re-parse the edited text so embedded character names (e.g. "MARA") are
+    // detected as proper speakers rather than dialogue continuation.
+    const knownCast = projectCast.length > 0 ? projectCast : [];
+    const extracted = extractSceneCharacters(rawText, knownCast, productionType);
+    const characters = [
+      ...new Set([
+        ...knownCast.map((c) => c.toUpperCase()),
+        ...sceneChars.map((c) => c.toUpperCase()),
+        ...extracted.map((c) => c.toUpperCase()),
+      ]),
+    ];
+    const reparsed = parseDialogueLines(
+      rawText,
+      getSceneParseFormat(productionType),
+      characters,
+    );
+    if (reparsed.length === 0) return;
+    const updatedLines = [
+      ...displayLines.slice(0, lineIdx),
+      ...reparsed,
+      ...displayLines.slice(lineIdx + 1),
+    ];
+    updateScene(scene.id, {
+      lines: updatedLines,
+      content: serializeDialogueLines(updatedLines),
+      lineOverrides: {},
+      displayMap: undefined,
+    });
+  };
+
+  const handleReset = () => {
+    if (!resetPending) {
+      setResetPending(true);
+      resetTimeoutRef.current = setTimeout(() => setResetPending(false), 3000);
+      return;
+    }
+    if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+    setResetPending(false);
+    const source = scene.rawContent ?? scene.content;
+    const knownCast = projectCast.length > 0 ? projectCast : [];
+    const extracted = extractSceneCharacters(source, knownCast, productionType);
+    const characters = [
+      ...new Set([
+        ...knownCast.map((c) => c.toUpperCase()),
+        ...(scene.characters ?? []).map((c) => c.toUpperCase()),
+        ...extracted.map((c) => c.toUpperCase()),
+      ]),
+    ];
+    const freshLines = parseDialogueLines(
+      source,
+      getSceneParseFormat(productionType),
+      characters,
+    );
+    lastMigratedSceneId.current = null;
+    updateScene(scene.id, {
+      content: source,
+      lines: freshLines,
+      lineOverrides: {},
+      displayMap: undefined,
+    });
+  };
+
+  // Derive scene character list directly from displayLines, preserving names
+  // exactly as they appear in the source text (e.g. "JASPER" not "JASPER REED").
   const sceneCharSet = new Set<string>();
   const sceneCharacters: string[] = [];
-  const expandedCast =
-    projectCast.length > 0
-      ? [...projectCast, ...Array.from(aliasToCanonical.keys())]
-      : [];
-  let rawTagNames: string[];
-  if (scene.lines && scene.lines.length > 0) {
-    // Derive from parsed lines — no re-parse of content needed
-    rawTagNames = Array.from(
-      new Set(
-        scene.lines
-          .filter((l) => !l.isStageDirection && !l.character.startsWith("["))
-          .flatMap((l) =>
-            l.character
-              .split(/\s*[,&+]\s*/)
-              .map((n) => n.trim().toUpperCase())
-              .filter(Boolean),
-          ),
-      ),
-    );
-  } else {
-    rawTagNames =
-      projectCast.length > 0
-        ? extractSceneCharacters(scene.content, expandedCast, productionType)
-        : sceneChars;
-  }
-  const mergedSceneCharacters = canonicalizeSceneCharacterNames(
-    [...rawTagNames, ...sceneChars],
-    aliasToCanonical,
-    projectCast,
-  );
-  for (const name of mergedSceneCharacters) {
-    if (!sceneCharSet.has(name)) {
-      sceneCharSet.add(name);
-      sceneCharacters.push(name);
+  for (const line of displayLines) {
+    if (line.isStageDirection || line.character.startsWith("[")) continue;
+    const parts = line.character.split(/\s*[,&+]\s*/);
+    for (const part of parts) {
+      const upper = part.trim().toUpperCase();
+      if (upper && !sceneCharSet.has(upper)) {
+        sceneCharSet.add(upper);
+        sceneCharacters.push(upper);
+      }
     }
   }
   const allCharSet = new Set<string>();
@@ -508,7 +589,6 @@ export function SceneViewer({
       : colorMap;
 
   const songs = scene.songs ?? [];
-  const displayContent = scene.content;
   const displayDescription = scene.description
     ? reflowWrappedText(scene.description)
     : "";
@@ -585,10 +665,15 @@ export function SceneViewer({
     };
 
     for (const screenplayScene of screenplaySourceScenes) {
-      const screenplayLines: DialogueLine[] = parseDialogueLines(
-        screenplayScene.content,
-        getSceneParseFormat(productionType),
-      );
+      // Use pre-parsed lines when available; fall back to parsing only for
+      // set-piece scenes that haven't been opened yet (no scene.lines).
+      const screenplayLines: DialogueLine[] =
+        screenplayScene.lines && screenplayScene.lines.length > 0
+          ? screenplayScene.lines
+          : parseDialogueLines(
+              screenplayScene.content,
+              getSceneParseFormat(productionType),
+            );
 
       const hasLeadingHeading =
         screenplayLines[0]?.character === "[Scene Heading]";
@@ -892,6 +977,14 @@ export function SceneViewer({
           );
         })}
 
+        <button
+          onClick={handleReset}
+          title={resetPending ? "Click again to confirm reset" : "Reset to original import"}
+          className={`p-1 rounded transition-colors ${resetPending ? "text-red-400 bg-red-500/20 hover:bg-red-500/30" : "text-muted hover:bg-white/10 hover:text-light"}`}
+        >
+          <RotateCcw size={13} />
+        </button>
+
         <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
           {/* My lines only toggle */}
           {myRoleChars.length > 0 && (
@@ -962,15 +1055,14 @@ export function SceneViewer({
 
       {/* Highlighted content — fully interactive */}
       <div className="flex-1 min-h-0">
-        <HighlightedContent
-          content={displayContent}
-          characters={allNames}
+        <HighlightedLines
+          lines={displayLines}
           colorMap={displayColorMap}
-          overrides={overrides}
-          onAssign={handleAssign}
+          onLineUpdate={handleLineUpdate}
+          onMergeAbove={handleMergeAbove}
+          onSplit={handleSplit}
           maxHeight="max-h-[calc(160vh-20rem)]"
           textSize={scriptTextSize}
-          allowColonHeaders={productionType !== "Film"}
           allowSongMenus={productionType !== "Film"}
           stageDirectionLabel={stageDirectionLabel}
           assignPanelProps={assignPanelProps}
@@ -1208,6 +1300,13 @@ export function SceneViewer({
                   </span>
                 );
               })}
+              <button
+                onClick={handleReset}
+                title={resetPending ? "Click again to confirm reset" : "Reset to original import"}
+                className={`p-1 rounded transition-colors ${resetPending ? "text-red-400 bg-red-500/20 hover:bg-red-500/30" : "text-muted hover:bg-white/10 hover:text-light"}`}
+              >
+                <RotateCcw size={13} />
+              </button>
               {showSongs &&
                 songs.map((song) => (
                   <span
@@ -1223,15 +1322,14 @@ export function SceneViewer({
           {/* Content */}
           <div className="flex-1 min-h-0 p-4">
             {fullscreenView === "interactive" && !isSetPieceScreenplay ? (
-              <HighlightedContent
-                content={displayContent}
-                characters={allNames}
+              <HighlightedLines
+                lines={displayLines}
                 colorMap={displayColorMap}
-                overrides={overrides}
-                onAssign={handleAssign}
+                onLineUpdate={handleLineUpdate}
+                onMergeAbove={handleMergeAbove}
+                onSplit={handleSplit}
                 maxHeight="max-h-[calc(100vh-5rem)]"
                 textSize={scriptTextSize}
-                allowColonHeaders={productionType !== "Film"}
                 allowSongMenus={productionType !== "Film"}
                 stageDirectionLabel={stageDirectionLabel}
                 assignPanelProps={assignPanelProps}
