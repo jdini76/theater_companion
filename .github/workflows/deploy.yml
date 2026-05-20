@@ -38,6 +38,11 @@ jobs:
           NEXT_PUBLIC_APP_VERSION: ${{ steps.pkg_version.outputs.version }}
           NEXT_PUBLIC_BUILD_NUMBER: ${{ github.run_number }}
           NEXT_PUBLIC_GIT_SHA: ${{ github.sha }}
+          NEXT_PUBLIC_ELEVENLABS_API_URL: ${{ secrets.NEXT_PUBLIC_ELEVENLABS_API_URL }}
+          NEXT_PUBLIC_DEEPGRAM_API_URL: ${{ secrets.NEXT_PUBLIC_DEEPGRAM_API_URL }}
+          OPENROUTER_API_URL: ${{ secrets.OPENROUTER_API_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
