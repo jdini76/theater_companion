@@ -11,7 +11,7 @@ import { idbGet, idbSet } from "@/lib/idb";
 // crypto.getRandomValues() is available everywhere (iOS 6+), so use it as a fallback.
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return generateUUID();
+    return crypto.randomUUID();
   }
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -160,12 +160,13 @@ export function getAllStoredProjects(): RawRecord[] {
 }
 
 // ---------------------------------------------------------------------------
-// Export selected projects as a v2 JSON file
+// Build the export payload (without triggering a download)
 // ---------------------------------------------------------------------------
 
-export async function exportSelectedProjects(
-  projectIds: string[],
-): Promise<void> {
+export async function buildExportPayload(projectIds: string[]): Promise<{
+  payload: ExportDataV2;
+  slug: string;
+}> {
   const bundles = (
     await Promise.all(projectIds.map(buildProjectBundle))
   ).filter((b): b is ProjectBundle => b !== null);
@@ -176,10 +177,6 @@ export async function exportSelectedProjects(
     projects: bundles,
   };
 
-  const json = JSON.stringify(payload, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-
   const slug = bundles
     .map((b) =>
       (b.project.name as string)
@@ -189,6 +186,21 @@ export async function exportSelectedProjects(
     )
     .filter(Boolean)
     .join("_");
+
+  return { payload, slug };
+}
+
+// ---------------------------------------------------------------------------
+// Export selected projects as a v2 JSON file
+// ---------------------------------------------------------------------------
+
+export async function exportSelectedProjects(
+  projectIds: string[],
+): Promise<void> {
+  const { payload, slug } = await buildExportPayload(projectIds);
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
   a.href = url;
@@ -202,6 +214,26 @@ export async function exportSelectedProjects(
 // ---------------------------------------------------------------------------
 // Parse an import file and return conflict-annotated project list
 // ---------------------------------------------------------------------------
+
+/**
+ * Annotate an already-parsed v2 payload with conflict info against existing
+ * projects. Called by both parseImportFile (JSON) and the ZIP import path.
+ */
+export function parseImportData(payload: ExportDataV2): ImportedProject[] {
+  const existing = readJson<RawRecord[]>("theater_projects", []);
+  const existingNames = new Set(
+    existing.map((proj) => (proj.name as string).toLowerCase()),
+  );
+
+  return payload.projects.map((bundle) => {
+    const name = bundle.project.name as string;
+    return {
+      bundle,
+      name,
+      hasConflict: existingNames.has(name.toLowerCase()),
+    };
+  });
+}
 
 export async function parseImportFile(file: File): Promise<ImportedProject[]> {
   const text = await file.text();
@@ -226,19 +258,7 @@ export async function parseImportFile(file: File): Promise<ImportedProject[]> {
     );
   }
 
-  const existing = readJson<RawRecord[]>("theater_projects", []);
-  const existingNames = new Set(
-    existing.map((proj) => (proj.name as string).toLowerCase()),
-  );
-
-  return (p.projects as ProjectBundle[]).map((bundle) => {
-    const name = bundle.project.name as string;
-    return {
-      bundle,
-      name,
-      hasConflict: existingNames.has(name.toLowerCase()),
-    };
-  });
+  return parseImportData(payload as ExportDataV2);
 }
 
 // ---------------------------------------------------------------------------

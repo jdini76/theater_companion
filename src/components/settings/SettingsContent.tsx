@@ -27,12 +27,23 @@ import {
 import {
   getAllStoredProjects,
   exportSelectedProjects,
+  buildExportPayload,
   parseImportFile,
+  parseImportData,
   executeImport,
   restoreLegacyBackup,
   getStorageSummary,
   type ImportedProject,
 } from "@/lib/data-export";
+import {
+  getAudioEntriesForCharacters,
+  cacheAudioFile,
+  type CachedAudio,
+} from "@/lib/audio-cache";
+import {
+  exportProjectZip,
+  extractFromProjectZip,
+} from "@/lib/voice-cache-backup";
 import { VoiceCacheBackupPanel } from "@/components/settings/VoiceCacheBackupPanel";
 import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
 
@@ -313,6 +324,9 @@ function DataManagementPanel() {
   const [phase, setPhase] = useState<PanelPhase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [legacyStatus, setLegacyStatus] = useState<string | null>(null);
+  const [includeAudio, setIncludeAudio] = useState(true);
+  const [pendingAudio, setPendingAudio] = useState<CachedAudio[]>([]);
+  const [importedAudioCount, setImportedAudioCount] = useState(0);
 
   useEffect(() => {
     getStorageSummary().then(setSummary);
@@ -338,7 +352,19 @@ function DataManagementPanel() {
 
   const handleExport = async () => {
     if (selectedIds.size === 0) return;
-    await exportSelectedProjects(Array.from(selectedIds));
+    if (includeAudio) {
+      const ids = Array.from(selectedIds);
+      const { payload, slug } = await buildExportPayload(ids);
+      const characterNames = payload.projects
+        .flatMap((b) => b.characters.map((c) => c.characterName as string))
+        .filter(Boolean);
+      const audioEntries = await getAudioEntriesForCharacters(characterNames);
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `theater-export${slug ? `-${slug}` : ""}-${date}.zip`;
+      await exportProjectZip(payload, audioEntries, filename);
+    } else {
+      await exportSelectedProjects(Array.from(selectedIds));
+    }
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -346,13 +372,20 @@ function DataManagementPanel() {
     if (!file) return;
     if (importFileRef.current) importFileRef.current.value = "";
     setError(null);
+    setPendingAudio([]);
+    setImportedAudioCount(0);
     try {
-      const projects = await parseImportFile(file);
+      let projects: ImportedProject[];
+      if (file.name.toLowerCase().endsWith(".zip")) {
+        const { projectData, audioEntries } = await extractFromProjectZip(file);
+        projects = parseImportData(projectData);
+        setPendingAudio(audioEntries);
+      } else {
+        projects = await parseImportFile(file);
+      }
       const names = new Map(
         projects.map((p) => [p.bundle.project.id as string, p.name]),
       );
-      // If you want to save settings here, do so as a side effect
-      // saveTTSSettings({ ...settings, previewText: testText, voiceLangs });
       const selected = new Set(
         projects.map((p) => p.bundle.project.id as string),
       );
@@ -370,8 +403,21 @@ function DataManagementPanel() {
         ...p,
         name: phase.names.get(p.bundle.project.id as string) ?? p.name,
       }));
-    const count = await executeImport(resolved);
-    setPhase({ kind: "done", count });
+    try {
+      const count = await executeImport(resolved);
+      let audioCount = 0;
+      if (pendingAudio.length > 0) {
+        for (const entry of pendingAudio) {
+          await cacheAudioFile(entry.characterName, entry.text, entry.blob);
+          audioCount++;
+        }
+        setPendingAudio([]);
+      }
+      setImportedAudioCount(audioCount);
+      setPhase({ kind: "done", count });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed.");
+    }
   };
 
   const handleLegacyRestore = async (
@@ -454,6 +500,17 @@ function DataManagementPanel() {
                 </label>
               ))}
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeAudio}
+                onChange={(e) => setIncludeAudio(e.target.checked)}
+                className="accent-accent-cyan"
+              />
+              <span className="text-sm text-muted">
+                Include audio cache for selected production{selectedIds.size !== 1 ? "s" : ""}
+              </span>
+            </label>
             <Button
               variant="primary"
               onClick={handleExport}
@@ -461,6 +518,7 @@ function DataManagementPanel() {
             >
               Export {selectedIds.size > 0 ? `${selectedIds.size} ` : ""}Project
               {selectedIds.size !== 1 ? "s" : ""}
+              {includeAudio ? " (ZIP)" : ""}
             </Button>
           </>
         )}
@@ -475,8 +533,7 @@ function DataManagementPanel() {
         {phase.kind === "idle" && (
           <>
             <p className="text-muted text-sm">
-              Importing will never overwrite existing projects. If a name
-              conflicts you can rename it before importing.
+              Accepts <code>.json</code> (project data only) or <code>.zip</code> (project data + audio cache). Importing never overwrites existing projects — rename conflicts before importing.
             </p>
             <Button
               variant="secondary"
@@ -487,7 +544,7 @@ function DataManagementPanel() {
             <input
               ref={importFileRef}
               type="file"
-              accept=".json"
+              accept=".json,.zip"
               onChange={handleImportFile}
               className="hidden"
             />
@@ -554,6 +611,7 @@ function DataManagementPanel() {
               >
                 Import {phase.selected.size} Project
                 {phase.selected.size !== 1 ? "s" : ""}
+                {pendingAudio.length > 0 && ` + ${pendingAudio.length} audio file${pendingAudio.length !== 1 ? "s" : ""}`}
               </Button>
               <Button
                 variant="secondary"
@@ -571,8 +629,10 @@ function DataManagementPanel() {
         {phase.kind === "done" && (
           <div className="space-y-3">
             <p className="text-green-400 text-sm">
-              Imported {phase.count} project{phase.count !== 1 ? "s" : ""}{" "}
-              successfully.
+              Imported {phase.count} project{phase.count !== 1 ? "s" : ""} successfully.
+              {importedAudioCount > 0 && (
+                <> Also restored {importedAudioCount} audio file{importedAudioCount !== 1 ? "s" : ""} to the cache.</>
+              )}
             </p>
             <div className="flex gap-3">
               <Button

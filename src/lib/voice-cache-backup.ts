@@ -11,8 +11,13 @@
  * interchangeable across destinations.
  */
 
+import JSZipLib from "jszip";
 import { getAllCachedAudio, cacheAudioFile } from "@/lib/audio-cache";
 import type { CachedAudio } from "@/lib/audio-cache";
+
+// Defensive resolution: handle both ESM default and CJS direct-export shapes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const JSZip: typeof JSZipLib = (JSZipLib as any).default ?? JSZipLib;
 
 // ─── Shared manifest format ───────────────────────────────────────────────────
 
@@ -142,13 +147,83 @@ function openOAuthPopup(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Combined project-data + audio ZIP (single-production export/import)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PROJECT_DATA_FILE = "project-data.json";
+
+/**
+ * Export a project payload (ExportDataV2) together with a filtered set of
+ * audio cache entries as a single ZIP file.
+ */
+export async function exportProjectZip(
+  payload: import("@/lib/data-export").ExportDataV2,
+  audioEntries: CachedAudio[],
+  filename: string,
+): Promise<{ audioCount: number }> {
+  const zip = new JSZip();
+  zip.file(PROJECT_DATA_FILE, JSON.stringify(payload, null, 2));
+
+  if (audioEntries.length > 0) {
+    const dir = zip.folder(BACKUP_DIR)!;
+    const manifest = buildManifest(audioEntries);
+    dir.file(MANIFEST_NAME, JSON.stringify(manifest, null, 2));
+    audioEntries.forEach((e, i) => dir.file(manifest[i].filename, e.blob));
+  }
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  triggerDownload(blob, filename);
+  return { audioCount: audioEntries.length };
+}
+
+/**
+ * Parse a combined project ZIP. Returns the project payload (ready for
+ * parseImportData) and any audio entries it contains.
+ */
+export async function extractFromProjectZip(file: File): Promise<{
+  projectData: import("@/lib/data-export").ExportDataV2;
+  audioEntries: CachedAudio[];
+}> {
+  const zip = await JSZip.loadAsync(file);
+
+  const projectFile = zip.file(PROJECT_DATA_FILE);
+  if (!projectFile)
+    throw new Error("Invalid export file — missing project-data.json.");
+
+  const projectData = JSON.parse(
+    await projectFile.async("string"),
+  ) as import("@/lib/data-export").ExportDataV2;
+
+  const audioEntries: CachedAudio[] = [];
+  const manifestFile = zip.file(`${BACKUP_DIR}/${MANIFEST_NAME}`);
+  if (manifestFile) {
+    const manifest: ManifestEntry[] = JSON.parse(
+      await manifestFile.async("string"),
+    );
+    for (const entry of manifest) {
+      const audioFile = zip.file(`${BACKUP_DIR}/${entry.filename}`);
+      if (!audioFile) continue;
+      const buf = await audioFile.async("arraybuffer");
+      audioEntries.push({
+        key: entry.key,
+        characterName: entry.characterName,
+        text: entry.text,
+        blob: new Blob([buf], { type: mimeOf(entry) }),
+        createdAt: entry.createdAt,
+      });
+    }
+  }
+
+  return { projectData, audioEntries };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 1. ZIP
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function exportAsZip(
   onProgress?: ProgressFn,
 ): Promise<{ uploaded: number }> {
-  const { default: JSZip } = await import("jszip");
   const entries = await getAllCachedAudio();
   if (entries.length === 0) throw new Error("No cached audio files to export.");
 
@@ -172,7 +247,6 @@ export async function importFromZip(
   file: File,
   onProgress?: ProgressFn,
 ): Promise<{ imported: number; skipped: number }> {
-  const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(file);
 
   const manifestFile = zip.file(`${BACKUP_DIR}/${MANIFEST_NAME}`);

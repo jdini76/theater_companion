@@ -1131,32 +1131,67 @@ MOM: See? You were ready.`,
         : splitSpeaker(line.character)[0] || line.character;
       const cacheEnabled = getTTSSettings().enableAudioCache ?? false;
       if (isNarratorLine) {
+        const playBlob = (blob: Blob): Promise<void> =>
+          new Promise<void>((resolve) => {
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+            audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+            audio.play().catch(() => { URL.revokeObjectURL(url); resolve(); });
+          });
+
         if (ttsProvider === "kokoro") {
-          const narratorVoice = apiVoiceAssignments["NARRATOR"] || getTTSSettings().kokoroVoice || "am_puck";
-          speakTextViaKokoro(line.dialogue, {
-            voice: narratorVoice,
-            speed: 1,
-            characterName: primarySpeaker,
-            cacheAudio: cacheEnabled,
-            voiceSignature: `kokoro:${narratorVoice}`,
-          })
-            .then(onDone)
-            .catch(() => onDone());
+          (async () => {
+            const ttsSettings = getTTSSettings();
+            const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.kokoroVoice || "am_puck";
+            const voiceSig = `kokoro:${narratorVoice}`;
+            if (cacheEnabled) {
+              const cached = await getCachedAudioFile(primarySpeaker, line.dialogue, voiceSig);
+              if (cached) {
+                setPlayedFromCache(true);
+                await playBlob(cached);
+                onDone();
+                return;
+              }
+            }
+            setPlayedFromCache(false);
+            await speakTextViaKokoro(line.dialogue, {
+              voice: narratorVoice,
+              speed: 1,
+              characterName: primarySpeaker,
+              cacheAudio: cacheEnabled,
+              voiceSignature: voiceSig,
+            });
+            onDone();
+          })().catch(() => onDone());
           return;
         }
 
         if (ttsProvider === "api" || ttsProvider === "proxy") {
-          const ttsSettings = getTTSSettings();
-          const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.defaultVoiceId || "af_heart";
-          speakTextViaApi(line.dialogue, {
-            voice: narratorVoice,
-            speed: 1,
-            characterName: primarySpeaker,
-            cacheAudio: cacheEnabled,
-            forceProxy: ttsProvider === "proxy",
-          })
-            .then(onDone)
-            .catch(() => onDone());
+          (async () => {
+            const ttsSettings = getTTSSettings();
+            const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.defaultVoiceId || "af_heart";
+            const apiType = ttsSettings.externalApiType ?? "custom";
+            const voiceSig = `${apiType}:${narratorVoice}`;
+            if (cacheEnabled) {
+              const cached = await getCachedAudioFile(primarySpeaker, line.dialogue, voiceSig);
+              if (cached) {
+                setPlayedFromCache(true);
+                await playBlob(cached);
+                onDone();
+                return;
+              }
+            }
+            setPlayedFromCache(false);
+            await speakTextViaApi(line.dialogue, {
+              voice: narratorVoice,
+              speed: 1,
+              characterName: primarySpeaker,
+              cacheAudio: cacheEnabled,
+              forceProxy: ttsProvider === "proxy",
+            });
+            onDone();
+          })().catch(() => onDone());
           return;
         }
 

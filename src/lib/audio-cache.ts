@@ -277,6 +277,20 @@ export async function getAllCachedAudio(): Promise<CachedAudio[]> {
 }
 
 /**
+ * Return all cached audio entries whose characterName matches one of the
+ * supplied names (case-insensitive). Used to filter the cache when exporting
+ * a single production.
+ */
+export async function getAudioEntriesForCharacters(
+  characterNames: string[],
+): Promise<CachedAudio[]> {
+  if (characterNames.length === 0) return [];
+  const all = await getAllCachedAudio();
+  const nameSet = new Set(characterNames.map((n) => n.toLowerCase()));
+  return all.filter((e) => nameSet.has(e.characterName.toLowerCase()));
+}
+
+/**
  * Return the number of cached audio files and their combined size in bytes.
  */
 export async function getAudioCacheStats(): Promise<{
