@@ -16,8 +16,8 @@ import { getAllCachedAudio, cacheAudioFile } from "@/lib/audio-cache";
 import type { CachedAudio } from "@/lib/audio-cache";
 
 // Defensive resolution: handle both ESM default and CJS direct-export shapes.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const JSZip: typeof JSZipLib = (JSZipLib as any).default ?? JSZipLib;
+const JSZip: typeof JSZipLib =
+  (JSZipLib as unknown as { default: typeof JSZipLib }).default ?? JSZipLib;
 
 // ─── Shared manifest format ───────────────────────────────────────────────────
 
