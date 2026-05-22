@@ -533,17 +533,34 @@ export async function speakTextViaApi(
     "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
     "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
   ];
+  // In static deployments (e.g. GitHub Pages) there is no server to handle /api/tts.
+  // When NEXT_PUBLIC_OPENROUTER_API_KEY is embedded at build time, call OpenRouter directly.
+  const staticProxyKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
+  const isDirectProxy = isProxy && !!staticProxyKey;
+
   let url: string;
   let payload: Record<string, unknown>;
   if (isProxy) {
     const safeVoice = PROXY_VOICES.includes(voiceId) ? voiceId : (settings.defaultVoiceId && PROXY_VOICES.includes(settings.defaultVoiceId) ? settings.defaultVoiceId : "af_heart");
-    url = "/api/tts";
-    payload = {
-      input: text,
-      voice: safeVoice,
-      speed: options.speed ?? 1,
-      response_format: "mp3",
-    };
+    if (isDirectProxy) {
+      const apiBase = (process.env.NEXT_PUBLIC_OPENROUTER_API_URL ?? "https://openrouter.ai").replace(/\/+$/, "");
+      url = `${apiBase}/api/v1/audio/speech`;
+      payload = {
+        model: process.env.NEXT_PUBLIC_OPENROUTER_MODEL ?? "hexgrad/kokoro-82m",
+        input: text,
+        voice: safeVoice,
+        speed: options.speed ?? 1,
+        response_format: "mp3",
+      };
+    } else {
+      url = "/api/tts";
+      payload = {
+        input: text,
+        voice: safeVoice,
+        speed: options.speed ?? 1,
+        response_format: "mp3",
+      };
+    }
   } else if (isElevenLabs) {
     url = `${baseUrl}/v1/text-to-speech/${encodeURIComponent(voiceId)}`;
     payload = {
@@ -569,13 +586,15 @@ export async function speakTextViaApi(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const effectiveKey = isProxy
-    ? null // key stays server-side
-    : isElevenLabs
-      ? settings.elevenLabsApiKey || settings.apiKey
-      : isDeepgram
-        ? settings.deepgramApiKey || settings.apiKey
-        : settings.apiKey;
+  const effectiveKey = isDirectProxy
+    ? staticProxyKey!
+    : isProxy
+      ? null // key stays server-side
+      : isElevenLabs
+        ? settings.elevenLabsApiKey || settings.apiKey
+        : isDeepgram
+          ? settings.deepgramApiKey || settings.apiKey
+          : settings.apiKey;
   if (effectiveKey) {
     if (isElevenLabs) {
       headers["xi-api-key"] = effectiveKey;
@@ -584,6 +603,10 @@ export async function speakTextViaApi(
     } else {
       headers["Authorization"] = `Bearer ${effectiveKey}`;
     }
+  }
+  if (isDirectProxy) {
+    headers["HTTP-Referer"] = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
+    headers["X-Title"] = "Theater Companion";
   }
 
   const response = await fetch(url, {
