@@ -17,10 +17,11 @@ import {
 import { parseDialogueLines } from "@/lib/rehearsal";
 import {
   buildCharColorMap,
-  GROUP_COLOR,
+  resolveGroupColor,
   GROUP_CHARACTER_NAMES,
   HighlightedLines,
 } from "./SceneHighlight";
+import { useTheme } from "@/hooks/useTheme";
 import { serializeDialogueLines } from "@/lib/rehearsal";
 import {
   MoreHorizontal,
@@ -133,6 +134,7 @@ export function SceneViewer({
   const { getProjectCharacters, createCharacter } = useVoice();
   const { currentProjectId } = useProjects();
   const { navigateToCharacter, navigateToRunLines } = useRehearsalNav();
+  const { isLight } = useTheme();
   const { getProjectScenes, updateScene } = useScenes();
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
@@ -176,6 +178,7 @@ export function SceneViewer({
     projectCast.length > 0
       ? canonicalNames
       : sceneChars.map((n) => n.toUpperCase()),
+    !isLight,
   );
   for (const [alias, canonical] of aliasToCanonical) {
     const color = colorMap.get(canonical);
@@ -226,7 +229,7 @@ export function SceneViewer({
   for (const name of sceneChars.map((n) => n.toUpperCase())) {
     if (!colorMap.has(name)) {
       if (GROUP_CHARACTER_NAMES.has(name)) {
-        colorMap.set(name, GROUP_COLOR);
+        colorMap.set(name, resolveGroupColor(!isLight));
       } else {
         // Assign the next hue in sequence after existing entries.
         const newMap = buildCharColorMap([...colorMap.keys(), name]);

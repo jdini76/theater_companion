@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useTheme } from "@/hooks/useTheme";
 
 import type { LineOverride } from "@/types/line-override";
 import type { DialogueLine } from "@/types/rehearsal";
@@ -24,6 +25,13 @@ export const GROUP_COLOR: CharColor = {
   color: "hsl(45, 80%, 72%)",
   bgColor: "hsla(45, 80%, 72%, 0.12)",
 };
+const GROUP_COLOR_LIGHT: CharColor = {
+  color: "hsl(38, 75%, 35%)",
+  bgColor: "hsla(38, 75%, 60%, 0.18)",
+};
+export function resolveGroupColor(dark: boolean): CharColor {
+  return dark ? GROUP_COLOR : GROUP_COLOR_LIGHT;
+}
 
 /** Character names that represent the whole group and are always highlighted. */
 export const GROUP_CHARACTER_NAMES = new Set([
@@ -43,6 +51,10 @@ const SONG_TITLE_COLOR: CharColor = {
   color: "hsl(52, 100%, 68%)",
   bgColor: "hsla(52, 100%, 68%, 0.12)",
 };
+const SONG_TITLE_COLOR_LIGHT: CharColor = {
+  color: "hsl(44, 90%, 32%)",
+  bgColor: "hsla(44, 90%, 55%, 0.18)",
+};
 
 // Golden angle (~137.5°) hue rotation for maximum hue spread across any cast size.
 //
@@ -57,11 +69,21 @@ const SONG_TITLE_COLOR: CharColor = {
 //   • Cyan-teal (158–205°): can look washed-out → boost S
 // These corrections keep perceived brightness roughly uniform across all hues.
 const GOLDEN_ANGLE = 137.508; // degrees — 360° × (1 − 1/φ)
+
+// Dark theme: higher lightness so colors pop on near-black backgrounds.
 const CHAR_VARIANTS: { s: number; l: number }[] = [
   { s: 80, l: 63 }, // standard
   { s: 91, l: 49 }, // vivid-dark
   { s: 55, l: 76 }, // light-muted
   { s: 86, l: 57 }, // vivid-medium
+];
+
+// Light theme: lower lightness for adequate contrast against white backgrounds.
+const CHAR_VARIANTS_LIGHT: { s: number; l: number }[] = [
+  { s: 80, l: 38 }, // standard
+  { s: 91, l: 34 }, // vivid-dark
+  { s: 68, l: 42 }, // light-muted (needs more saturation to stay readable)
+  { s: 86, l: 36 }, // vivid-medium
 ];
 
 function perceptualCorrection(hue: number): { ds: number; dl: number } {
@@ -71,17 +93,22 @@ function perceptualCorrection(hue: number): { ds: number; dl: number } {
   return { ds: 0, dl: 0 };
 }
 
-export function buildCharColorMap(names: string[]): Map<string, CharColor> {
+export function buildCharColorMap(names: string[], dark = true): Map<string, CharColor> {
   const map = new Map<string, CharColor>();
+  const variants = dark ? CHAR_VARIANTS : CHAR_VARIANTS_LIGHT;
+  const maxL = dark ? 80 : 48;
+  const minL = dark ? 40 : 28;
   [...names].sort().forEach((name, i) => {
     const hue = Math.round((i * GOLDEN_ANGLE) % 360);
-    const { s: baseS, l: baseL } = CHAR_VARIANTS[i % CHAR_VARIANTS.length];
+    const { s: baseS, l: baseL } = variants[i % variants.length];
     const { ds, dl } = perceptualCorrection(hue);
     const s = Math.min(95, Math.max(40, baseS + ds));
-    const l = Math.min(80, Math.max(40, baseL + dl));
+    const l = Math.min(maxL, Math.max(minL, baseL + dl));
     map.set(name.toUpperCase(), {
       color: `hsl(${hue}, ${s}%, ${l}%)`,
-      bgColor: `hsla(${hue}, ${s}%, ${l}%, 0.12)`,
+      bgColor: dark
+        ? `hsla(${hue}, ${s}%, ${l}%, 0.12)`
+        : `hsla(${hue}, ${s}%, 75%, 0.25)`,
     });
   });
   return map;
@@ -370,6 +397,9 @@ export function LineAssignPanel({
   onSplit,
   splitInitialText,
 }: LineAssignPanelProps) {
+  const { isLight } = useTheme();
+  const songColor = isLight ? SONG_TITLE_COLOR_LIGHT : SONG_TITLE_COLOR;
+  const groupColor = isLight ? GROUP_COLOR_LIGHT : GROUP_COLOR;
   const [splitText, setSplitText] = useState(splitInitialText ?? lineText);
   const [mode, setMode] = useState<
     "dialogue" | "header" | "multi-header" | "song-title" | "split"
@@ -477,8 +507,8 @@ export function LineAssignPanel({
             style={
               mode === "song-title"
                 ? {
-                    color: SONG_TITLE_COLOR.color,
-                    backgroundColor: SONG_TITLE_COLOR.bgColor,
+                    color: songColor.color,
+                    backgroundColor: songColor.bgColor,
                   }
                 : undefined
             }
@@ -677,9 +707,9 @@ export function LineAssignPanel({
           style={
             currentAssignment?.kind === "group"
               ? {
-                  color: GROUP_COLOR.color,
-                  backgroundColor: GROUP_COLOR.bgColor,
-                  borderColor: GROUP_COLOR.color,
+                  color: groupColor.color,
+                  backgroundColor: groupColor.bgColor,
+                  borderColor: groupColor.color,
                 }
               : undefined
           }
@@ -797,6 +827,9 @@ export function HighlightedLines({
   assignPanelProps,
 }: HighlightedLinesProps) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
+  const { isLight } = useTheme();
+  const songColor = isLight ? SONG_TITLE_COLOR_LIGHT : SONG_TITLE_COLOR;
+  const groupColor = isLight ? GROUP_COLOR_LIGHT : GROUP_COLOR;
 
   const editIcon = onLineUpdate ? (
     <span className="opacity-0 group-hover:opacity-50 text-muted transition-opacity select-none flex-shrink-0">
@@ -819,10 +852,10 @@ export function HighlightedLines({
             <div key={i} className="mb-1">
               <div
                 className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
-                style={{ backgroundColor: SONG_TITLE_COLOR.bgColor }}
+                style={{ backgroundColor: songColor.bgColor }}
                 onClick={toggle}
               >
-                <span className="flex-1" style={{ color: SONG_TITLE_COLOR.color }}>
+                <span className="flex-1" style={{ color: songColor.color }}>
                   {line.songTitle}
                 </span>
                 {editIcon}
@@ -866,7 +899,7 @@ export function HighlightedLines({
         // Two-row lines: character name row + dialogue text row
         const isGroup = GROUP_CHARACTER_NAMES.has(line.character.toUpperCase());
         const charColor = isGroup
-          ? GROUP_COLOR
+          ? groupColor
           : colorMap.get(line.character.toUpperCase());
         const bgColor = charColor?.bgColor;
 
@@ -910,7 +943,7 @@ export function HighlightedLines({
         const dialogueRow = line.dialogue ? (
           <div
             className={`pl-2 ${clickClass}`}
-            style={{ color: charColor?.color ?? SONG_TITLE_COLOR.color }}
+            style={{ color: charColor?.color ?? songColor.color }}
             onClick={toggle}
           >
             {line.dialogue}
@@ -986,6 +1019,9 @@ export function HighlightedContent({
   assignPanelProps,
 }: HighlightedContentProps) {
   const [activeLine, setActiveLine] = useState<number | null>(null);
+  const { isLight } = useTheme();
+  const songColor = isLight ? SONG_TITLE_COLOR_LIGHT : SONG_TITLE_COLOR;
+  const groupColor = isLight ? GROUP_COLOR_LIGHT : GROUP_COLOR;
   const charSet = new Set(characters.map((c) => c.toUpperCase()));
   const lines = content.split("\n");
 
@@ -1113,8 +1149,8 @@ export function HighlightedContent({
               <div key={i}>
                 <div
                   style={{
-                    color: SONG_TITLE_COLOR.color,
-                    backgroundColor: SONG_TITLE_COLOR.bgColor,
+                    color: songColor.color,
+                    backgroundColor: songColor.bgColor,
                   }}
                   className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
                   onClick={toggle}
@@ -1184,8 +1220,8 @@ export function HighlightedContent({
                 <div key={i}>
                   <div
                     style={{
-                      color: GROUP_COLOR.color,
-                      backgroundColor: GROUP_COLOR.bgColor,
+                      color: groupColor.color,
+                      backgroundColor: groupColor.bgColor,
                     }}
                     className={`font-bold px-1 rounded-sm flex items-center gap-1 group ${clickClass}`}
                     onClick={toggle}
@@ -1195,7 +1231,7 @@ export function HighlightedContent({
                   </div>
                   {dialogue && (
                     <div
-                      style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                      style={{ color: groupColor.color, opacity: 0.8 }}
                       className="pl-3"
                     >
                       {dialogue}
@@ -1208,7 +1244,7 @@ export function HighlightedContent({
             return (
               <div key={i}>
                 <div
-                  style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                  style={{ color: groupColor.color, opacity: 0.8 }}
                   className={`pl-3 flex items-center gap-1 group ${clickClass}`}
                   onClick={toggle}
                 >
@@ -1437,7 +1473,7 @@ export function HighlightedContent({
               </div>
               {dialogue && (
                 <div
-                  style={{ color: GROUP_COLOR.color, opacity: 0.85 }}
+                  style={{ color: groupColor.color, opacity: 0.85 }}
                   className="pl-3"
                 >
                   {dialogue}
@@ -1661,7 +1697,7 @@ export function HighlightedContent({
           return (
             <div key={i}>
               <div
-                style={{ color: GROUP_COLOR.color, opacity: 0.8 }}
+                style={{ color: groupColor.color, opacity: 0.8 }}
                 className={`pl-3 flex items-center gap-1 group ${clickClass}`}
                 onClick={toggle}
               >

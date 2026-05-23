@@ -17,6 +17,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      {/* Apply saved theme before React hydrates to avoid a flash of dark mode */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `try{if(localStorage.getItem('theater_theme')==='light')document.documentElement.classList.add('light')}catch(e){}`,
+        }}
+      />
       <body className="antialiased">
         <ProjectProvider>
           <SceneProvider>

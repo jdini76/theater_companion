@@ -1,5 +1,9 @@
 import type { Config } from "tailwindcss";
 
+// All custom colors use CSS variables with the <alpha-value> placeholder so
+// Tailwind opacity modifiers (e.g. bg-accent-cyan/20) work correctly.
+const v = (name: string) => `rgb(var(${name}) / <alpha-value>)`;
+
 const config: Config = {
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,30 +13,38 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#0b1020",
-        "bg-panel": "#121a2b",
-        "bg-panel-2": "#172033",
-        "bg-input": "#0c1324",
-        "text-primary": "#eef2ff",
-        "text-muted": "#9fb0d0",
-        "accent-cyan": "#7dd3fc",
-        "accent-green": "#86efac",
-        "border-dark": "#2b3957",
-        "warn-amber": "#fbbf24",
+        // Generic semantic aliases (used as bg-background, border-border, etc.)
+        background:        v("--color-bg"),
+        border:            v("--color-border"),
+
+        // Explicit token names
+        bg:                v("--color-bg"),
+        "bg-panel":        v("--color-panel"),
+        "bg-panel-2":      v("--color-panel-2"),
+        "bg-input":        v("--color-input"),
+        "text-primary":    v("--color-text"),
+        "text-muted":      v("--color-muted"),
+        "accent-cyan":     v("--color-accent-cyan"),
+        "accent-green":    v("--color-accent-green"),
+        "border-dark":     v("--color-border"),
+        "warn-amber":      v("--color-warn"),
       },
       backgroundColor: {
-        "dark-base": "#0b1020",
-        "dark-panel": "#121a2b",
-        "dark-panel-2": "#172033",
-        "dark-input": "#0c1324",
+        "dark-base":    v("--color-bg"),
+        "dark-card":    v("--color-panel"),
+        "dark-panel":   v("--color-panel"),
+        "dark-panel-2": v("--color-panel-2"),
+        "dark-input":   v("--color-input"),
+        background:     v("--color-bg"),
       },
       textColor: {
-        light: "#eef2ff",
-        muted: "#9fb0d0",
-        accent: "#7dd3fc",
+        light:  v("--color-text"),
+        muted:  v("--color-muted"),
+        accent: v("--color-accent-cyan"),
       },
       borderColor: {
-        dark: "#2b3957",
+        dark:   v("--color-border"),
+        border: v("--color-border"),
       },
     },
   },

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useTheme } from "@/hooks/useTheme";
 import { useSearchParams } from "next/navigation";
 import { useVoiceList } from "@/hooks/useVoiceList";
 import { Button } from "@/components/ui/Button";
@@ -690,6 +691,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ];
 
 export function SettingsContent() {
+  const { isLight, toggleTheme } = useTheme();
   const { canUseKokoro, deviceType } = useDeviceCapabilities();
   const searchParams = useSearchParams();
   const isIOSDevice = deviceType === "ios";
@@ -809,6 +811,31 @@ export function SettingsContent() {
 
   return (
     <div className="space-y-6">
+      {/* Appearance */}
+      <section className="card">
+        <h2 className="text-base font-bold text-light mb-3">Appearance</h2>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-light font-medium">Light mode</p>
+            <p className="text-xs text-muted mt-0.5">Switch between dark and light themes</p>
+          </div>
+          <button
+            onClick={toggleTheme}
+            role="switch"
+            aria-checked={isLight}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+              isLight ? "bg-accent-cyan" : "bg-dark-panel-2 border border-border"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                isLight ? "translate-x-6" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
+      </section>
+
       {/* Tabs */}
       <div className="flex gap-1 border-b border-border">
         {TABS.map((tab) => (

@@ -2,51 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Theater app dark theme */
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+/* All colors stored as space-separated RGB channels so Tailwind opacity       */
+/* modifiers (e.g. bg-accent-cyan/20) work correctly via                       */
+/* rgb(var(--color-xxx) / alpha).                                               */
+
 :root {
-  --bg: #0b1020;
-  --panel: #121a2b;
-  --panel-2: #172033;
-  --text: #eef2ff;
-  --muted: #9fb0d0;
-  --accent: #7dd3fc;
-  --accent2: #86efac;
-  --border: #2b3957;
-  --warn: #fbbf24;
+  /* Dark theme (default) */
+  --color-bg:           11 16 32;       /* #0b1020 */
+  --color-panel:        18 26 43;       /* #121a2b */
+  --color-panel-2:      23 32 51;       /* #172033 */
+  --color-input:        12 19 36;       /* #0c1324 */
+  --color-text:         238 242 255;    /* #eef2ff */
+  --color-muted:        159 176 208;    /* #9fb0d0 */
+  --color-accent-cyan:  125 211 252;    /* #7dd3fc */
+  --color-accent-green: 134 239 172;    /* #86efac */
+  --color-border:       43 57 87;       /* #2b3957 */
+  --color-warn:         251 191 36;     /* #fbbf24 */
+
+  /* Gradient stops (used in body/html background) */
+  --gradient-from: #050814;
+  --gradient-mid:  #0b1020;
+  --gradient-to:   #111827;
+
+  /* Shadow */
+  --shadow-card: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
+/* ── Light theme overrides ────────────────────────────────────────────────── */
+html.light {
+  --color-bg:           248 250 252;    /* #f8fafc */
+  --color-panel:        255 255 255;    /* #ffffff */
+  --color-panel-2:      241 245 249;    /* #f1f5f9 */
+  --color-input:        241 245 249;    /* #f1f5f9 */
+  --color-text:         15 23 42;       /* #0f172a */
+  --color-muted:        100 116 139;    /* #64748b */
+  --color-accent-cyan:  2 132 199;      /* #0284c7  sky-600 */
+  --color-accent-green: 22 163 74;      /* #16a34a  green-600 */
+  --color-border:       226 232 240;    /* #e2e8f0 */
+  --color-warn:         217 119 6;      /* #d97706  amber-600 */
+
+  --gradient-from: #f8fafc;
+  --gradient-mid:  #f8fafc;
+  --gradient-to:   #f1f5f9;
+
+  --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Base styles ──────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
 }
 
 html {
-  background: linear-gradient(180deg, #050814, #0b1020 35%, #111827);
+  background: linear-gradient(180deg, var(--gradient-from), var(--gradient-mid) 35%, var(--gradient-to));
   min-height: 100vh;
 }
 
 body {
-  background: linear-gradient(180deg, #050814, #0b1020 35%, #111827);
-  color: #eef2ff;
+  background: linear-gradient(180deg, var(--gradient-from), var(--gradient-mid) 35%, var(--gradient-to));
+  color: rgb(var(--color-text));
   margin: 0;
   min-height: 100vh;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  color: #eef2ff;
+h1, h2, h3, h4, h5, h6 {
+  color: rgb(var(--color-text));
   margin: 0 0 10px;
 }
 
 p {
-  color: #9fb0d0;
+  color: rgb(var(--color-muted));
   line-height: 1.45;
   margin: 0;
 }
 
+/* ── Form controls ────────────────────────────────────────────────────────── */
 input[type="text"],
 input[type="number"],
 input[type="email"],
@@ -55,9 +86,9 @@ input[type="url"],
 textarea,
 select {
   width: 100%;
-  background: #0c1324;
-  color: #eef2ff;
-  border: 1px solid #2b3957;
+  background: rgb(var(--color-input));
+  color: rgb(var(--color-text));
+  border: 1px solid rgb(var(--color-border));
   border-radius: 12px;
   padding: 12px;
   font-size: 14px;
@@ -76,24 +107,25 @@ input[type="url"]:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: #7dd3fc;
-  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.1);
+  border-color: rgb(var(--color-accent-cyan));
+  box-shadow: 0 0 0 2px rgb(var(--color-accent-cyan) / 0.15);
 }
 
+/* ── Component utilities ──────────────────────────────────────────────────── */
 .card,
 .panel {
-  background: rgba(18, 26, 43, 0.95);
-  border: 1px solid #2b3957;
+  background: rgb(var(--color-panel) / 0.95);
+  border: 1px solid rgb(var(--color-border));
   border-radius: 20px;
   padding: 18px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--shadow-card);
 }
 
 .pill {
   display: inline-block;
-  border: 1px solid #2b3957;
-  background: #0d1526;
-  color: #9fb0d0;
+  border: 1px solid rgb(var(--color-border));
+  background: rgb(var(--color-input));
+  color: rgb(var(--color-muted));
   border-radius: 999px;
   padding: 7px 12px;
   font-size: 12px;
