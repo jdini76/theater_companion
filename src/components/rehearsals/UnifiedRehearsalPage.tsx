@@ -196,7 +196,12 @@ function getCharacters(
   return Array.from(chars);
 }
 
-export default function UnifiedRehearsalPage() {
+interface UnifiedRehearsalPageProps {
+  pendingSceneId?: string | null;
+  onSceneNavigated?: () => void;
+}
+
+export default function UnifiedRehearsalPage({ pendingSceneId, onSceneNavigated }: UnifiedRehearsalPageProps = {}) {
   // Access saved scenes from the Scene Library (scenes page)
   const { getProjectScenes } = useScenes();
   const { getCurrentProject } = useProjects();
@@ -221,9 +226,11 @@ export default function UnifiedRehearsalPage() {
   const loadedRef = useRef(false);
   // Track whether current scenes came from the library (vs paste/sample)
   const loadedFromLibraryRef = useRef(false);
+  // Track previous scene count to only auto-close panel on first load (0 → >0)
+  const prevSceneCountRef = useRef(0);
 
   // Script loading
-  const [loadSource, setLoadSource] = useState<"paste" | "library">("paste");
+  const [loadSource, setLoadSource] = useState<"paste" | "library">("library");
   const [libraryLoadMode, setLibraryLoadMode] = useState<
     "scenes" | "set-pieces"
   >("scenes");
@@ -542,6 +549,26 @@ export default function UnifiedRehearsalPage() {
     buildSetPieceScenePage,
   ]);
 
+  // Auto-load a scene when navigated from SceneViewer via "Run Lines" button
+  useEffect(() => {
+    if (!pendingSceneId) return;
+    const stored = libraryScenes.find((s) => s.id === pendingSceneId);
+    if (!stored) return;
+    const scene = buildLibraryScenePage(stored);
+    if (!scene) return;
+    loadedFromLibraryRef.current = true;
+    setLoadSource("library");
+    setLibraryLoadMode("scenes");
+    setSelectedLibrarySceneIds(new Set([pendingSceneId]));
+    setScenes([scene]);
+    setSelectedSceneIndex(0);
+    setCurrentSpeaker("READY");
+    setCurrentDialogue("Scene loaded from library.");
+    setCurrentPrompt("");
+    setScenesOpen(false);
+    onSceneNavigated?.();
+  }, [pendingSceneId, libraryScenes, buildLibraryScenePage, onSceneNavigated]);
+
   const normalizeScriptInput = useCallback(
     (text: string) => decodeHtmlEntities(text),
     [],
@@ -681,11 +708,15 @@ export default function UnifiedRehearsalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-expand Run Lines and collapse Scenes Selector when scenes load
+  // Auto-expand Run Lines when scenes load; only collapse the sidebar on first load
   useEffect(() => {
+    const prev = prevSceneCountRef.current;
+    prevSceneCountRef.current = scenes.length;
     if (scenes.length > 0) {
       setRunLinesOpen(true);
-      setScenesOpen(false);
+      setOptionsOpen(true);
+      setVoicesOpen(true);
+      if (prev === 0) setScenesOpen(false);
     }
   }, [scenes.length]);
 
@@ -848,85 +879,75 @@ MOM: See? You were ready.`,
     );
   };
 
-  // Load scenes from the library (scenes page)
-  const handleLoadFromLibrary = () => {
-    if (!currentProjectId) {
-      return;
-    }
+  const loadFromSceneIds = useCallback(
+    (ids: Set<string>) => {
+      setSelectedLibrarySceneIds(ids);
+      if (ids.size === 0) {
+        loadedFromLibraryRef.current = false;
+        setScenes([]);
+        setCurrentSpeaker("");
+        setCurrentDialogue("Load a scene, pick your role, and press Start.");
+        setCurrentPrompt("");
+        return;
+      }
+      const toLoad = libraryScenes.filter((s) => ids.has(s.id));
+      const processedScenes = toLoad
+        .map((scene) => buildLibraryScenePage(scene))
+        .filter((scene): scene is Scene => scene !== null);
+      if (processedScenes.length === 0) return;
+      loadedFromLibraryRef.current = true;
+      setScenes(processedScenes);
+      setSelectedSceneIndex(0);
+      setCurrentSpeaker("READY");
+      setCurrentDialogue("Scenes loaded from library.");
+      setCurrentPrompt("");
+    },
+    [libraryScenes, buildLibraryScenePage],
+  );
 
-    let processedScenes: Scene[] = [];
-
-    if (libraryLoadMode === "set-pieces") {
-      const selectedLabels =
-        selectedLibrarySetPieces.size > 0
-          ? librarySetPieceGroups
-              .map((group) => group.label)
-              .filter((label) => selectedLibrarySetPieces.has(label))
-          : librarySetPieceGroups.map((group) => group.label);
-
-      processedScenes = selectedLabels
+  const loadFromSetPieceLabels = useCallback(
+    (labels: Set<string>) => {
+      setSelectedLibrarySetPieces(labels);
+      if (labels.size === 0) {
+        loadedFromLibraryRef.current = false;
+        setScenes([]);
+        setCurrentSpeaker("");
+        setCurrentDialogue("Load a scene, pick your role, and press Start.");
+        setCurrentPrompt("");
+        return;
+      }
+      const processedScenes = Array.from(labels)
         .map((label) => {
           const group = librarySetPieceGroups.find(
-            (item) => item.label.toLowerCase() === label.toLowerCase(),
+            (g) => g.label.toLowerCase() === label.toLowerCase(),
           );
           if (!group) return null;
           return buildSetPieceScenePage(group.label, group.scenes);
         })
         .filter((scene): scene is Scene => scene !== null);
-    } else {
-      const toLoad: StoredScene[] =
-        selectedLibrarySceneIds.size > 0
-          ? libraryScenes.filter((s) => selectedLibrarySceneIds.has(s.id))
-          : libraryScenes;
-
-      if (toLoad.length === 0) {
-        return;
-      }
-
-      processedScenes = toLoad
-        .map((scene) => buildLibraryScenePage(scene))
-        .filter((scene): scene is Scene => scene !== null);
-    }
-
-    if (processedScenes.length === 0) {
-      return;
-    }
-
-    loadedFromLibraryRef.current = true;
-    setScenes(processedScenes);
-    setSelectedSceneIndex(0);
-    setCurrentSpeaker("READY");
-    setCurrentDialogue(
-      libraryLoadMode === "set-pieces"
-        ? "Set pieces loaded from library."
-        : "Scenes loaded from library.",
-    );
-    setCurrentPrompt("");
-    setScenesOpen(false);
-  };
+      if (processedScenes.length === 0) return;
+      loadedFromLibraryRef.current = true;
+      setScenes(processedScenes);
+      setSelectedSceneIndex(0);
+      setCurrentSpeaker("READY");
+      setCurrentDialogue("Set pieces loaded from library.");
+      setCurrentPrompt("");
+    },
+    [librarySetPieceGroups, buildSetPieceScenePage],
+  );
 
   const toggleLibraryScene = (sceneId: string) => {
-    setSelectedLibrarySceneIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(sceneId)) {
-        next.delete(sceneId);
-      } else {
-        next.add(sceneId);
-      }
-      return next;
-    });
+    const next = new Set(selectedLibrarySceneIds);
+    if (next.has(sceneId)) next.delete(sceneId);
+    else next.add(sceneId);
+    loadFromSceneIds(next);
   };
 
   const toggleLibrarySetPiece = (label: string) => {
-    setSelectedLibrarySetPieces((prev) => {
-      const next = new Set(prev);
-      if (next.has(label)) {
-        next.delete(label);
-      } else {
-        next.add(label);
-      }
-      return next;
-    });
+    const next = new Set(selectedLibrarySetPieces);
+    if (next.has(label)) next.delete(label);
+    else next.add(label);
+    loadFromSetPieceLabels(next);
   };
 
   // Preview a character's voice using the preview text from Settings
@@ -1735,8 +1756,15 @@ MOM: See? You were ready.`,
           onClick={() => setRunLinesOpen((o) => !o)}
           className="w-full flex items-center justify-between"
         >
-          <h2 className="text-lg font-bold text-light">Run Lines</h2>
-          <span className="text-muted text-xs">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-lg font-bold text-light">Run Lines</h2>
+            {scenes[selectedSceneIndex] && (
+              <span className="text-sm text-muted truncate max-w-[24rem]">
+                {scenes[selectedSceneIndex].title}
+              </span>
+            )}
+          </div>
+          <span className="text-muted text-xs flex-shrink-0">
             {runLinesOpen ? "▲ Hide" : "▼ Show"}
           </span>
         </button>
@@ -2013,20 +2041,14 @@ MOM: See? You were ready.`,
                                       el.indeterminate =
                                         someSelected && !allSelected;
                                   }}
-                                  onChange={() =>
-                                    setSelectedLibrarySceneIds((prev) => {
-                                      const next = new Set(prev);
-                                      if (allSelected)
-                                        filtered.forEach((ls) =>
-                                          next.delete(ls.id),
-                                        );
-                                      else
-                                        filtered.forEach((ls) =>
-                                          next.add(ls.id),
-                                        );
-                                      return next;
-                                    })
-                                  }
+                                  onChange={() => {
+                                    const next = new Set(selectedLibrarySceneIds);
+                                    if (allSelected)
+                                      filtered.forEach((ls) => next.delete(ls.id));
+                                    else
+                                      filtered.forEach((ls) => next.add(ls.id));
+                                    loadFromSceneIds(next);
+                                  }}
                                   className="accent-accent-cyan"
                                 />
                                 <span className="text-xs font-semibold text-muted uppercase tracking-widest">
@@ -2076,14 +2098,6 @@ MOM: See? You were ready.`,
                             </div>
                           );
                         })()}
-                        <button
-                          onClick={handleLoadFromLibrary}
-                          className={btnPrimary}
-                        >
-                          {selectedLibrarySceneIds.size > 0
-                            ? `Load ${selectedLibrarySceneIds.size} scene${selectedLibrarySceneIds.size !== 1 ? "s" : ""}`
-                            : `Load all ${libraryScenes.length}`}
-                        </button>
                       </>
                     ) : (
                       <>
@@ -2137,20 +2151,14 @@ MOM: See? You were ready.`,
                                       el.indeterminate =
                                         someSelected && !allSelected;
                                   }}
-                                  onChange={() =>
-                                    setSelectedLibrarySetPieces((prev) => {
-                                      const next = new Set(prev);
-                                      if (allSelected)
-                                        filtered.forEach((group) =>
-                                          next.delete(group.label),
-                                        );
-                                      else
-                                        filtered.forEach((group) =>
-                                          next.add(group.label),
-                                        );
-                                      return next;
-                                    })
-                                  }
+                                  onChange={() => {
+                                    const next = new Set(selectedLibrarySetPieces);
+                                    if (allSelected)
+                                      filtered.forEach((group) => next.delete(group.label));
+                                    else
+                                      filtered.forEach((group) => next.add(group.label));
+                                    loadFromSetPieceLabels(next);
+                                  }}
                                   className="accent-accent-cyan"
                                 />
                                 <span className="text-xs font-semibold text-muted uppercase tracking-widest">
@@ -2199,14 +2207,6 @@ MOM: See? You were ready.`,
                             </div>
                           );
                         })()}
-                        <button
-                          onClick={handleLoadFromLibrary}
-                          className={btnPrimary}
-                        >
-                          {selectedLibrarySetPieces.size > 0
-                            ? `Load ${selectedLibrarySetPieces.size} set piece${selectedLibrarySetPieces.size !== 1 ? "s" : ""}`
-                            : `Load all ${librarySetPieceGroups.length} set pieces`}
-                        </button>
                       </>
                     )}
                   </div>

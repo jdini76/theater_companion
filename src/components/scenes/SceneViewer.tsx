@@ -132,7 +132,7 @@ export function SceneViewer({
   const lastMigratedSceneId = useRef<string | null>(null);
   const { getProjectCharacters, createCharacter } = useVoice();
   const { currentProjectId } = useProjects();
-  const { navigateToCharacter } = useRehearsalNav();
+  const { navigateToCharacter, navigateToRunLines } = useRehearsalNav();
   const { getProjectScenes, updateScene } = useScenes();
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
@@ -878,7 +878,14 @@ export function SceneViewer({
         </div>
 
         {/* Ellipsis menu */}
-        <div className="relative flex-shrink-0" ref={menuRef}>
+        <div className="relative flex-shrink-0 flex items-center gap-1" ref={menuRef}>
+          <button
+            onClick={() => navigateToRunLines(scene.id)}
+            title="Run lines with this scene"
+            className="text-xs px-2.5 py-1 rounded-md bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 transition-colors font-semibold"
+          >
+            Run Lines
+          </button>
           {/* Prev / Next nav */}
           {(onPrev || onNext) && (
             <div className="inline-flex items-center gap-0.5 mr-1">

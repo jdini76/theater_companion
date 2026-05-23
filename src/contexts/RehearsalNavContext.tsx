@@ -7,11 +7,14 @@ interface RehearsalNavContextType {
   navigateToCharacter: (characterId: string) => void;
   /** Navigate to the Scenes tab and open a specific scene by its ID. */
   navigateToScene: (sceneId: string) => void;
+  /** Navigate to the Run Lines tab with a specific scene pre-loaded. */
+  navigateToRunLines: (sceneId: string) => void;
 }
 
 const RehearsalNavContext = createContext<RehearsalNavContextType>({
   navigateToCharacter: () => {},
   navigateToScene: () => {},
+  navigateToRunLines: () => {},
 });
 
 export function useRehearsalNav() {

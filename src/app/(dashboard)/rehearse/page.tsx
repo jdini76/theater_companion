@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { SceneManager } from "@/components/scenes/SceneManager";
 import { useProjects } from "@/contexts/ProjectContext";
 import CastPage from "../cast/page";
-import RehearsalPage from "../rehearsals/page";
+import UnifiedRehearsalPage from "@/components/rehearsals/UnifiedRehearsalPage";
 import SongsPage from "../songs/page";
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { RehearsalNavContext } from "@/contexts/RehearsalNavContext";
@@ -20,6 +20,7 @@ const TABS = [
 export default function RehearsePage() {
   const [tab, setTab] = useState("scenes");
   const [pendingSceneId, setPendingSceneId] = useState<string | null>(null);
+  const [pendingRunLinesSceneId, setPendingRunLinesSceneId] = useState<string | null>(null);
   const { setCurrentCharacter } = useVoice();
   const { getCurrentProject } = useProjects();
   const currentProject = getCurrentProject();
@@ -40,9 +41,14 @@ export default function RehearsePage() {
     setTab("scenes");
   }, []);
 
+  const navigateToRunLines = useCallback((sceneId: string) => {
+    setPendingRunLinesSceneId(sceneId);
+    setTab("run-lines");
+  }, []);
+
   return (
     <RehearsalNavContext.Provider
-      value={{ navigateToCharacter, navigateToScene }}
+      value={{ navigateToCharacter, navigateToScene, navigateToRunLines }}
     >
       <div className="max-w-4xl mx-auto py-8">
         <div className="flex gap-2 mb-6 border-b border-border">
@@ -76,7 +82,12 @@ export default function RehearsePage() {
             </div>
           )}
           {tab === "cast" && <CastPage />}
-          {tab === "run-lines" && <RehearsalPage />}
+          {tab === "run-lines" && (
+            <UnifiedRehearsalPage
+              pendingSceneId={pendingRunLinesSceneId}
+              onSceneNavigated={() => setPendingRunLinesSceneId(null)}
+            />
+          )}
           {tab === "songs" && <SongsPage />}
           {tab === "settings" && <SettingsContent />}
         </div>
