@@ -382,6 +382,14 @@ function ScenesSubTab() {
         large casts of 20+.
       </p>
 
+      <SubHeading>Run Lines shortcut</SubHeading>
+      <p>
+        A <Tag>Run Lines</Tag> button appears at the top-right of every scene
+        viewer. Clicking it takes you directly to the{" "}
+        <Tag>Run Lines</Tag> tab with that scene already loaded — no need to
+        navigate there manually and re-select the scene.
+      </p>
+
       <SubHeading>Multi-character headers</SubHeading>
       <p>
         Lines spoken by more than one character (e.g.{" "}
@@ -555,20 +563,31 @@ function RunLinesSubTab() {
 
       <SubHeading>From Scene Library</SubHeading>
       <p>
-        This is the recommended workflow. Any scenes you&apos;ve imported in the{" "}
-        <Tag>Scenes</Tag> tab are available here. Check one or more scenes to
-        load them, use the search bar to filter by title, character name, or
-        keyword, then click <Tag>Load selected scenes</Tag>. Leave all unchecked
-        to load the entire library at once.
+        This is the default and recommended workflow. Any scenes imported in the{" "}
+        <Tag>Scenes</Tag> tab are available here. Use the search bar to filter
+        by title, character name, or keyword. Checking a scene{" "}
+        <span className="text-light font-medium">immediately loads it</span> —
+        there is no separate Load button. Checking multiple scenes loads them all
+        into the player as a sequence. Unchecking all scenes clears the player.
       </p>
+      <p className="mt-2">
+        The active scene title is shown next to the{" "}
+        <span className="text-light font-medium">Run Lines</span> heading so you
+        always know what&apos;s loaded at a glance. When a scene loads, the{" "}
+        <Tag>Role &amp; Options</Tag> and <Tag>Character Voices</Tag> panels
+        expand automatically so you can start configuring right away.
+      </p>
+      <Note>
+        You can also navigate here directly from any scene in the Scene Viewer
+        using the <Tag>Run Lines</Tag> button — the scene is pre-loaded for you.
+      </Note>
 
       <SubHeading>Paste Script</SubHeading>
       <p>
-        Alternatively, paste script text directly into the text area and click{" "}
-        <Tag>Load script</Tag>. Use <Tag>Single scene</Tag> mode if the text is
-        one continuous scene, or <Tag>Multiple scenes</Tag> to split on scene
-        headings. This does not save to your library — it&apos;s a quick one-off
-        load.
+        Switch to the <Tag>Paste Script</Tag> tab to load text directly without
+        saving it to your library. Use <Tag>Single scene</Tag> mode for one
+        continuous scene, or <Tag>Multiple scenes</Tag> to split on scene
+        headings. This is a quick one-off load — nothing is saved.
       </p>
       <Note>
         Click <Tag>Load sample</Tag> to see a two-scene example with the
@@ -735,11 +754,23 @@ function SettingsSubTab() {
     <div className="space-y-2 text-muted text-sm leading-relaxed">
       <p>
         The <span className="text-light font-medium">Settings</span> tab in
-        Rehearse has two sections:{" "}
+        Rehearse contains three sections:{" "}
+        <span className="text-light font-medium">Appearance</span> for theme
+        preferences,{" "}
         <span className="text-light font-medium">Voice Settings</span> for
         configuring your TTS provider, and{" "}
         <span className="text-light font-medium">Data Management</span> for
         exporting and importing your productions.
+      </p>
+
+      <SectionHeading>Appearance</SectionHeading>
+      <p>
+        A <span className="text-light font-medium">Light mode</span> toggle
+        switches the app between its default dark theme and a light theme. Your
+        preference is saved in localStorage and applied instantly — no page
+        reload needed. The setting persists across sessions and takes effect
+        before the page renders, so there is no flash of the wrong theme on
+        load.
       </p>
 
       <SectionHeading>Voice Settings — TTS Providers</SectionHeading>
@@ -988,9 +1019,10 @@ function RehearsalSection() {
     <div>
       <p className="text-muted text-sm mb-4 leading-relaxed">
         The <span className="text-light font-medium">Rehearse</span> section is
-        where all the rehearsal work happens. It is divided into four tabs:{" "}
-        <Tag>Scenes</Tag>, <Tag>Cast</Tag>, <Tag>Run Lines</Tag>, and{" "}
-        <Tag>Settings</Tag>. Select a tab below to read its documentation.
+        where all the rehearsal work happens. It is divided into five tabs:{" "}
+        <Tag>Scenes</Tag>, <Tag>Cast</Tag>, <Tag>Run Lines</Tag>,{" "}
+        <Tag>Songs</Tag>, and <Tag>Settings</Tag>. Select a tab below to read
+        its documentation.
       </p>
 
       {/* Sub-tabs */}
