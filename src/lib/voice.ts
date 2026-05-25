@@ -393,27 +393,36 @@ export async function fetchApiVoices(
   const apiType = settings.externalApiType ?? "custom";
   const isElevenLabs = apiType === "elevenlabs";
   const isDeepgram = apiType === "deepgram";
-
+  const isSpeechify = apiType === "speechify";
+  let url: string = "";
+  let effectiveKey: string | null = null;
   // Deepgram voices are a fixed set — return locally rather than fetching
   if (isDeepgram) return DEEPGRAM_VOICES;
 
   const baseUrl = settings.apiUrl.replace(/\/+$/, "");
-  const url = isElevenLabs
-    ? `${baseUrl}/v1/voices`
-    : `${baseUrl}/v1/audio/voices`;
-
+  if (isElevenLabs) {
+    url = isElevenLabs ? `${baseUrl}/v1/voices` : `${baseUrl}/v1/audio/voices`;
+  } else if (isSpeechify) {
+    url = `${baseUrl}/v1/voices`;
+  }
   const headers: Record<string, string> = {};
-  const effectiveKey = isElevenLabs
-    ? settings.elevenLabsApiKey || settings.apiKey
-    : settings.apiKey;
-  if (effectiveKey) {
-    if (isElevenLabs) {
-      headers["xi-api-key"] = effectiveKey;
-    } else {
+  if (isElevenLabs) {
+    effectiveKey = isElevenLabs
+      ? settings.elevenLabsApiKey || settings.apiKey
+      : settings.apiKey;
+    if (effectiveKey) {
+      if (isElevenLabs) {
+        headers["xi-api-key"] = effectiveKey;
+      } else {
+        headers["Authorization"] = `Bearer ${effectiveKey}`;
+      }
+    }
+  } else if (isSpeechify) {
+    effectiveKey = settings.speechifyApiKey || settings.apiKey;
+    if (effectiveKey) {
       headers["Authorization"] = `Bearer ${effectiveKey}`;
     }
   }
-
   const response = await fetch(url, {
     method: "GET",
     headers,
@@ -525,13 +534,27 @@ export async function speakTextViaApi(
   const apiType = settings.externalApiType ?? "custom";
   const isElevenLabs = !isProxy && apiType === "elevenlabs";
   const isDeepgram = !isProxy && apiType === "deepgram";
+  const isSpeechify = !isProxy && apiType === "speechify";
   const voiceId = options.voice || settings.defaultVoiceId;
   const baseUrl = isProxy ? "" : settings.apiUrl.replace(/\/+$/, "");
 
   const PROXY_VOICES = [
-    "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore",
-    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
-    "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
+    "af_heart",
+    "af_bella",
+    "af_nicole",
+    "af_aoede",
+    "af_kore",
+    "am_adam",
+    "am_echo",
+    "am_eric",
+    "am_fenrir",
+    "am_liam",
+    "am_michael",
+    "am_onyx",
+    "bf_emma",
+    "bf_isabella",
+    "bm_george",
+    "bm_lewis",
   ];
   // In static deployments (e.g. GitHub Pages) there is no server to handle /api/tts.
   // When NEXT_PUBLIC_OPENROUTER_API_KEY is embedded at build time, call OpenRouter directly.
@@ -541,9 +564,16 @@ export async function speakTextViaApi(
   let url: string;
   let payload: Record<string, unknown>;
   if (isProxy) {
-    const safeVoice = PROXY_VOICES.includes(voiceId) ? voiceId : (settings.defaultVoiceId && PROXY_VOICES.includes(settings.defaultVoiceId) ? settings.defaultVoiceId : "af_heart");
+    const safeVoice = PROXY_VOICES.includes(voiceId)
+      ? voiceId
+      : settings.defaultVoiceId &&
+          PROXY_VOICES.includes(settings.defaultVoiceId)
+        ? settings.defaultVoiceId
+        : "af_heart";
     if (isDirectProxy) {
-      const apiBase = (process.env.NEXT_PUBLIC_OPENROUTER_API_URL ?? "https://openrouter.ai").replace(/\/+$/, "");
+      const apiBase = (
+        process.env.NEXT_PUBLIC_OPENROUTER_API_URL ?? "https://openrouter.ai"
+      ).replace(/\/+$/, "");
       url = `${apiBase}/api/v1/audio/speech`;
       payload = {
         model: process.env.NEXT_PUBLIC_OPENROUTER_MODEL ?? "hexgrad/kokoro-82m",
@@ -577,6 +607,13 @@ export async function speakTextViaApi(
     const model = encodeURIComponent(voiceId || "aura-asteria-en");
     url = `${baseUrl}/v1/speak?model=${model}`;
     payload = { text };
+  } else if (isSpeechify) {
+    url = `${baseUrl}${settings.apiPath || "/v1/audio/speech"}`;
+    payload = {
+      input: text,
+      voice_id: voiceId,
+      audio_format: settings.responseFormat || "mp3",
+    };
   } else {
     const path = settings.apiPath || "/v1/audio/speech";
     url = `${baseUrl}${path}`;
@@ -594,18 +631,23 @@ export async function speakTextViaApi(
         ? settings.elevenLabsApiKey || settings.apiKey
         : isDeepgram
           ? settings.deepgramApiKey || settings.apiKey
-          : settings.apiKey;
+          : isSpeechify
+            ? settings.speechifyApiKey || settings.apiKey
+            : settings.apiKey;
+
   if (effectiveKey) {
     if (isElevenLabs) {
       headers["xi-api-key"] = effectiveKey;
     } else if (isDeepgram) {
       headers["Authorization"] = `Token ${effectiveKey}`;
-    } else {
+    } else if (isSpeechify) {
       headers["Authorization"] = `Bearer ${effectiveKey}`;
     }
   }
   if (isDirectProxy) {
-    headers["HTTP-Referer"] = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
+    headers["HTTP-Referer"] =
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (typeof window !== "undefined" ? window.location.origin : "");
     headers["X-Title"] = "Theater Companion";
   }
 
@@ -621,8 +663,18 @@ export async function speakTextViaApi(
       `TTS API error (${response.status}): ${errorText || response.statusText}`,
     );
   }
-
-  const blob = await response.blob();
+  let blob: Blob = new Blob();
+  if (isSpeechify) {
+    const json = await response.json();
+    if (!json.audio_data) throw new Error("Missing audio_data field");
+    const bytes = Uint8Array.from(atob(json.audio_data), (c) =>
+      c.charCodeAt(0),
+    );
+    blob = new Blob([bytes], { type: "audio/mp3" });
+    // Use blob for playback or further processing
+  } else {
+    blob = await response.blob();
+  }
 
   // Cache audio if enabled
   if (options.cacheAudio && options.characterName) {

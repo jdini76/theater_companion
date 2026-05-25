@@ -201,7 +201,10 @@ interface UnifiedRehearsalPageProps {
   onSceneNavigated?: () => void;
 }
 
-export default function UnifiedRehearsalPage({ pendingSceneId, onSceneNavigated }: UnifiedRehearsalPageProps = {}) {
+export default function UnifiedRehearsalPage({
+  pendingSceneId,
+  onSceneNavigated,
+}: UnifiedRehearsalPageProps = {}) {
   // Access saved scenes from the Scene Library (scenes page)
   const { getProjectScenes } = useScenes();
   const { getCurrentProject } = useProjects();
@@ -265,9 +268,9 @@ export default function UnifiedRehearsalPage({ pendingSceneId, onSceneNavigated 
   );
 
   // TTS provider
-  const [ttsProvider, setTtsProvider] = useState<"browser" | "api" | "kokoro" | "proxy">(
-    "browser",
-  );
+  const [ttsProvider, setTtsProvider] = useState<
+    "browser" | "api" | "kokoro" | "proxy"
+  >("browser");
   const [kokoroStatus, setKokoroStatus] = useState<string | null>(null);
   const [apiVoices, setApiVoices] = useState<ApiVoice[]>([]);
   const [apiVoicesLoading, setApiVoicesLoading] = useState(false);
@@ -552,6 +555,10 @@ export default function UnifiedRehearsalPage({ pendingSceneId, onSceneNavigated 
   // Auto-load a scene when navigated from SceneViewer via "Run Lines" button
   useEffect(() => {
     if (!pendingSceneId) return;
+    console.log(
+      "[UnifiedRehearsalPage] Loading scene from SceneViewer with sceneId:",
+      pendingSceneId,
+    );
     const stored = libraryScenes.find((s) => s.id === pendingSceneId);
     if (!stored) return;
     const scene = buildLibraryScenePage(stored);
@@ -624,7 +631,9 @@ export default function UnifiedRehearsalPage({ pendingSceneId, onSceneNavigated 
     if (typeof saved.narratorVoiceIndex === "number")
       setNarratorVoiceIndex(saved.narratorVoiceIndex);
     if (saved.ttsProvider)
-      setTtsProvider(saved.ttsProvider as "browser" | "api" | "kokoro" | "proxy");
+      setTtsProvider(
+        saved.ttsProvider as "browser" | "api" | "kokoro" | "proxy",
+      );
     if (saved.apiVoiceAssignments)
       setApiVoiceAssignments(
         saved.apiVoiceAssignments as Record<string, string>,
@@ -686,11 +695,19 @@ export default function UnifiedRehearsalPage({ pendingSceneId, onSceneNavigated 
         u.volume = 0;
         u.rate = 10;
         synth.speak(u);
-        setTimeout(() => { synth.cancel(); loadVoices(); }, 50);
-      } catch { /* non-iOS */ }
+        setTimeout(() => {
+          synth.cancel();
+          loadVoices();
+        }, 50);
+      } catch {
+        /* non-iOS */
+      }
     };
     document.addEventListener("click", prime, { once: true, passive: true });
-    document.addEventListener("touchstart", prime, { once: true, passive: true });
+    document.addEventListener("touchstart", prime, {
+      once: true,
+      passive: true,
+    });
 
     return () => {
       timers.forEach(clearTimeout);
@@ -978,8 +995,14 @@ MOM: See? You were ready.`,
         } else if (ttsProvider === "api" || ttsProvider === "proxy") {
           const apiVoiceId =
             apiVoiceAssignments[char] ||
-            (ttsProvider === "proxy" ? getTTSSettings().defaultVoiceId || "af_heart" : ttsSettings.defaultVoiceId);
-          await speakTextViaApi(text, { voice: apiVoiceId, speed: cfg.rate, forceProxy: ttsProvider === "proxy" });
+            (ttsProvider === "proxy"
+              ? getTTSSettings().defaultVoiceId || "af_heart"
+              : ttsSettings.defaultVoiceId);
+          await speakTextViaApi(text, {
+            voice: apiVoiceId,
+            speed: cfg.rate,
+            forceProxy: ttsProvider === "proxy",
+          });
         } else {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
@@ -1156,18 +1179,34 @@ MOM: See? You were ready.`,
           new Promise<void>((resolve) => {
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
-            audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-            audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-            audio.play().catch(() => { URL.revokeObjectURL(url); resolve(); });
+            audio.onended = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.play().catch(() => {
+              URL.revokeObjectURL(url);
+              resolve();
+            });
           });
 
         if (ttsProvider === "kokoro") {
           (async () => {
             const ttsSettings = getTTSSettings();
-            const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.kokoroVoice || "am_puck";
+            const narratorVoice =
+              apiVoiceAssignments["NARRATOR"] ||
+              ttsSettings.kokoroVoice ||
+              "am_puck";
             const voiceSig = `kokoro:${narratorVoice}`;
             if (cacheEnabled) {
-              const cached = await getCachedAudioFile(primarySpeaker, line.dialogue, voiceSig);
+              const cached = await getCachedAudioFile(
+                primarySpeaker,
+                line.dialogue,
+                voiceSig,
+              );
               if (cached) {
                 setPlayedFromCache(true);
                 await playBlob(cached);
@@ -1191,11 +1230,18 @@ MOM: See? You were ready.`,
         if (ttsProvider === "api" || ttsProvider === "proxy") {
           (async () => {
             const ttsSettings = getTTSSettings();
-            const narratorVoice = apiVoiceAssignments["NARRATOR"] || ttsSettings.defaultVoiceId || "af_heart";
+            const narratorVoice =
+              apiVoiceAssignments["NARRATOR"] ||
+              ttsSettings.defaultVoiceId ||
+              "af_heart";
             const apiType = ttsSettings.externalApiType ?? "custom";
             const voiceSig = `${apiType}:${narratorVoice}`;
             if (cacheEnabled) {
-              const cached = await getCachedAudioFile(primarySpeaker, line.dialogue, voiceSig);
+              const cached = await getCachedAudioFile(
+                primarySpeaker,
+                line.dialogue,
+                voiceSig,
+              );
               if (cached) {
                 setPlayedFromCache(true);
                 await playBlob(cached);
@@ -1319,7 +1365,9 @@ MOM: See? You were ready.`,
       if (ttsProvider === "api" || ttsProvider === "proxy") {
         const voiceId =
           apiVoiceAssignments[primarySpeaker] ||
-          (ttsProvider === "proxy" ? getTTSSettings().defaultVoiceId || "af_heart" : "");
+          (ttsProvider === "proxy"
+            ? getTTSSettings().defaultVoiceId || "af_heart"
+            : "");
         const ttsSettings = getTTSSettings();
         const apiType = ttsSettings.externalApiType ?? "custom";
         const voiceSig = `${apiType}:${voiceId}`;
@@ -2042,9 +2090,13 @@ MOM: See? You were ready.`,
                                         someSelected && !allSelected;
                                   }}
                                   onChange={() => {
-                                    const next = new Set(selectedLibrarySceneIds);
+                                    const next = new Set(
+                                      selectedLibrarySceneIds,
+                                    );
                                     if (allSelected)
-                                      filtered.forEach((ls) => next.delete(ls.id));
+                                      filtered.forEach((ls) =>
+                                        next.delete(ls.id),
+                                      );
                                     else
                                       filtered.forEach((ls) => next.add(ls.id));
                                     loadFromSceneIds(next);
@@ -2152,11 +2204,17 @@ MOM: See? You were ready.`,
                                         someSelected && !allSelected;
                                   }}
                                   onChange={() => {
-                                    const next = new Set(selectedLibrarySetPieces);
+                                    const next = new Set(
+                                      selectedLibrarySetPieces,
+                                    );
                                     if (allSelected)
-                                      filtered.forEach((group) => next.delete(group.label));
+                                      filtered.forEach((group) =>
+                                        next.delete(group.label),
+                                      );
                                     else
-                                      filtered.forEach((group) => next.add(group.label));
+                                      filtered.forEach((group) =>
+                                        next.add(group.label),
+                                      );
                                     loadFromSetPieceLabels(next);
                                   }}
                                   className="accent-accent-cyan"
@@ -2449,22 +2507,28 @@ MOM: See? You were ready.`,
                         if (provider === "proxy") {
                           setTtsProvider("proxy");
                           setApiVoices([
-                            { id: "af_heart",    name: "af_heart — US female (warm)" },
-                            { id: "af_bella",    name: "af_bella — US female" },
-                            { id: "af_nicole",   name: "af_nicole — US female" },
-                            { id: "af_aoede",    name: "af_aoede — US female" },
-                            { id: "af_kore",     name: "af_kore — US female" },
-                            { id: "am_adam",     name: "am_adam — US male" },
-                            { id: "am_echo",     name: "am_echo — US male" },
-                            { id: "am_eric",     name: "am_eric — US male" },
-                            { id: "am_fenrir",   name: "am_fenrir — US male" },
-                            { id: "am_liam",     name: "am_liam — US male" },
-                            { id: "am_michael",  name: "am_michael — US male" },
-                            { id: "am_onyx",     name: "am_onyx — US male (deep)" },
-                            { id: "bf_emma",     name: "bf_emma — UK female" },
-                            { id: "bf_isabella", name: "bf_isabella — UK female" },
-                            { id: "bm_george",   name: "bm_george — UK male" },
-                            { id: "bm_lewis",    name: "bm_lewis — UK male" },
+                            {
+                              id: "af_heart",
+                              name: "af_heart — US female (warm)",
+                            },
+                            { id: "af_bella", name: "af_bella — US female" },
+                            { id: "af_nicole", name: "af_nicole — US female" },
+                            { id: "af_aoede", name: "af_aoede — US female" },
+                            { id: "af_kore", name: "af_kore — US female" },
+                            { id: "am_adam", name: "am_adam — US male" },
+                            { id: "am_echo", name: "am_echo — US male" },
+                            { id: "am_eric", name: "am_eric — US male" },
+                            { id: "am_fenrir", name: "am_fenrir — US male" },
+                            { id: "am_liam", name: "am_liam — US male" },
+                            { id: "am_michael", name: "am_michael — US male" },
+                            { id: "am_onyx", name: "am_onyx — US male (deep)" },
+                            { id: "bf_emma", name: "bf_emma — UK female" },
+                            {
+                              id: "bf_isabella",
+                              name: "bf_isabella — UK female",
+                            },
+                            { id: "bm_george", name: "bm_george — UK male" },
+                            { id: "bm_lewis", name: "bm_lewis — UK male" },
                           ]);
                         } else if (provider === "api") {
                           const s = getTTSSettings();
@@ -2515,7 +2579,9 @@ MOM: See? You were ready.`,
                       className={`${inputCls} w-auto`}
                     >
                       <option value="browser">Browser</option>
-                      {canUseKokoro && <option value="kokoro">Kokoro AI</option>}
+                      {canUseKokoro && (
+                        <option value="kokoro">Kokoro AI</option>
+                      )}
                       <option value="proxy">Built-in AI</option>
                       <option value="api">External API</option>
                     </select>
@@ -2573,29 +2639,37 @@ MOM: See? You were ready.`,
                       disabled={getKokoroLoadState() === "loading"}
                       className={btnSecondary}
                     >
-                      {getKokoroLoadState() === "loading" ? "Loading…" : "↻ Reload Model"}
+                      {getKokoroLoadState() === "loading"
+                        ? "Loading…"
+                        : "↻ Reload Model"}
                     </button>
                   )}
                   {ttsProvider === "proxy" && (
                     <button
                       onClick={() => {
                         setApiVoices([
-                          { id: "af_heart",    name: "af_heart — US female (warm)" },
-                          { id: "af_bella",    name: "af_bella — US female" },
-                          { id: "af_nicole",   name: "af_nicole — US female" },
-                          { id: "af_aoede",    name: "af_aoede — US female" },
-                          { id: "af_kore",     name: "af_kore — US female" },
-                          { id: "am_adam",     name: "am_adam — US male" },
-                          { id: "am_echo",     name: "am_echo — US male" },
-                          { id: "am_eric",     name: "am_eric — US male" },
-                          { id: "am_fenrir",   name: "am_fenrir — US male" },
-                          { id: "am_liam",     name: "am_liam — US male" },
-                          { id: "am_michael",  name: "am_michael — US male" },
-                          { id: "am_onyx",     name: "am_onyx — US male (deep)" },
-                          { id: "bf_emma",     name: "bf_emma — UK female" },
-                          { id: "bf_isabella", name: "bf_isabella — UK female" },
-                          { id: "bm_george",   name: "bm_george — UK male" },
-                          { id: "bm_lewis",    name: "bm_lewis — UK male" },
+                          {
+                            id: "af_heart",
+                            name: "af_heart — US female (warm)",
+                          },
+                          { id: "af_bella", name: "af_bella — US female" },
+                          { id: "af_nicole", name: "af_nicole — US female" },
+                          { id: "af_aoede", name: "af_aoede — US female" },
+                          { id: "af_kore", name: "af_kore — US female" },
+                          { id: "am_adam", name: "am_adam — US male" },
+                          { id: "am_echo", name: "am_echo — US male" },
+                          { id: "am_eric", name: "am_eric — US male" },
+                          { id: "am_fenrir", name: "am_fenrir — US male" },
+                          { id: "am_liam", name: "am_liam — US male" },
+                          { id: "am_michael", name: "am_michael — US male" },
+                          { id: "am_onyx", name: "am_onyx — US male (deep)" },
+                          { id: "bf_emma", name: "bf_emma — UK female" },
+                          {
+                            id: "bf_isabella",
+                            name: "bf_isabella — UK female",
+                          },
+                          { id: "bm_george", name: "bm_george — UK male" },
+                          { id: "bm_lewis", name: "bm_lewis — UK male" },
                         ]);
                       }}
                       className={btnSecondary}

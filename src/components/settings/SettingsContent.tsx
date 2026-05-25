@@ -509,7 +509,8 @@ function DataManagementPanel() {
                 className="accent-accent-cyan"
               />
               <span className="text-sm text-muted">
-                Include audio cache for selected production{selectedIds.size !== 1 ? "s" : ""}
+                Include audio cache for selected production
+                {selectedIds.size !== 1 ? "s" : ""}
               </span>
             </label>
             <Button
@@ -534,7 +535,9 @@ function DataManagementPanel() {
         {phase.kind === "idle" && (
           <>
             <p className="text-muted text-sm">
-              Accepts <code>.json</code> (project data only) or <code>.zip</code> (project data + audio cache). Importing never overwrites existing projects — rename conflicts before importing.
+              Accepts <code>.json</code> (project data only) or{" "}
+              <code>.zip</code> (project data + audio cache). Importing never
+              overwrites existing projects — rename conflicts before importing.
             </p>
             <Button
               variant="secondary"
@@ -612,7 +615,8 @@ function DataManagementPanel() {
               >
                 Import {phase.selected.size} Project
                 {phase.selected.size !== 1 ? "s" : ""}
-                {pendingAudio.length > 0 && ` + ${pendingAudio.length} audio file${pendingAudio.length !== 1 ? "s" : ""}`}
+                {pendingAudio.length > 0 &&
+                  ` + ${pendingAudio.length} audio file${pendingAudio.length !== 1 ? "s" : ""}`}
               </Button>
               <Button
                 variant="secondary"
@@ -630,9 +634,14 @@ function DataManagementPanel() {
         {phase.kind === "done" && (
           <div className="space-y-3">
             <p className="text-green-400 text-sm">
-              Imported {phase.count} project{phase.count !== 1 ? "s" : ""} successfully.
+              Imported {phase.count} project{phase.count !== 1 ? "s" : ""}{" "}
+              successfully.
               {importedAudioCount > 0 && (
-                <> Also restored {importedAudioCount} audio file{importedAudioCount !== 1 ? "s" : ""} to the cache.</>
+                <>
+                  {" "}
+                  Also restored {importedAudioCount} audio file
+                  {importedAudioCount !== 1 ? "s" : ""} to the cache.
+                </>
               )}
             </p>
             <div className="flex gap-3">
@@ -817,14 +826,18 @@ export function SettingsContent() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-light font-medium">Light mode</p>
-            <p className="text-xs text-muted mt-0.5">Switch between dark and light themes</p>
+            <p className="text-xs text-muted mt-0.5">
+              Switch between dark and light themes
+            </p>
           </div>
           <button
             onClick={toggleTheme}
             role="switch"
             aria-checked={isLight}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              isLight ? "bg-accent-cyan" : "bg-dark-panel-2 border border-border"
+              isLight
+                ? "bg-accent-cyan"
+                : "bg-dark-panel-2 border border-border"
             }`}
           >
             <span
@@ -1159,21 +1172,43 @@ export function SettingsContent() {
                 </label>
                 {(() => {
                   const PROXY_VOICES = [
-                    "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore",
-                    "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx",
-                    "bf_emma", "bf_isabella", "bm_george", "bm_lewis",
+                    "af_heart",
+                    "af_bella",
+                    "af_nicole",
+                    "af_aoede",
+                    "af_kore",
+                    "am_adam",
+                    "am_echo",
+                    "am_eric",
+                    "am_fenrir",
+                    "am_liam",
+                    "am_michael",
+                    "am_onyx",
+                    "bf_emma",
+                    "bf_isabella",
+                    "bm_george",
+                    "bm_lewis",
                   ];
-                  const proxyVoice = PROXY_VOICES.includes(settings.defaultVoiceId) ? settings.defaultVoiceId : "af_heart";
+                  const proxyVoice = PROXY_VOICES.includes(
+                    settings.defaultVoiceId,
+                  )
+                    ? settings.defaultVoiceId
+                    : "af_heart";
                   return (
                     <select
                       value={proxyVoice}
                       onChange={(e) =>
-                        setSettings({ ...settings, defaultVoiceId: e.target.value })
+                        setSettings({
+                          ...settings,
+                          defaultVoiceId: e.target.value,
+                        })
                       }
                       className="w-full bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
                     >
                       <optgroup label="Kokoro voices">
-                        <option value="af_heart">af_heart — US female (warm)</option>
+                        <option value="af_heart">
+                          af_heart — US female (warm)
+                        </option>
                         <option value="af_bella">af_bella — US female</option>
                         <option value="af_nicole">af_nicole — US female</option>
                         <option value="af_aoede">af_aoede — US female</option>
@@ -1184,9 +1219,13 @@ export function SettingsContent() {
                         <option value="am_fenrir">am_fenrir — US male</option>
                         <option value="am_liam">am_liam — US male</option>
                         <option value="am_michael">am_michael — US male</option>
-                        <option value="am_onyx">am_onyx — US male (deep)</option>
+                        <option value="am_onyx">
+                          am_onyx — US male (deep)
+                        </option>
                         <option value="bf_emma">bf_emma — UK female</option>
-                        <option value="bf_isabella">bf_isabella — UK female</option>
+                        <option value="bf_isabella">
+                          bf_isabella — UK female
+                        </option>
                         <option value="bm_george">bm_george — UK male</option>
                         <option value="bm_lewis">bm_lewis — UK male</option>
                       </optgroup>
@@ -1226,7 +1265,9 @@ export function SettingsContent() {
                         setTestStatus("Playback complete!");
                       } catch (err) {
                         setTestStatus(
-                          err instanceof Error ? err.message : "Playback failed",
+                          err instanceof Error
+                            ? err.message
+                            : "Playback failed",
                         );
                       } finally {
                         setTestPlaying(false);
@@ -1505,7 +1546,8 @@ export function SettingsContent() {
                     const val = e.target.value as
                       | "custom"
                       | "elevenlabs"
-                      | "deepgram";
+                      | "deepgram"
+                      | "speechify";
                     const updates: Partial<TTSSettings> = {
                       externalApiType: val,
                     };
@@ -1521,6 +1563,18 @@ export function SettingsContent() {
                         process.env.NEXT_PUBLIC_DEEPGRAM_API_URL ??
                         "https://api.deepgram.com";
                       updates.stream = false;
+                    } else if (val === "speechify") {
+                      updates.apiUrl =
+                        process.env.NEXT_PUBLIC_SPEECHIFY_API_URL ??
+                        "https://api.speechify.ai";
+                      updates.apiPath =
+                        process.env.NEXT_PUBLIC_SPEECHIFY_SPEECH_PATH ??
+                        "/v1/audio/speech";
+                      updates.responseFormat = "mp3";
+                      updates.stream = true;
+                      updates.voicePath =
+                        process.env.NEXT_PUBLIC_SPEECHIFY_VOICE_PATH ??
+                        "/v1/voices";
                     }
                     const updated = { ...settings, ...updates };
                     setSettings(updated);
@@ -1531,6 +1585,7 @@ export function SettingsContent() {
                   <option value="custom">Custom API</option>
                   <option value="elevenlabs">ElevenLabs</option>
                   <option value="deepgram">Deepgram</option>
+                  <option value="speechify">Speechify</option>
                 </select>
               </div>
 
@@ -2041,6 +2096,190 @@ export function SettingsContent() {
                         }}
                         disabled={
                           !(settings.deepgramApiKey ?? "").trim() ||
+                          !settings.defaultVoiceId.trim() ||
+                          !testText.trim()
+                        }
+                      >
+                        {testPlaying ? "⏹ Stop" : "▶ Play"}
+                      </Button>
+                    </div>
+                    {testStatus && (
+                      <span
+                        className={`text-sm block ${
+                          testStatus === "Playback complete!"
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {testStatus}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Speechify API Form ── */}
+              {settings.externalApiType === "speechify" && (
+                <div className="space-y-4 bg-dark-panel rounded-lg p-4 border border-border">
+                  <p className="text-muted text-sm">
+                    Speechify Aura provides fast, natural-sounding AI voices. As
+                    well as celebrity voices. Enter your API key and select a
+                    voice.{" "}
+                    <a
+                      href="https://speechify.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent-cyan hover:underline"
+                    >
+                      Visit Speechify →
+                    </a>
+                  </p>
+
+                  {/* API Key */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="spApiKey"
+                    >
+                      API Key
+                    </label>
+                    <input
+                      id="spApiKey"
+                      type="password"
+                      value={settings.speechifyApiKey ?? ""}
+                      onChange={(e) => {
+                        const updated = {
+                          ...settings,
+                          speechifyApiKey: e.target.value,
+                        };
+                        setSettings(updated);
+                        saveTTSSettings(updated);
+                      }}
+                      placeholder="Your Speechify API key"
+                      className="w-full bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                      autoComplete="off"
+                    />
+                    <p className="text-muted text-xs">
+                      Found in the Speechify console. Stored locally in your
+                      browser only.
+                    </p>
+                  </div>
+
+                  {/* Voice */}
+                  <div className="space-y-2">
+                    <label
+                      className="block text-light font-semibold"
+                      htmlFor="spVoiceId"
+                    >
+                      Voice
+                    </label>
+                    <div className="flex gap-2">
+                      {apiVoices.length > 0 ? (
+                        <select
+                          id="spVoiceId"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light focus:outline-none focus:border-accent-cyan"
+                        >
+                          <option value="">Select a voice...</option>
+                          {apiVoices.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name ? `${v.name}` : v.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id="spVoiceId"
+                          type="text"
+                          value={settings.defaultVoiceId}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              defaultVoiceId: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. aura-asteria-en"
+                          className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+                        />
+                      )}
+                      <Button
+                        variant="secondary"
+                        onClick={async () => {
+                          setVoicesLoading(true);
+                          setVoicesError(null);
+                          try {
+                            const voices = await fetchApiVoices(settings);
+                            setApiVoices(voices);
+                          } catch (err) {
+                            setVoicesError(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to load voices",
+                            );
+                          } finally {
+                            setVoicesLoading(false);
+                          }
+                        }}
+                        disabled={
+                          voicesLoading ||
+                          !(settings.speechifyApiKey ?? "").trim()
+                        }
+                      >
+                        {voicesLoading ? "Loading..." : "Load Voices"}
+                      </Button>
+                    </div>
+                    {voicesError && (
+                      <p className="text-red-400 text-xs">{voicesError}</p>
+                    )}
+                  </div>
+
+                  {/* Test Voice */}
+                  <div className="space-y-3 border-t border-border pt-4">
+                    <label className="block text-light font-semibold">
+                      Test Voice
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={testText}
+                        onChange={(e) => setTestText(e.target.value)}
+                        placeholder="Enter test text..."
+                        className="flex-1 bg-background border border-border rounded px-3 py-2 text-light placeholder-muted focus:outline-none focus:border-accent-cyan text-sm"
+                      />
+                      <Button
+                        variant="primary"
+                        onClick={async () => {
+                          if (testPlaying) {
+                            stopApiAudio();
+                            setTestPlaying(false);
+                            return;
+                          }
+                          setTestPlaying(true);
+                          setTestStatus(null);
+                          try {
+                            saveTTSSettings(settings);
+                            await speakTextViaApi(testText, {
+                              voice: settings.defaultVoiceId,
+                            });
+                            setTestStatus("Playback complete!");
+                          } catch (err) {
+                            setTestStatus(
+                              err instanceof Error
+                                ? err.message
+                                : "Playback failed",
+                            );
+                          } finally {
+                            setTestPlaying(false);
+                          }
+                        }}
+                        disabled={
+                          !(settings.speechifyApiKey ?? "").trim() ||
                           !settings.defaultVoiceId.trim() ||
                           !testText.trim()
                         }

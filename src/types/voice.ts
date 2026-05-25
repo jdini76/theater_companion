@@ -37,7 +37,7 @@ export interface VoiceOption {
 
 export interface TTSSettings {
   provider: "browser" | "api" | "kokoro" | "proxy";
-  externalApiType?: "custom" | "elevenlabs" | "deepgram";
+  externalApiType?: "custom" | "elevenlabs" | "deepgram" | "speechify";
   apiUrl: string;
   apiPath: string;
   apiKey: string;
@@ -61,6 +61,9 @@ export interface TTSSettings {
   elevenLabsSpeakerBoost?: boolean;
   // Deepgram-specific settings
   deepgramApiKey?: string;
+  speechifyApiKey?: string;
+  speechifyVoiceId?: string;
+  voicePath?: string;
 }
 
 export interface CharacterImportData {
