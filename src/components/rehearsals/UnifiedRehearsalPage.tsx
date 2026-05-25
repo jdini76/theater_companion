@@ -717,11 +717,16 @@ export default function UnifiedRehearsalPage({
     };
   }, []);
 
-  // Load saved settings exactly once on mount
+  // Load saved settings exactly once on mount.
+  // Skip when pendingSceneId is set — the pendingSceneId effect (above) will load
+  // the scene, and calling applySettings here would overwrite it because React
+  // batches both effects' setState calls and runs this one last.
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-    applySettings(loadSavedForProject(currentProjectId));
+    if (!pendingSceneId) {
+      applySettings(loadSavedForProject(currentProjectId));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
