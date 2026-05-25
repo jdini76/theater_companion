@@ -31,13 +31,12 @@ export function ProjectManager() {
             </p>
             {/* Get Started Button */}
             <div className="mt-4">
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => window.location.assign("/about")}
+              <Link
+                href="/about"
+                className="inline-flex items-center px-4 py-2 rounded font-semibold bg-accent-cyan text-dark-base hover:opacity-90 transition-opacity text-sm"
               >
                 Get Started
-              </Button>
+              </Link>
             </div>
           </div>
           <div className="flex items-center gap-2">
