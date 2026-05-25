@@ -1,14 +1,15 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
-module.exports = {
-  basePath: isProd ? "/theater_companion" : "",
-  assetPrefix: isProd ? "/theater_companion/" : "",
-};
+// module.exports = {
+//   basePath: isProd ? "/theater_companion" : "",
+//   assetPrefix: isProd ? "/theater_companion/" : "",
+// };
 
 const nextConfig: NextConfig = {
   output: isProd ? "export" : undefined,
-  // basePath: isProd ? "/theater_companion" : "",
+  basePath: isProd ? "/theater_companion" : "",
+  assetPrefix: isProd ? "/theater_companion/" : "",
   allowedDevOrigins: ["192.168.1.34"],
   env: {
     NEXT_PUBLIC_APP_VERSION:
