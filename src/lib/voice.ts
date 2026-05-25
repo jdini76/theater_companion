@@ -647,7 +647,7 @@ export async function speakTextViaApi(
       headers["xi-api-key"] = effectiveKey;
     } else if (isDeepgram) {
       headers["Authorization"] = `Token ${effectiveKey}`;
-    } else if (isSpeechify) {
+    } else {
       headers["Authorization"] = `Bearer ${effectiveKey}`;
     }
   }
