@@ -582,6 +582,13 @@ export async function speakTextViaApi(
         speed: options.speed ?? 1,
         response_format: "mp3",
       };
+    } else if (process.env.NODE_ENV === "production") {
+      // Static export (e.g. GitHub Pages) has no server to serve /api/tts.
+      // Reach here only when NEXT_PUBLIC_OPENROUTER_API_KEY was not set at build time.
+      throw new Error(
+        "Built-in AI is not configured for this deployment. " +
+          "Add OPENROUTER_API_KEY as a GitHub Actions secret and redeploy to enable it.",
+      );
     } else {
       url = "/api/tts";
       payload = {

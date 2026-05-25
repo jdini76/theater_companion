@@ -1162,6 +1162,14 @@ export function SettingsContent() {
           {/* Built-in AI (proxy) settings */}
           {settings.provider === "proxy" && (
             <div className="space-y-4 border-t border-border pt-4">
+              {process.env.NODE_ENV === "production" &&
+                !process.env.NEXT_PUBLIC_OPENROUTER_API_KEY && (
+                  <div className="rounded border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-yellow-300 text-sm">
+                    <strong>Not configured for this deployment.</strong> Add{" "}
+                    <code className="text-yellow-200">OPENROUTER_API_KEY</code>{" "}
+                    as a GitHub Actions secret and redeploy to enable Built-in AI.
+                  </div>
+                )}
               <p className="text-muted text-sm">
                 Streams high-quality AI voices through this app&apos;s server —
                 no API key or account needed. Requires an internet connection.
