@@ -572,11 +572,11 @@ export async function speakTextViaApi(
         : "af_heart";
     if (isDirectProxy) {
       const apiBase = (
-        process.env.NEXT_PUBLIC_OPENROUTER_API_URL ?? "https://openrouter.ai"
+        process.env.NEXT_PUBLIC_OPENROUTER_API_URL || "https://openrouter.ai"
       ).replace(/\/+$/, "");
       url = `${apiBase}/api/v1/audio/speech`;
       payload = {
-        model: process.env.NEXT_PUBLIC_OPENROUTER_MODEL ?? "hexgrad/kokoro-82m",
+        model: process.env.NEXT_PUBLIC_OPENROUTER_MODEL || "hexgrad/kokoro-82m",
         input: text,
         voice: safeVoice,
         speed: options.speed ?? 1,
