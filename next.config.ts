@@ -1,10 +1,6 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
-// module.exports = {
-//   basePath: isProd ? "/theater_companion" : "",
-//   assetPrefix: isProd ? "/theater_companion/" : "",
-// };
 
 const nextConfig: NextConfig = {
   output: isProd ? "export" : undefined,
