@@ -557,8 +557,8 @@ export async function speakTextViaApi(
     "bm_lewis",
   ];
   // In static deployments (e.g. GitHub Pages) there is no server to handle /api/tts.
-  // When NEXT_PUBLIC_OPENROUTER_API_KEY is embedded at build time, call OpenRouter directly.
-  const staticProxyKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
+  // When OPENROUTER_API_KEY is embedded at build time, call OpenRouter directly.
+  const staticProxyKey = process.env.OPENROUTER_API_KEY;
   const isDirectProxy = isProxy && !!staticProxyKey;
 
   let url: string;

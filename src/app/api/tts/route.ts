@@ -14,6 +14,10 @@ export async function POST(req: NextRequest) {
       },
       { status: 503 },
     );
+  } else {
+    console.log(
+      "[/api/tts] Received request with OPENROUTER_API_KEY configured",
+    );
   }
 
   let body: Record<string, unknown>;
@@ -53,7 +57,8 @@ export async function POST(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+        "HTTP-Referer":
+          process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
         "X-Title": "Theater Companion",
       },
       body: JSON.stringify(upstreamBody),
@@ -69,10 +74,7 @@ export async function POST(req: NextRequest) {
   if (!upstream.ok) {
     const errText = await upstream.text();
     console.error(`[/api/tts] upstream ${upstream.status}:`, errText);
-    return NextResponse.json(
-      { error: errText },
-      { status: upstream.status },
-    );
+    return NextResponse.json({ error: errText }, { status: upstream.status });
   }
 
   const audio = await upstream.arrayBuffer();
