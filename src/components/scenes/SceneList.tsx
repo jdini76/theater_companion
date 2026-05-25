@@ -205,7 +205,10 @@ export function SceneList({
     return (
       <div
         key={scene.id}
-        onClick={() => onSelectScene(scene)}
+        onClick={() => {
+          console.log("[SceneList] Scene selected:", scene.id);
+          onSelectScene(scene);
+        }}
         className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-all ${
           isSelected
             ? "bg-accent-cyan/15 border border-accent-cyan/40"

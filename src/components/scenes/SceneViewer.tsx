@@ -76,7 +76,6 @@ function isRedundantAlias(alias: string, canonical: string): boolean {
   return aliasUpper === canonicalFirstWord;
 }
 
-
 interface SceneViewerProps {
   scene: Scene;
   projectId: string;
@@ -214,7 +213,9 @@ export function SceneViewer({
           // Exclude all other scene-only chars — user must add them to the cast first.
           ...sceneChars
             .map((n) => n.toUpperCase())
-            .filter((n) => !canonicalUpperSet.has(n) && GROUP_CHARACTER_NAMES.has(n)),
+            .filter(
+              (n) => !canonicalUpperSet.has(n) && GROUP_CHARACTER_NAMES.has(n),
+            ),
         ]
       : sceneChars.map((n) => n.toUpperCase());
   for (const name of highlightSource) {
@@ -287,7 +288,11 @@ export function SceneViewer({
     if (scene.lines && scene.lines.length > 0) return scene.lines;
     if (!scene.content?.trim()) return [];
     const knownCast = projectCast.length > 0 ? projectCast : [];
-    const extracted = extractSceneCharacters(scene.content, knownCast, productionType);
+    const extracted = extractSceneCharacters(
+      scene.content,
+      knownCast,
+      productionType,
+    );
     const characters = [
       ...new Set([
         ...knownCast.map((c) => c.toUpperCase()),
@@ -301,7 +306,7 @@ export function SceneViewer({
       characters,
       scene.lineOverrides,
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.lines, scene.content]);
 
   useEffect(() => {
@@ -333,7 +338,7 @@ export function SceneViewer({
     if (displayLines.length > 0) {
       updateScene(scene.id, { lines: displayLines });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id, displayLines]);
 
   useEffect(() => {
@@ -416,7 +421,9 @@ export function SceneViewer({
       update !== "reset"
         ? (update.characters ?? (update.character ? [update.character] : []))
         : [];
-    const sceneCharUpper = new Set(sceneChars.map((c) => c.trim().toUpperCase()));
+    const sceneCharUpper = new Set(
+      sceneChars.map((c) => c.trim().toUpperCase()),
+    );
     // True when a short name like "JASPER" is already covered by a known full
     // name like "JASPER REED" — any word match is sufficient.
     const isPartOfKnownCast = (name: string): boolean => {
@@ -476,7 +483,11 @@ export function SceneViewer({
     // Re-parse the edited text so embedded character names (e.g. "MARA") are
     // detected as proper speakers rather than dialogue continuation.
     const knownCast = projectCast.length > 0 ? projectCast : [];
-    const extracted = extractSceneCharacters(rawText, knownCast, productionType);
+    const extracted = extractSceneCharacters(
+      rawText,
+      knownCast,
+      productionType,
+    );
     const characters = [
       ...new Set([
         ...knownCast.map((c) => c.toUpperCase()),
@@ -881,9 +892,18 @@ export function SceneViewer({
         </div>
 
         {/* Ellipsis menu */}
-        <div className="relative flex-shrink-0 flex items-center gap-1" ref={menuRef}>
+        <div
+          className="relative flex-shrink-0 flex items-center gap-1"
+          ref={menuRef}
+        >
           <button
-            onClick={() => navigateToRunLines(scene.id)}
+            onClick={() => {
+              console.log(
+                "[SceneViewer] Run Lines clicked, sceneId:",
+                scene.id,
+              );
+              navigateToRunLines(scene.id);
+            }}
             title="Run lines with this scene"
             className="text-xs px-2.5 py-1 rounded-md bg-accent-cyan/20 text-accent-cyan hover:bg-accent-cyan/30 transition-colors font-semibold"
           >
@@ -989,7 +1009,11 @@ export function SceneViewer({
 
         <button
           onClick={handleReset}
-          title={resetPending ? "Click again to confirm reset" : "Reset to original import"}
+          title={
+            resetPending
+              ? "Click again to confirm reset"
+              : "Reset to original import"
+          }
           className={`p-1 rounded transition-colors ${resetPending ? "text-red-400 bg-red-500/20 hover:bg-red-500/30" : "text-muted hover:bg-white/10 hover:text-light"}`}
         >
           <RotateCcw size={13} />
@@ -1312,7 +1336,11 @@ export function SceneViewer({
               })}
               <button
                 onClick={handleReset}
-                title={resetPending ? "Click again to confirm reset" : "Reset to original import"}
+                title={
+                  resetPending
+                    ? "Click again to confirm reset"
+                    : "Reset to original import"
+                }
                 className={`p-1 rounded transition-colors ${resetPending ? "text-red-400 bg-red-500/20 hover:bg-red-500/30" : "text-muted hover:bg-white/10 hover:text-light"}`}
               >
                 <RotateCcw size={13} />

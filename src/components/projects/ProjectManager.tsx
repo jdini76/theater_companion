@@ -29,6 +29,16 @@ export function ProjectManager() {
             <p className="text-muted">
               Create and manage your theater productions
             </p>
+            {/* Get Started Button */}
+            <div className="mt-4">
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => window.location.assign("/about")}
+              >
+                Get Started
+              </Button>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Link
