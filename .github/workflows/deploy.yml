@@ -47,6 +47,8 @@ jobs:
           NEXT_PUBLIC_OPENROUTER_API_URL: ${{ secrets.OPENROUTER_API_URL }}
           NEXT_PUBLIC_OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
 
+      - run: npm run export
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
