@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useProjects } from "@/contexts/ProjectContext";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
@@ -25,7 +26,16 @@ function NoProductions() {
     <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <h1 className="text-3xl font-bold text-light">Dashboard</h1>
       <div className="card text-center py-16 space-y-6">
-        <div className="text-6xl">🎭</div>
+        <div className="flex justify-center">
+          <Image
+            src="/TRM_Logo_Full.png"
+            alt="TRM"
+            width={600}
+            height={240}
+            className="object-contain"
+            unoptimized
+          />
+        </div>
         <div>
           <h2 className="text-2xl font-bold text-light mb-2">Welcome</h2>
           <p className="text-muted">
@@ -58,7 +68,16 @@ function NoSelection({ count }: { count: number }) {
     <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <h1 className="text-3xl font-bold text-light">Dashboard</h1>
       <div className="card text-center py-16 space-y-6">
-        <div className="text-6xl">🎭</div>
+        <div className="flex justify-center">
+          <Image
+            src="/TRM_Logo_Full.png"
+            alt="TRM"
+            width={200}
+            height={80}
+            className="object-contain"
+            unoptimized
+          />
+        </div>
         <div>
           <h2 className="text-2xl font-bold text-light mb-2">
             Select a Production

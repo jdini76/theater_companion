@@ -8,6 +8,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Theater Rehearsal Manager",
   description: "A comprehensive theater rehearsal management platform",
+  icons: {
+    icon: "/TRM_Logo_favicon.png",
+    apple: "/TRM_Logo_favicon.png",
+  },
 };
 
 export default function RootLayout({

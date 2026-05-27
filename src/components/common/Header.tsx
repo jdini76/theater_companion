@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { ProjectSelector } from "@/components/projects/ProjectSelector";
 import { NAVIGATION_ITEMS } from "@/constants";
 
@@ -8,8 +9,15 @@ export function Header() {
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center h-16 gap-6">
           <div className="flex-shrink-0">
-            <Link href="/" className="text-2xl font-bold text-accent-cyan">
-              🎭 TRM
+            <Link href="/">
+              <Image
+                src="/TRM_Logo_Header.png"
+                alt="TRM"
+                height={17}
+                width={60}
+                className="object-contain"
+                unoptimized
+              />
             </Link>
           </div>
 
