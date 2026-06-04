@@ -14,6 +14,7 @@ export type SceneInputMode = "single" | "multiple" | "auto";
 export interface ParseSceneOptions {
   mode?: SceneInputMode;
   productionType?: ProductionType;
+  ocrDenoising?: boolean;
 }
 
 export function getSceneParseFormat(
@@ -683,7 +684,7 @@ export function extractCastNames(text: string): string[] {
 }
 
 export function generateSceneId(): string {
-  return `scene_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `scene_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /**
@@ -931,6 +932,7 @@ export function parseScenes(
 
   const mode = options?.mode ?? "auto";
   const productionType = options?.productionType;
+  const ocrDenoising = options?.ocrDenoising ?? false;
 
   // Single scene mode: return entire text as one scene
   if (mode === "single") {
@@ -945,7 +947,7 @@ export function parseScenes(
   }
 
   // Multiple or auto mode: detect scene breaks
-  const detectedScenes = detectSceneBreaks(text, productionType);
+  const detectedScenes = detectSceneBreaks(text, productionType, ocrDenoising);
 
   // In auto mode, if only one scene detected, return as single
   if (mode === "auto" && detectedScenes.length <= 1) {
@@ -961,22 +963,138 @@ export function parseScenes(
 
   // Return detected scenes
   if (detectedScenes.length > 0) {
-    return detectedScenes.map((scene) => ({
-      title: scene.title,
-      content: scene.content,
-      characters: scene.characters,
-    }));
+    return detectedScenes.map((scene) => {
+      const content = ocrDenoising
+        ? cleanOcrSceneContent(scene.content)
+        : scene.content;
+      return {
+        title: scene.title,
+        content,
+        characters: ocrDenoising
+          ? extractSceneCharacters(content, undefined, productionType)
+          : scene.characters,
+      };
+    });
   }
 
   // Fallback if detection failed
   const trimmed = text.trim();
+  const fallbackContent = ocrDenoising
+    ? cleanOcrSceneContent(trimmed)
+    : trimmed;
   return [
     {
       title: "Scene 1",
-      content: trimmed,
-      characters: extractSceneCharacters(trimmed, undefined, productionType),
+      content: fallbackContent,
+      characters: extractSceneCharacters(
+        fallbackContent,
+        undefined,
+        productionType,
+      ),
     },
   ];
+}
+
+/**
+ * Strip a short OCR left-margin artifact from a line if present, returning the
+ * remainder. Returns null when no artifact is detected (so callers can fall back).
+ *
+ * Theatrical librettos scanned with OCR often have 1–4-character margin codes
+ * prepended to every line (e.g. "= SCENE 4", "Bh EDWARD", "— WILL", "BN ACT II").
+ * These tokens prevent scene-break patterns from matching because the patterns
+ * require the keyword to appear at the very start of the line.
+ */
+function tryStripOcrMarginArtifact(line: string): string | null {
+  // Must start with 1–4 non-whitespace chars followed by whitespace + more content
+  const m = line.match(/^(\S{1,4})\s+(\S.*)$/);
+  if (!m) return null;
+  const prefix = m[1];
+  // Don't strip if the prefix itself starts a structural keyword we recognise
+  if (/^(?:ACT|SCENE|INT|EXT|#\d)/i.test(prefix)) return null;
+  // Don't strip standalone digits (page-number artifacts are handled elsewhere)
+  if (/^\d+$/.test(prefix)) return null;
+  return m[2];
+}
+
+/**
+ * Conservative OCR prefix stripper for content lines.
+ * Unlike tryStripOcrMarginArtifact (which is aggressive for scene detection),
+ * this preserves tokens that could be real script content:
+ *   - Single uppercase letters ("I", "A")
+ *   - Common English 2-letter words ("IN", "ON", "OF", etc.)
+ *   - 3–4 char all-uppercase tokens that could be abbreviations or words
+ */
+const COMMON_TWO_LETTER_OCR_SAFE_WORDS = new Set([
+  "IN",
+  "ON",
+  "OF",
+  "TO",
+  "IT",
+  "IS",
+  "AS",
+  "BY",
+  "DO",
+  "GO",
+  "MY",
+  "HE",
+  "WE",
+  "ME",
+  "US",
+  "OR",
+  "AT",
+  "IF",
+  "UP",
+  "SO",
+  "NO",
+  "AN",
+  "BE",
+  "AM",
+  "ID",
+  "OK",
+]);
+
+function tryStripSafeOcrPrefix(line: string): string | null {
+  const m = line.match(/^(\S{1,4})\s+(\S.*)$/);
+  if (!m) return null;
+  const prefix = m[1];
+  if (/^(?:ACT|SCENE|INT|EXT|#\d)/i.test(prefix)) return null;
+  if (/^\d+$/.test(prefix)) return null;
+  // Don't strip single uppercase letters (e.g. "I" or "A" starting dialogue)
+  if (/^[A-Z]$/.test(prefix)) return null;
+  // Don't strip common English 2-letter words
+  if (COMMON_TWO_LETTER_OCR_SAFE_WORDS.has(prefix.toUpperCase())) return null;
+  // Don't strip 3–4 all-uppercase tokens (could be abbreviations or words like "THE")
+  if (/^[A-Z]{3,4}$/.test(prefix)) return null;
+  // Don't strip mixed-case prefixes — they look like real English words ("The", "Oh", "When")
+  if (/[A-Z]/.test(prefix) && /[a-z]/.test(prefix)) return null;
+  return m[2];
+}
+
+function cleanOcrSceneContent(content: string): string {
+  return content
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return "";
+      // Pass 1: if stripping a short prefix yields an all-caps character name,
+      // apply aggressive stripping. This catches mixed-case artifacts like
+      // "Bh EDWARD" or "— WILL" that the conservative path would miss.
+      const charNameMatch = trimmed.match(
+        /^(\S{1,4})\s+([A-Z][A-Z0-9\s\-'.&,+]*)(\s*\([^)]*\))?\s*$/,
+      );
+      if (charNameMatch) {
+        const prefix = charNameMatch[1];
+        if (
+          !/^(?:ACT|SCENE|INT|EXT|#\d)/i.test(prefix) &&
+          !/^\d+$/.test(prefix)
+        ) {
+          return (charNameMatch[2] + (charNameMatch[3] || "")).trim();
+        }
+      }
+      // Pass 2: conservative strip for dialogue/narrative lines.
+      return tryStripSafeOcrPrefix(trimmed) ?? trimmed;
+    })
+    .join("\n");
 }
 
 /**
@@ -986,6 +1104,7 @@ export function parseScenes(
 export function detectSceneBreaks(
   text: string,
   productionType?: ProductionType,
+  ocrDenoising?: boolean,
 ): DetectedScene[] {
   const scenes: DetectedScene[] = [];
   const lines = text.split("\n");
@@ -1052,8 +1171,14 @@ export function detectSceneBreaks(
       continue;
     }
 
+    // When OCR artifacts prefix a line (e.g. "= SCENE 4", "Bh ACT II"),
+    // use the stripped version for pattern matching so scene breaks are detected.
+    // Only applies when the caller signals OCR input — regular uploads are unchanged.
+    const candidate =
+      (ocrDenoising && tryStripOcrMarginArtifact(trimmed)) || trimmed;
+
     // Try pattern 4: #N - Title (before SCENE header so it takes priority)
-    let match = trimmed.match(numberHeadingPattern);
+    let match = candidate.match(numberHeadingPattern);
     if (match) {
       const sceneNum = match[1];
       const sceneTitle = match[2].trim();
@@ -1063,7 +1188,7 @@ export function detectSceneBreaks(
     }
 
     // Try pattern 6: INT./EXT. screenplay format
-    match = trimmed.match(screenplayPattern);
+    match = candidate.match(screenplayPattern);
     if (match) {
       const locType = match[1].toUpperCase();
       const location = match[2].trim();
@@ -1074,7 +1199,7 @@ export function detectSceneBreaks(
     }
 
     // Try pattern 2c: Prologue / Epilogue / Interlude
-    match = trimmed.match(prologuePattern);
+    match = candidate.match(prologuePattern);
     if (match) {
       const label =
         match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
@@ -1085,7 +1210,7 @@ export function detectSceneBreaks(
     }
 
     // Try pattern 1: SCENE N (including alphanumeric like 4b)
-    match = trimmed.match(sceneHeaderPattern);
+    match = candidate.match(sceneHeaderPattern);
     if (match) {
       const sceneNum = match[1];
       const sceneTitle = match[2].trim();
@@ -1099,7 +1224,7 @@ export function detectSceneBreaks(
     }
 
     // Try pattern 2: ACT N [, SCENE M]
-    match = trimmed.match(actScenePattern);
+    match = candidate.match(actScenePattern);
     if (match) {
       const actNum = match[1];
       const sceneNum = match[2];
@@ -1118,17 +1243,20 @@ export function detectSceneBreaks(
     }
 
     // Try pattern 2b: ACT ONE / ACT TWO word-form
-    match = trimmed.match(actWordPattern);
+    match = candidate.match(actWordPattern);
     if (match) {
       // Update current act context (convert word → number)
       currentAct = actWordToNum[match[1].toLowerCase()] || match[1];
 
-      // Skip break if immediately followed by a scene number (to avoid double-breaking)
-      const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : "";
+      // Skip break if immediately followed by a scene number (to avoid double-breaking).
+      const nextTrimmed = i + 1 < lines.length ? lines[i + 1].trim() : "";
+      const nextCandidate =
+        (ocrDenoising && tryStripOcrMarginArtifact(nextTrimmed)) ||
+        nextTrimmed;
       if (
-        !nextLine.match(numberHeadingPattern) &&
-        !nextLine.match(sceneHeaderPattern) &&
-        !nextLine.match(bracketedPattern)
+        !nextCandidate.match(numberHeadingPattern) &&
+        !nextCandidate.match(sceneHeaderPattern) &&
+        !nextCandidate.match(bracketedPattern)
       ) {
         title = `Act ${currentAct}`;
         breaks.push({ lineIndex: i, title });
@@ -1138,7 +1266,7 @@ export function detectSceneBreaks(
     }
 
     // Try pattern 3: [SCENE N]
-    match = trimmed.match(bracketedPattern);
+    match = candidate.match(bracketedPattern);
     if (match) {
       const sceneNum = match[1];
       const sceneTitle = match[2].trim();
@@ -1154,7 +1282,7 @@ export function detectSceneBreaks(
     // Try pattern 5: Separator (---)
     // Content before the separator becomes the current scene;
     // use next non-empty line as a hint for the upcoming scene title.
-    match = trimmed.match(separatorPattern);
+    match = candidate.match(separatorPattern);
     if (match) {
       // Capture content BEFORE this separator as a scene break
       breaks.push({
@@ -1279,12 +1407,13 @@ export function createScenesFromInput(
   text: string,
   mode?: SceneInputMode,
   productionType?: ProductionType,
+  ocrDenoising?: boolean,
 ): Scene[] {
   if (!text || text.trim().length === 0) {
     throw new Error("Scene content cannot be empty");
   }
 
-  const parsedScenes = parseScenes(text, { mode, productionType });
+  const parsedScenes = parseScenes(text, { mode, productionType, ocrDenoising });
 
   if (parsedScenes.length === 0) {
     throw new Error("Failed to parse scene content");
@@ -1316,11 +1445,14 @@ export function createScenesFromInput(
  * Detect the number of scenes in text without parsing full content
  * Useful for deciding which mode UI to show
  */
-export function detectSceneCount(text: string): number {
+export function detectSceneCount(
+  text: string,
+  ocrDenoising?: boolean,
+): number {
   if (!text || text.trim().length === 0) {
     return 0;
   }
-  const detected = detectSceneBreaks(text);
+  const detected = detectSceneBreaks(text, undefined, ocrDenoising);
   return detected.length > 0 ? detected.length : 1;
 }
 

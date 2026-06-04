@@ -955,6 +955,26 @@ export function HighlightedLines({
           !line.songTitle &&
           prevLine.character?.toUpperCase() === line.character?.toUpperCase();
 
+        // Detect continuation: same character speaking again after an intervening stage direction.
+        const prevNonStageLine = (() => {
+          for (let j = i - 1; j >= 0; j--) {
+            if (!lines[j].isStageDirection && !lines[j].songTitle) return lines[j];
+          }
+          return null;
+        })();
+        const isContinuation =
+          !line.isStageDirection &&
+          !line.songTitle &&
+          !line.character?.startsWith("[") &&
+          prevLine?.isStageDirection === true &&
+          prevNonStageLine != null &&
+          !prevNonStageLine.character?.startsWith("[") &&
+          prevNonStageLine.character?.toUpperCase() === line.character?.toUpperCase();
+
+        const contLabel = isContinuation ? (
+          <span className="font-normal normal-case text-xs ml-1 opacity-70">(Con&apos;t)</span>
+        ) : null;
+
         const charNameRow = sameCharAsPrev ? null : line.characters && line.characters.length > 1 ? (
           // Multi-character name row
           <div
@@ -972,6 +992,7 @@ export function HighlightedLines({
                   </span>
                 );
               })}
+              {contLabel}
             </span>
             {editIcon}
           </div>
@@ -987,6 +1008,7 @@ export function HighlightedLines({
               style={{ color: charColor?.color }}
             >
               {line.character}
+              {contLabel}
             </span>
             {editIcon}
           </div>

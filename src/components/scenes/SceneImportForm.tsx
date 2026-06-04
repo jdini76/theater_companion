@@ -314,11 +314,12 @@ export function SceneImportForm({
   // Whether to expand the review list to include auto-matched characters
   const [showAllChars, setShowAllChars] = useState(false);
 
-  const handleParseText = (text: string, sourceType: "text" | "pdf") => {
+  const handleParseText = (text: string, sourceType: "text" | "pdf" | "ocr") => {
     setError(null);
     const normalizedText = decodeHtmlEntities(text);
     const preparedText =
       sourceType === "pdf" ? cleanPdfArtifacts(normalizedText) : normalizedText;
+    const ocrDenoising = sourceType === "ocr";
     if (!preparedText.trim()) {
       setError("Please enter some text");
       setDetectedSceneCount(0);
@@ -330,7 +331,7 @@ export function SceneImportForm({
       const toc = parseTOC(preparedText);
       setTocData(toc);
       const sceneText = toc ? stripTocSection(preparedText, toc) : preparedText;
-      setDetectedSceneCount(detectSceneCount(sceneText));
+      setDetectedSceneCount(detectSceneCount(sceneText, ocrDenoising));
       const activeProductionType =
         productionType ?? currentProject?.productionType;
       const scenes = createScenesFromInput(
@@ -338,6 +339,7 @@ export function SceneImportForm({
         sceneText,
         inputMode,
         activeProductionType,
+        ocrDenoising,
       );
 
       if (scenes.length === 0) {
@@ -796,7 +798,7 @@ export function SceneImportForm({
                     <div className="mt-4">
                       <Button
                         variant="primary"
-                        onClick={() => handleParseText(ocrText, "text")}
+                        onClick={() => handleParseText(ocrText, "ocr")}
                       >
                         Use Extracted Text
                       </Button>
