@@ -244,7 +244,8 @@ function OcrUploaderWithCallback(props: { onExtract: (text: string) => void }) {
         const arrayBuffer = await file.arrayBuffer();
 
         // First, try to extract the text layer (fast, no OCR, works on iOS).
-        const textLayerResult = await tryPdfTextLayer(arrayBuffer);
+        // Pass a copy — pdf.js transfers the ArrayBuffer to its worker, detaching it.
+        const textLayerResult = await tryPdfTextLayer(arrayBuffer.slice(0));
         if (textLayerResult !== null) {
           props.onExtract(decodeHtmlEntities(textLayerResult));
           return;

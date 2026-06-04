@@ -211,6 +211,55 @@ export function SceneProvider({ children }: { children: ReactNode }) {
     setScenes([...reordered, ...otherScenes]);
   };
 
+  const createSceneAfter = (
+    afterSceneId: string,
+    title: string,
+    content: string,
+    productionType?: import("@/types/project").ProductionType,
+    setPiece?: string,
+    lines?: import("@/types/rehearsal").DialogueLine[],
+    characters?: string[],
+  ): Scene => {
+    const titleValidation = validateSceneTitle(title);
+    if (!titleValidation.valid) throw new Error(titleValidation.error);
+    const contentValidation = validateSceneContent(content);
+    if (!contentValidation.valid) throw new Error(contentValidation.error);
+
+    const afterScene = scenes.find((s) => s.id === afterSceneId);
+    if (!afterScene) throw new Error(`Scene with id ${afterSceneId} not found`);
+
+    const newScene = createSceneUtil(
+      afterScene.projectId,
+      title,
+      content,
+      undefined,
+      afterScene.order + 1,
+      productionType,
+      setPiece,
+    );
+    if (lines && lines.length > 0) newScene.lines = lines;
+    if (characters && characters.length > 0) newScene.characters = characters;
+
+    setScenes((currentScenes) => {
+      const projectScenes = currentScenes
+        .filter((s) => s.projectId === afterScene.projectId)
+        .sort((a, b) => a.order - b.order);
+      const otherScenes = currentScenes.filter(
+        (s) => s.projectId !== afterScene.projectId,
+      );
+      const insertIdx =
+        projectScenes.findIndex((s) => s.id === afterSceneId) + 1;
+      const updated = [
+        ...projectScenes.slice(0, insertIdx),
+        newScene,
+        ...projectScenes.slice(insertIdx),
+      ].map((s, i) => ({ ...s, order: i }));
+      return [...otherScenes, ...updated];
+    });
+
+    return newScene;
+  };
+
   return (
     <SceneContext.Provider
       value={{
@@ -222,6 +271,7 @@ export function SceneProvider({ children }: { children: ReactNode }) {
         deleteScenes,
         getProjectScenes,
         reorderScenes,
+        createSceneAfter,
       }}
     >
       {children}

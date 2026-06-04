@@ -134,7 +134,7 @@ export function SceneViewer({
   const { currentProjectId } = useProjects();
   const { navigateToCharacter, navigateToRunLines } = useRehearsalNav();
   const { isLight } = useTheme();
-  const { getProjectScenes, updateScene } = useScenes();
+  const { getProjectScenes, updateScene, createSceneAfter } = useScenes();
   const [screenplayPageIndex, setScreenplayPageIndex] = useState(0);
 
   const activeProjectId = currentProjectId ?? projectId;
@@ -409,9 +409,23 @@ export function SceneViewer({
         i === lineIdx ? { ...(reparsed[0] ?? l), lineNumber: l.lineNumber } : l,
       );
     } else {
-      updatedLines = displayLines.map((l, i) =>
-        i === lineIdx ? { ...l, ...update } : l,
-      );
+      updatedLines = displayLines.map((l, i) => {
+        if (i !== lineIdx) return l;
+        const newChar = (update as Partial<DialogueLine>).character;
+        const updateDialogue = (update as Partial<DialogueLine>).dialogue;
+        let { dialogue } = l;
+        if (updateDialogue !== undefined) {
+          // Update explicitly provides dialogue (e.g. stage-direction merge) — use it.
+          dialogue = updateDialogue;
+        } else if (newChar && !newChar.startsWith("[") && dialogue) {
+          // Strip embedded "CHAR:" prefix when reassigning a character.
+          const charPrefix = newChar.toUpperCase() + ":";
+          if (dialogue.toUpperCase().startsWith(charPrefix)) {
+            dialogue = dialogue.slice(charPrefix.length).trim();
+          }
+        }
+        return { ...l, ...update, dialogue };
+      });
     }
 
     const newContent = serializeDialogueLines(updatedLines);
@@ -480,30 +494,33 @@ export function SceneViewer({
 
   const handleSplit = (lineIdx: number, rawText: string) => {
     if (!rawText.trim()) return;
-    // Re-parse the edited text so embedded character names (e.g. "MARA") are
-    // detected as proper speakers rather than dialogue continuation.
-    const knownCast = projectCast.length > 0 ? projectCast : [];
-    const extracted = extractSceneCharacters(
-      rawText,
-      knownCast,
-      productionType,
-    );
-    const characters = [
-      ...new Set([
-        ...knownCast.map((c) => c.toUpperCase()),
-        ...sceneChars.map((c) => c.toUpperCase()),
-        ...extracted.map((c) => c.toUpperCase()),
-      ]),
-    ];
-    const reparsed = parseDialogueLines(
-      rawText,
-      getSceneParseFormat(productionType),
-      characters,
-    );
-    if (reparsed.length === 0) return;
+    const original = displayLines[lineIdx];
+    if (!original) return;
+
+    // Split on newlines. The first line of rawText is always the character name
+    // (set by splitInitialText) — skip it and use the original line's type directly.
+    const allTextLines = rawText.split("\n");
+    let startIdx = 0;
+    const firstLine = allTextLines[0]?.trim() ?? "";
+    if (firstLine && firstLine.toUpperCase() === original.character.toUpperCase()) {
+      startIdx = 1;
+    }
+
+    const chunks = allTextLines.slice(startIdx).map((l) => l.trim()).filter(Boolean);
+    if (chunks.length < 2) return;
+
+    // Each chunk becomes its own DialogueLine preserving the original character,
+    // type, and flags — no re-parsing so dialogue content is never misidentified
+    // as a character header.
+    const splitLines: DialogueLine[] = chunks.map((chunk, idx) => ({
+      ...original,
+      lineNumber: original.lineNumber + idx,
+      dialogue: chunk,
+    }));
+
     const updatedLines = [
       ...displayLines.slice(0, lineIdx),
-      ...reparsed,
+      ...splitLines,
       ...displayLines.slice(lineIdx + 1),
     ];
     updateScene(scene.id, {
@@ -512,6 +529,49 @@ export function SceneViewer({
       lineOverrides: {},
       displayMap: undefined,
     });
+  };
+
+  const handleSplitToNewScene = (lineIdx: number) => {
+    if (lineIdx <= 0 || lineIdx >= displayLines.length) return;
+
+    const headingLine = displayLines[lineIdx];
+    const newTitle =
+      headingLine.dialogue.trim() || headingLine.character.trim() || "New Scene";
+
+    const beforeLines = displayLines.slice(0, lineIdx);
+    const afterLines = displayLines.slice(lineIdx + 1);
+
+    // Truncate the current scene
+    updateScene(scene.id, {
+      lines: beforeLines,
+      content: serializeDialogueLines(beforeLines),
+      lineOverrides: {},
+      displayMap: undefined,
+    });
+
+    // Build new scene content — fall back to the heading text if no lines follow
+    const newContent =
+      afterLines.length > 0
+        ? serializeDialogueLines(afterLines)
+        : newTitle;
+
+    const newChars = [
+      ...new Set(
+        afterLines
+          .filter((l) => !l.isStageDirection && !l.character.startsWith("["))
+          .map((l) => l.character.toUpperCase()),
+      ),
+    ];
+
+    createSceneAfter(
+      scene.id,
+      newTitle,
+      newContent,
+      productionType,
+      scene.setPiece,
+      afterLines.length > 0 ? afterLines : undefined,
+      newChars.length > 0 ? newChars : undefined,
+    );
   };
 
   const handleReset = () => {
@@ -1095,6 +1155,7 @@ export function SceneViewer({
           onLineUpdate={handleLineUpdate}
           onMergeAbove={handleMergeAbove}
           onSplit={handleSplit}
+          onSplitToNewScene={handleSplitToNewScene}
           maxHeight="max-h-[calc(160vh-20rem)]"
           textSize={scriptTextSize}
           allowSongMenus={productionType !== "Film"}
@@ -1366,6 +1427,7 @@ export function SceneViewer({
                 onLineUpdate={handleLineUpdate}
                 onMergeAbove={handleMergeAbove}
                 onSplit={handleSplit}
+                onSplitToNewScene={handleSplitToNewScene}
                 maxHeight="max-h-[calc(100vh-5rem)]"
                 textSize={scriptTextSize}
                 allowSongMenus={productionType !== "Film"}

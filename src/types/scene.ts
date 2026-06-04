@@ -85,4 +85,13 @@ export interface SceneContextType {
   deleteScenes: (ids: string[]) => void;
   getProjectScenes: (projectId: string) => Scene[];
   reorderScenes: (projectId: string, sceneIds: string[]) => void;
+  createSceneAfter: (
+    afterSceneId: string,
+    title: string,
+    content: string,
+    productionType?: ProductionType,
+    setPiece?: string,
+    lines?: DialogueLine[],
+    characters?: string[],
+  ) => Scene;
 }

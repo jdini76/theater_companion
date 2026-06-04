@@ -380,6 +380,7 @@ interface LineAssignPanelProps {
   onMergeAbove?: () => void;
   onSplit?: (rawText: string) => void;
   splitInitialText?: string;
+  onSplitToNewScene?: () => void;
 }
 
 export function LineAssignPanel({
@@ -396,6 +397,7 @@ export function LineAssignPanel({
   onMergeAbove,
   onSplit,
   splitInitialText,
+  onSplitToNewScene,
 }: LineAssignPanelProps) {
   const { isLight } = useTheme();
   const songColor = isLight ? SONG_TITLE_COLOR_LIGHT : SONG_TITLE_COLOR;
@@ -747,6 +749,15 @@ export function LineAssignPanel({
             Split
           </button>
         )}
+        {onSplitToNewScene && (
+          <button
+            onClick={() => { onSplitToNewScene(); onClose(); }}
+            className="px-2 py-0.5 rounded border border-border text-muted hover:text-light transition-colors"
+            title="Use this line as a scene heading — move it and all following lines into a new scene"
+          >
+            New Scene ↓
+          </button>
+        )}
         <button
           onClick={onClose}
           className="ml-auto px-2 py-0.5 text-muted hover:text-light transition-colors"
@@ -773,7 +784,7 @@ function dialogueLineToOverride(line: DialogueLine): LineOverride | undefined {
   return { kind: "dialogue", char: line.character };
 }
 
-function overrideToDialogueUpdate(override: LineOverride): Partial<DialogueLine> {
+function overrideToDialogueUpdate(override: LineOverride, currentLine?: DialogueLine): Partial<DialogueLine> {
   switch (override.kind) {
     case "dialogue":
     case "header":
@@ -783,10 +794,36 @@ function overrideToDialogueUpdate(override: LineOverride): Partial<DialogueLine>
       return { character: override.chars.join(" & "), characters: override.chars, isStageDirection: false, isSong: false, songTitle: undefined, isNarratorCue: false };
     case "song-title":
       return { songTitle: override.text, isSong: false, isStageDirection: false };
-    case "group":
-      return { character: "ALL", characters: ["ALL"], isStageDirection: false, isSong: false, songTitle: undefined };
-    case "stage-direction":
+    case "group": {
+      // Preserve the existing character name when it's already a recognized group/ensemble
+      // name (ENSEMBLE, CHORUS, etc.) so marking a line as "group" doesn't force "ALL".
+      const existingChar = currentLine?.character?.toUpperCase();
+      const groupChar =
+        existingChar && GROUP_CHARACTER_NAMES.has(existingChar)
+          ? currentLine!.character
+          : "ALL";
+      return { character: groupChar, characters: [groupChar], isStageDirection: false, isSong: false, songTitle: undefined };
+    }
+    case "stage-direction": {
+      // When converting a character's line to a stage direction, merge the
+      // character name into the dialogue text so the full original context is
+      // preserved (e.g. "ANNIE" + "Hello there" → stage direction "ANNIE: Hello there").
+      // Skip this if the line is already a stage direction or a system marker.
+      if (!currentLine?.isStageDirection) {
+        const char = currentLine?.character;
+        const text = currentLine?.dialogue ?? "";
+        let stageText = text;
+        if (char && !char.startsWith("[") && text) {
+          stageText = `${char}: ${text}`;
+        } else if (char && !char.startsWith("[") && !text) {
+          stageText = char;
+        }
+        if (stageText) {
+          return { isStageDirection: true, isSong: false, songTitle: undefined, dialogue: stageText };
+        }
+      }
       return { isStageDirection: true, isSong: false, songTitle: undefined };
+    }
   }
 }
 
@@ -804,6 +841,7 @@ export interface HighlightedLinesProps {
   ) => void;
   onMergeAbove?: (lineIdx: number) => void;
   onSplit?: (lineIdx: number, rawText: string) => void;
+  onSplitToNewScene?: (lineIdx: number) => void;
   maxHeight?: string;
   textSize?: string;
   allowSongMenus?: boolean;
@@ -820,6 +858,7 @@ export function HighlightedLines({
   onLineUpdate,
   onMergeAbove,
   onSplit,
+  onSplitToNewScene,
   maxHeight = "max-h-80",
   textSize = "text-xs",
   allowSongMenus = true,
@@ -903,7 +942,20 @@ export function HighlightedLines({
           : colorMap.get(line.character.toUpperCase());
         const bgColor = charColor?.bgColor;
 
-        const charNameRow = line.characters && line.characters.length > 1 ? (
+        // Suppress the character header for consecutive same-character lines
+        // (e.g. after a split, both halves belong to the same character).
+        const prevLine = i > 0 ? lines[i - 1] : null;
+        const sameCharAsPrev =
+          prevLine != null &&
+          !prevLine.isStageDirection &&
+          !prevLine.character?.startsWith("[") &&
+          !prevLine.songTitle &&
+          !line.isStageDirection &&
+          !line.character?.startsWith("[") &&
+          !line.songTitle &&
+          prevLine.character?.toUpperCase() === line.character?.toUpperCase();
+
+        const charNameRow = sameCharAsPrev ? null : line.characters && line.characters.length > 1 ? (
           // Multi-character name row
           <div
             className={`flex items-center gap-1 group rounded px-1 ${clickClass}`}
@@ -943,7 +995,7 @@ export function HighlightedLines({
         const dialogueRow = line.dialogue ? (
           <div
             className={`pl-2 ${clickClass}`}
-            style={{ color: charColor?.color ?? songColor.color }}
+            style={{ color: charColor?.color }}
             onClick={toggle}
           >
             {line.dialogue}
@@ -969,7 +1021,7 @@ export function HighlightedLines({
               allowSongMenus={allowSongMenus}
               stageDirectionLabel={stageDirectionLabel}
               onAssign={(override) => {
-                onLineUpdate!(idx, overrideToDialogueUpdate(override));
+                onLineUpdate!(idx, overrideToDialogueUpdate(override, dl));
                 setActiveLine(null);
               }}
               onReset={() => {
@@ -980,6 +1032,7 @@ export function HighlightedLines({
               onMergeAbove={idx > 0 && onMergeAbove ? () => { onMergeAbove(idx); setActiveLine(null); } : undefined}
               onSplit={onSplit ? (rawText) => { onSplit(idx, rawText); setActiveLine(null); } : undefined}
               splitInitialText={dl.dialogue ? `${dl.character}\n${dl.dialogue}` : dl.character}
+              onSplitToNewScene={idx > 0 && onSplitToNewScene ? () => onSplitToNewScene(idx) : undefined}
             />
           );
         }
