@@ -25,6 +25,7 @@ export interface CharacterRole {
   aliases?: string[];
   category?: string;
   isMyRole?: boolean;
+  color?: string; // User-chosen hex color override, e.g. "#e74c3c"
   createdAt: string;
   updatedAt: string;
 }

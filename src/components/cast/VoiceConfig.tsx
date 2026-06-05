@@ -69,6 +69,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   // General tab local state
   const [editName, setEditName] = useState(character?.characterName ?? "");
   const [editCategory, setEditCategory] = useState(character?.category ?? "");
+  const [editColor, setEditColor] = useState(character?.color ?? "");
   const [aliasSelect, setAliasSelect] = useState("");
   const [aliasSearch, setAliasSearch] = useState("");
   const [aliasDropdownOpen, setAliasDropdownOpen] = useState(false);
@@ -120,6 +121,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
   useEffect(() => {
     setEditName(character?.characterName ?? "");
     setEditCategory(character?.category ?? "");
+    setEditColor(character?.color ?? "");
     setAliasSelect("");
     setAliasSearch("");
     setAliasDropdownOpen(false);
@@ -343,6 +345,43 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
                 <option value="Individual">Individual</option>
                 <option value="Group">Group</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-light font-semibold mb-1 text-sm">
+                Highlight Color
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="relative flex-shrink-0">
+                  <div
+                    className="w-9 h-9 rounded border border-border"
+                    style={{ backgroundColor: editColor || undefined }}
+                  />
+                  <input
+                    type="color"
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer rounded"
+                    value={editColor || "#888888"}
+                    onChange={(e) => {
+                      setEditColor(e.target.value);
+                      updateCharacter(character.id, { color: e.target.value });
+                    }}
+                  />
+                </div>
+                <span className="text-muted text-xs flex-1">
+                  {editColor ? editColor : "Auto (based on cast order)"}
+                </span>
+                {editColor && (
+                  <button
+                    onClick={() => {
+                      setEditColor("");
+                      updateCharacter(character.id, { color: undefined });
+                    }}
+                    className="text-xs text-muted hover:text-light transition-colors"
+                  >
+                    Reset to auto
+                  </button>
+                )}
+              </div>
             </div>
 
             <div>

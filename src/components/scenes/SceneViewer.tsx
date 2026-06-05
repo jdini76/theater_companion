@@ -130,7 +130,7 @@ export function SceneViewer({
   const menuRef = useRef<HTMLDivElement>(null);
   const screenplayScrollRef = useRef<HTMLDivElement>(null);
   const lastMigratedSceneId = useRef<string | null>(null);
-  const { getProjectCharacters, createCharacter } = useVoice();
+  const { getProjectCharacters, createCharacter, updateCharacter } = useVoice();
   const { currentProjectId } = useProjects();
   const { navigateToCharacter, navigateToRunLines } = useRehearsalNav();
   const { isLight } = useTheme();
@@ -171,6 +171,17 @@ export function SceneViewer({
     }
   }
 
+  // User hex color overrides: canonical name → hex, plus all aliases.
+  const characterColorOverrides = new Map<string, string>();
+  for (const char of projectCharacters) {
+    if (char.color) {
+      characterColorOverrides.set(char.characterName.toUpperCase(), char.color);
+      for (const alias of char.aliases ?? []) {
+        characterColorOverrides.set(alias.toUpperCase(), char.color);
+      }
+    }
+  }
+
   // Color map: built from canonical names only, then alias entries are added
   // pointing to the same color as their canonical so highlights match.
   const colorMap = buildCharColorMap(
@@ -178,6 +189,7 @@ export function SceneViewer({
       ? canonicalNames
       : sceneChars.map((n) => n.toUpperCase()),
     !isLight,
+    characterColorOverrides,
   );
   for (const [alias, canonical] of aliasToCanonical) {
     const color = colorMap.get(canonical);
@@ -630,9 +642,21 @@ export function SceneViewer({
       allCharacters.push(upper);
     }
   }
+  const handleCharacterColorChange = (charName: string, hex: string) => {
+    const upper = charName.toUpperCase();
+    const found = projectCharacters.find(
+      (c) =>
+        c.characterName.toUpperCase() === upper ||
+        (c.aliases ?? []).some((a) => a.toUpperCase() === upper),
+    );
+    if (found) updateCharacter(found.id, { color: hex });
+  };
+
   const assignPanelProps = {
     sceneCharacters,
     allCharacters,
+    onCharacterColorChange: handleCharacterColorChange,
+    characterColorOverrides,
   };
   const stageDirectionLabel =
     productionType === "Film" ? "Action Line" : "Stage Direction";

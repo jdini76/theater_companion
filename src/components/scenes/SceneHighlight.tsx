@@ -93,18 +93,30 @@ function perceptualCorrection(hue: number): { ds: number; dl: number } {
   return { ds: 0, dl: 0 };
 }
 
-export function buildCharColorMap(names: string[], dark = true): Map<string, CharColor> {
+export function buildCharColorMap(
+  names: string[],
+  dark = true,
+  colorOverrides?: Map<string, string>,
+): Map<string, CharColor> {
   const map = new Map<string, CharColor>();
   const variants = dark ? CHAR_VARIANTS : CHAR_VARIANTS_LIGHT;
   const maxL = dark ? 80 : 48;
   const minL = dark ? 40 : 28;
   [...names].sort().forEach((name, i) => {
+    const upper = name.toUpperCase();
+    const hex = colorOverrides?.get(upper);
+    if (hex) {
+      // User-specified hex color — append hex alpha for the background tint.
+      const alpha = dark ? "1f" : "40"; // ~12% / ~25% opacity
+      map.set(upper, { color: hex, bgColor: hex + alpha });
+      return;
+    }
     const hue = Math.round((i * GOLDEN_ANGLE) % 360);
     const { s: baseS, l: baseL } = variants[i % variants.length];
     const { ds, dl } = perceptualCorrection(hue);
     const s = Math.min(95, Math.max(40, baseS + ds));
     const l = Math.min(maxL, Math.max(minL, baseL + dl));
-    map.set(name.toUpperCase(), {
+    map.set(upper, {
       color: `hsl(${hue}, ${s}%, ${l}%)`,
       bgColor: dark
         ? `hsla(${hue}, ${s}%, ${l}%, 0.12)`
@@ -381,6 +393,8 @@ interface LineAssignPanelProps {
   onSplit?: (rawText: string) => void;
   splitInitialText?: string;
   onSplitToNewScene?: () => void;
+  onCharacterColorChange?: (characterName: string, hex: string) => void;
+  characterColorOverrides?: Map<string, string>;
 }
 
 export function LineAssignPanel({
@@ -398,6 +412,8 @@ export function LineAssignPanel({
   onSplit,
   splitInitialText,
   onSplitToNewScene,
+  onCharacterColorChange,
+  characterColorOverrides,
 }: LineAssignPanelProps) {
   const { isLight } = useTheme();
   const songColor = isLight ? SONG_TITLE_COLOR_LIGHT : SONG_TITLE_COLOR;
@@ -558,22 +574,41 @@ export function LineAssignPanel({
               const color = colorMap.get(char.toUpperCase());
               const checked = selectedChars.has(char.toUpperCase());
               return (
-                <button
-                  key={char}
-                  onClick={() => toggleSelectedChar(char.toUpperCase())}
-                  style={
-                    checked
-                      ? { color: color?.color, backgroundColor: color?.bgColor }
-                      : undefined
-                  }
-                  className={`px-2 py-0.5 rounded font-mono border transition-colors ${
-                    checked
-                      ? "border-current opacity-100"
-                      : "border-border text-muted hover:text-light"
-                  }`}
-                >
-                  {char}
-                </button>
+                <div key={char} className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => toggleSelectedChar(char.toUpperCase())}
+                    style={
+                      checked
+                        ? { color: color?.color, backgroundColor: color?.bgColor }
+                        : undefined
+                    }
+                    className={`px-2 py-0.5 rounded font-mono border transition-colors ${
+                      checked
+                        ? "border-current opacity-100"
+                        : "border-border text-muted hover:text-light"
+                    }`}
+                  >
+                    {char}
+                  </button>
+                  {onCharacterColorChange && (
+                    <label
+                      className="relative flex-shrink-0 w-3.5 h-3.5 rounded-full cursor-pointer"
+                      title="Change highlight color"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div
+                        className="w-full h-full rounded-full ring-1 ring-white/20"
+                        style={{ backgroundColor: color?.color }}
+                      />
+                      <input
+                        type="color"
+                        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                        value={characterColorOverrides?.get(char.toUpperCase()) ?? "#888888"}
+                        onChange={(e) => onCharacterColorChange(char, e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -613,23 +648,42 @@ export function LineAssignPanel({
                 : currentAssignment?.kind === "dialogue" &&
                   currentAssignment.char === char;
               return (
-                <button
-                  key={char}
-                  onClick={() =>
-                    onAssign(
-                      isHeader
-                        ? { kind: "header", char }
-                        : { kind: "dialogue", char },
-                    )
-                  }
-                  style={{
-                    color: color?.color,
-                    backgroundColor: color?.bgColor,
-                  }}
-                  className={`px-2 py-0.5 rounded font-mono hover:opacity-80 transition-opacity border ${isSelected ? "border-current" : "border-transparent"}`}
-                >
-                  {char}
-                </button>
+                <div key={char} className="flex items-center gap-0.5">
+                  <button
+                    onClick={() =>
+                      onAssign(
+                        isHeader
+                          ? { kind: "header", char }
+                          : { kind: "dialogue", char },
+                      )
+                    }
+                    style={{
+                      color: color?.color,
+                      backgroundColor: color?.bgColor,
+                    }}
+                    className={`px-2 py-0.5 rounded font-mono hover:opacity-80 transition-opacity border ${isSelected ? "border-current" : "border-transparent"}`}
+                  >
+                    {char}
+                  </button>
+                  {onCharacterColorChange && (
+                    <label
+                      className="relative flex-shrink-0 w-3.5 h-3.5 rounded-full cursor-pointer"
+                      title="Change highlight color"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div
+                        className="w-full h-full rounded-full ring-1 ring-white/20"
+                        style={{ backgroundColor: color?.color }}
+                      />
+                      <input
+                        type="color"
+                        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                        value={characterColorOverrides?.get(char.toUpperCase()) ?? "#888888"}
+                        onChange={(e) => onCharacterColorChange(char, e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -849,6 +903,8 @@ export interface HighlightedLinesProps {
   assignPanelProps?: {
     sceneCharacters: string[];
     allCharacters: string[];
+    onCharacterColorChange?: (characterName: string, hex: string) => void;
+    characterColorOverrides?: Map<string, string>;
   };
 }
 
@@ -1055,6 +1111,8 @@ export function HighlightedLines({
               onSplit={onSplit ? (rawText) => { onSplit(idx, rawText); setActiveLine(null); } : undefined}
               splitInitialText={dl.dialogue ? `${dl.character}\n${dl.dialogue}` : dl.character}
               onSplitToNewScene={idx > 0 && onSplitToNewScene ? () => onSplitToNewScene(idx) : undefined}
+              onCharacterColorChange={assignPanelProps?.onCharacterColorChange}
+              characterColorOverrides={assignPanelProps?.characterColorOverrides}
             />
           );
         }
