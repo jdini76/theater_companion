@@ -722,7 +722,7 @@ export function LineAssignPanel({
       )}
       {mode === "split" && (
         <div className="space-y-1">
-          <p className="text-muted text-xs">Add a line break where you want to split:</p>
+          <p className="text-muted text-xs">Edit text, add line breaks to split, or clear to delete this line.</p>
           <textarea
             value={splitText}
             onChange={(e) => setSplitText(e.target.value)}
@@ -733,15 +733,12 @@ export function LineAssignPanel({
           <div className="flex gap-1">
             <button
               onClick={() => {
-                if (splitText.split("\n").filter((p) => p.trim()).length >= 2) {
-                  onSplit?.(splitText);
-                  onClose();
-                }
+                onSplit?.(splitText);
+                onClose();
               }}
-              disabled={splitText.split("\n").filter((p) => p.trim()).length < 2}
-              className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2 py-0.5 bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors"
             >
-              Apply split
+              Apply
             </button>
             <button
               onClick={() => setMode("dialogue")}
@@ -798,9 +795,9 @@ export function LineAssignPanel({
           <button
             onClick={() => { setSplitText(splitInitialText ?? lineText); setMode("split"); }}
             className={`px-2 py-0.5 rounded border transition-colors ${mode === "split" ? "border-accent-cyan text-accent-cyan" : "border-border text-muted hover:text-light"}`}
-            title="Split this line into two lines"
+            title="Edit line text, split, or delete"
           >
-            Split
+            Edit line
           </button>
         )}
         {onSplitToNewScene && (
@@ -858,26 +855,8 @@ function overrideToDialogueUpdate(override: LineOverride, currentLine?: Dialogue
           : "ALL";
       return { character: groupChar, characters: [groupChar], isStageDirection: false, isSong: false, songTitle: undefined };
     }
-    case "stage-direction": {
-      // When converting a character's line to a stage direction, merge the
-      // character name into the dialogue text so the full original context is
-      // preserved (e.g. "ANNIE" + "Hello there" → stage direction "ANNIE: Hello there").
-      // Skip this if the line is already a stage direction or a system marker.
-      if (!currentLine?.isStageDirection) {
-        const char = currentLine?.character;
-        const text = currentLine?.dialogue ?? "";
-        let stageText = text;
-        if (char && !char.startsWith("[") && text) {
-          stageText = `${char}: ${text}`;
-        } else if (char && !char.startsWith("[") && !text) {
-          stageText = char;
-        }
-        if (stageText) {
-          return { isStageDirection: true, isSong: false, songTitle: undefined, dialogue: stageText };
-        }
-      }
+    case "stage-direction":
       return { isStageDirection: true, isSong: false, songTitle: undefined };
-    }
   }
 }
 

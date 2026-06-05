@@ -505,12 +505,10 @@ export function SceneViewer({
   };
 
   const handleSplit = (lineIdx: number, rawText: string) => {
-    if (!rawText.trim()) return;
     const original = displayLines[lineIdx];
     if (!original) return;
 
-    // Split on newlines. The first line of rawText is always the character name
-    // (set by splitInitialText) — skip it and use the original line's type directly.
+    // Strip the leading character-name line that splitInitialText prepends.
     const allTextLines = rawText.split("\n");
     let startIdx = 0;
     const firstLine = allTextLines[0]?.trim() ?? "";
@@ -519,22 +517,30 @@ export function SceneViewer({
     }
 
     const chunks = allTextLines.slice(startIdx).map((l) => l.trim()).filter(Boolean);
-    if (chunks.length < 2) return;
 
-    // Each chunk becomes its own DialogueLine preserving the original character,
-    // type, and flags — no re-parsing so dialogue content is never misidentified
-    // as a character header.
-    const splitLines: DialogueLine[] = chunks.map((chunk, idx) => ({
-      ...original,
-      lineNumber: original.lineNumber + idx,
-      dialogue: chunk,
-    }));
+    let updatedLines: DialogueLine[];
+    if (chunks.length === 0) {
+      // Delete the line entirely.
+      updatedLines = displayLines.filter((_, i) => i !== lineIdx);
+    } else if (chunks.length === 1) {
+      // Text edit — update dialogue in place.
+      updatedLines = displayLines.map((l, i) =>
+        i === lineIdx ? { ...l, dialogue: chunks[0]! } : l,
+      );
+    } else {
+      // Split into multiple lines, preserving character/type/flags.
+      const splitLines: DialogueLine[] = chunks.map((chunk, idx) => ({
+        ...original,
+        lineNumber: original.lineNumber + idx,
+        dialogue: chunk,
+      }));
+      updatedLines = [
+        ...displayLines.slice(0, lineIdx),
+        ...splitLines,
+        ...displayLines.slice(lineIdx + 1),
+      ];
+    }
 
-    const updatedLines = [
-      ...displayLines.slice(0, lineIdx),
-      ...splitLines,
-      ...displayLines.slice(lineIdx + 1),
-    ];
     updateScene(scene.id, {
       lines: updatedLines,
       content: serializeDialogueLines(updatedLines),
