@@ -901,6 +901,15 @@ export function SceneViewer({
     const looksLikeParenthetical =
       isStageDirection && /^\(.*\)$/.test(text) && text.length < 80;
 
+    const isMyLine =
+      highlightMyOnly &&
+      myRoleNames.length > 0 &&
+      !isHeading &&
+      !isNarrative &&
+      !isStageDirection &&
+      !isSong &&
+      myRoleNames.includes(line.character.toUpperCase());
+
     if (isHeading) {
       return (
         <div
@@ -944,7 +953,14 @@ export function SceneViewer({
       <div key={index}>
         <div
           className="uppercase font-semibold tracking-wide"
-          style={{ margin: "0 auto", width: "2.4in", textAlign: "center" }}
+          style={{
+            margin: "0 auto",
+            width: "2.4in",
+            textAlign: "center",
+            ...(isMyLine
+              ? { backgroundColor: "#ffe066", borderRadius: "2px", padding: "0 4px" }
+              : {}),
+          }}
         >
           {line.character}
         </div>
@@ -1203,7 +1219,7 @@ export function SceneViewer({
               <h2 className="text-lg font-bold text-light truncate">
                 {isSetPieceScreenplay ? screenplayPageTitle : scene.title}
               </h2>
-              {isSetPieceScreenplay && (
+              {(isSetPieceScreenplay || fullscreenView === "screenplay") && screenplayPageCount > 1 && (
                 <p className="text-[11px] uppercase tracking-[0.2em] text-muted truncate">
                   {screenplayPageSubtitle ? `${screenplayPageSubtitle} · ` : ""}
                   {screenplayPageNumber} / {screenplayPageCount}
@@ -1229,7 +1245,7 @@ export function SceneViewer({
                     Interactive
                   </button>
                   <button
-                    onClick={() => setFullscreenView("screenplay")}
+                    onClick={() => { setFullscreenView("screenplay"); setScreenplayPageIndex(0); }}
                     className={`px-2 py-1 text-xs transition-colors border-l border-white/10 ${
                       fullscreenView === "screenplay"
                         ? "bg-white/15 text-light"
@@ -1286,7 +1302,7 @@ export function SceneViewer({
               )}
 
               {/* Pagination */}
-              {isSetPieceScreenplay ? (
+              {isSetPieceScreenplay || fullscreenView === "screenplay" ? (
                 <>
                   <button
                     onClick={handlePrevScreenplayPage}
