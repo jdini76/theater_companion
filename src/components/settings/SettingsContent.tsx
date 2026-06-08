@@ -878,7 +878,97 @@ export function SettingsContent() {
             </p>
           </div>
 
-          {/* Provider Toggle */}
+          <div className="space-y-2">
+            <label className="block text-light font-semibold">
+              TTS Provider
+            </label>
+            <div
+              className={`grid gap-3 ${canUseKokoro ? "grid-cols-4" : "grid-cols-3"}`}
+            >
+              {(["browser", "proxy", "kokoro", "api"] as const)
+                .filter((p) => p !== "kokoro" || canUseKokoro)
+                .map((provider) => (
+                  <button
+                    key={provider}
+                    onClick={() => setSettings({ ...settings, provider })}
+                    className={`p-3 rounded border transition-all relative ${
+                      settings.provider === provider
+                        ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
+                        : "border-border text-muted hover:border-accent-cyan hover:text-light"
+                    }`}
+                  >
+                    {provider === "proxy" && isIOSDevice && (
+                      <span className="absolute -top-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full bg-accent-cyan text-dark font-bold uppercase tracking-wide">
+                        Recommended
+                      </span>
+                    )}
+                    <div className="font-semibold">
+                      {provider === "browser"
+                        ? "Browser"
+                        : provider === "proxy"
+                          ? "Built-in AI"
+                          : provider === "kokoro"
+                            ? "Kokoro AI"
+                            : "External API"}
+                    </div>
+                    <div className="text-xs mt-1">
+                      {provider === "browser"
+                        ? "Built-in Web Speech API"
+                        : provider === "proxy"
+                          ? "AI voices, no setup needed"
+                          : provider === "kokoro"
+                            ? "Local AI, no API needed"
+                            : "Custom TTS service endpoint"}
+                    </div>
+                  </button>
+                ))}
+            </div>
+          </div>
+
+          {/* Audio Caching — global, applies to all providers */}
+          {settings.provider !== "browser" && (
+            <div className="space-y-2 border-t border-border pt-4">
+              <div className="flex items-start gap-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={settings.enableAudioCache ?? false}
+                    onChange={(e) => {
+                      const updated = {
+                        ...settings,
+                        enableAudioCache: e.target.checked,
+                      };
+                      setSettings(updated);
+                      saveTTSSettings(updated);
+                    }}
+                    className="accent-accent-cyan w-4 h-4 mt-0.5"
+                  />
+                  <span className="text-light font-semibold">
+                    💾 Cache generated audio
+                  </span>
+                </label>
+                <p className="text-muted text-xs pt-0.5">
+                  Saves TTS audio to browser storage so repeated lines —
+                  including narration — are played back instantly without
+                  regenerating.
+                </p>
+              </div>
+              {(settings.enableAudioCache ?? false) && (
+                <button
+                  onClick={async () => {
+                    const { clearAllCachedAudio } =
+                      await import("@/lib/audio-cache");
+                    await clearAllCachedAudio();
+                    alert("Audio cache cleared.");
+                  }}
+                  className="text-xs text-muted hover:text-red-400 underline"
+                >
+                  Clear audio cache
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Browser TTS Settings */}
           {settings.provider === "browser" && (
             <div className="space-y-4 border-t border-border pt-4">
@@ -1066,96 +1156,6 @@ export function SettingsContent() {
                   </p>
                 )}
               </div>
-            </div>
-          )}
-          <div className="space-y-2">
-            <label className="block text-light font-semibold">
-              TTS Provider
-            </label>
-            <div
-              className={`grid gap-3 ${canUseKokoro ? "grid-cols-4" : "grid-cols-3"}`}
-            >
-              {(["browser", "proxy", "kokoro", "api"] as const)
-                .filter((p) => p !== "kokoro" || canUseKokoro)
-                .map((provider) => (
-                  <button
-                    key={provider}
-                    onClick={() => setSettings({ ...settings, provider })}
-                    className={`p-3 rounded border transition-all relative ${
-                      settings.provider === provider
-                        ? "border-accent-cyan bg-accent-cyan/20 text-accent-cyan"
-                        : "border-border text-muted hover:border-accent-cyan hover:text-light"
-                    }`}
-                  >
-                    {provider === "proxy" && isIOSDevice && (
-                      <span className="absolute -top-2 left-2 text-[9px] px-1.5 py-0.5 rounded-full bg-accent-cyan text-dark font-bold uppercase tracking-wide">
-                        Recommended
-                      </span>
-                    )}
-                    <div className="font-semibold">
-                      {provider === "browser"
-                        ? "Browser"
-                        : provider === "proxy"
-                          ? "Built-in AI"
-                          : provider === "kokoro"
-                            ? "Kokoro AI"
-                            : "External API"}
-                    </div>
-                    <div className="text-xs mt-1">
-                      {provider === "browser"
-                        ? "Built-in Web Speech API"
-                        : provider === "proxy"
-                          ? "AI voices, no setup needed"
-                          : provider === "kokoro"
-                            ? "Local AI, no API needed"
-                            : "Custom TTS service endpoint"}
-                    </div>
-                  </button>
-                ))}
-            </div>
-          </div>
-
-          {/* Audio Caching — global, applies to all providers */}
-          {settings.provider !== "browser" && (
-            <div className="space-y-2 border-t border-border pt-4">
-              <div className="flex items-start gap-3">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={settings.enableAudioCache ?? false}
-                    onChange={(e) => {
-                      const updated = {
-                        ...settings,
-                        enableAudioCache: e.target.checked,
-                      };
-                      setSettings(updated);
-                      saveTTSSettings(updated);
-                    }}
-                    className="accent-accent-cyan w-4 h-4 mt-0.5"
-                  />
-                  <span className="text-light font-semibold">
-                    💾 Cache generated audio
-                  </span>
-                </label>
-                <p className="text-muted text-xs pt-0.5">
-                  Saves TTS audio to browser storage so repeated lines —
-                  including narration — are played back instantly without
-                  regenerating.
-                </p>
-              </div>
-              {(settings.enableAudioCache ?? false) && (
-                <button
-                  onClick={async () => {
-                    const { clearAllCachedAudio } =
-                      await import("@/lib/audio-cache");
-                    await clearAllCachedAudio();
-                    alert("Audio cache cleared.");
-                  }}
-                  className="text-xs text-muted hover:text-red-400 underline"
-                >
-                  Clear audio cache
-                </button>
-              )}
             </div>
           )}
 
