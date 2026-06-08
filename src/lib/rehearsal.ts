@@ -1825,6 +1825,31 @@ export function parseDialogueLines(
 /**
  * Extract unique character names from dialogue lines
  */
+/**
+ * Fixes lines reclassified as stage directions (e.g. via the SceneViewer
+ * "Stage Direction" menu action) before the fix that reset `character` to
+ * the `"[Stage Direction]"` sentinel. Such lines have `isStageDirection:
+ * true` but still carry the original speaker's name, which causes any code
+ * that matches lines by `character` (run lines, character lists, etc.) to
+ * misclassify them as that character's dialogue.
+ *
+ * Returns the original array when nothing needed fixing so callers can skip
+ * persisting unchanged data.
+ */
+export function normalizeStageDirectionLines(
+  lines: DialogueLine[],
+): { lines: DialogueLine[]; changed: boolean } {
+  let changed = false;
+  const normalized = lines.map((line) => {
+    if (line.isStageDirection && !line.character.startsWith("[")) {
+      changed = true;
+      return { ...line, character: "[Stage Direction]", characters: undefined };
+    }
+    return line;
+  });
+  return { lines: changed ? normalized : lines, changed };
+}
+
 export function extractCharacterNames(lines: DialogueLine[]): string[] {
   const characters = new Set<string>();
 

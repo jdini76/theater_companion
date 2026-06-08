@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
-import { parseDialogueLines } from "@/lib/rehearsal";
+import { parseDialogueLines, normalizeStageDirectionLines } from "@/lib/rehearsal";
 import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
 import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
@@ -402,7 +402,12 @@ export default function UnifiedRehearsalPage({
   const getImportedSceneLines = useCallback(
     (scene: StoredScene): DialogueLine[] => {
       if (scene.lines && scene.lines.length > 0) {
-        return scene.lines;
+        // Lines reclassified as stage directions before the character-reset
+        // fix still carry the original speaker's name — fix them up so Run
+        // Lines never mistakes them for that character's dialogue. SceneViewer
+        // persists this fix once a scene is opened there; this is a fallback
+        // for scenes only ever loaded through the rehearsal page.
+        return normalizeStageDirectionLines(scene.lines).lines;
       }
       // Fallback for scenes never opened in SceneViewer (no stored lines).
       return parseDialogueLines(
@@ -611,6 +616,24 @@ export default function UnifiedRehearsalPage({
     if (saved.scriptInput)
       setScriptInput(normalizeScriptInput(saved.scriptInput as string));
     if (saved.sceneMode) setSceneMode(saved.sceneMode as "single" | "multiple");
+    if (saved.loadSource) setLoadSource(saved.loadSource as "paste" | "library");
+    if (saved.libraryLoadMode)
+      setLibraryLoadMode(saved.libraryLoadMode as "scenes" | "set-pieces");
+    // Restore the previously loaded library selection so scenes reload
+    // automatically once `libraryScenes` is available, instead of requiring
+    // the user to re-pick and reload them after navigating away.
+    const savedSceneIds = saved.selectedLibrarySceneIds;
+    if (Array.isArray(savedSceneIds) && savedSceneIds.length > 0) {
+      setSelectedLibrarySceneIds(new Set(savedSceneIds as string[]));
+      loadedFromLibraryRef.current = true;
+      setScenesOpen(false);
+    }
+    const savedSetPieces = saved.selectedLibrarySetPieces;
+    if (Array.isArray(savedSetPieces) && savedSetPieces.length > 0) {
+      setSelectedLibrarySetPieces(new Set(savedSetPieces as string[]));
+      loadedFromLibraryRef.current = true;
+      setScenesOpen(false);
+    }
     if (saved.selectedCharacter)
       setSelectedCharacter(saved.selectedCharacter as string);
     if (saved.voiceAssignments)
@@ -1130,6 +1153,10 @@ MOM: See? You were ready.`,
         const toSave = {
           scriptInput,
           sceneMode,
+          loadSource,
+          libraryLoadMode,
+          selectedLibrarySceneIds: Array.from(selectedLibrarySceneIds),
+          selectedLibrarySetPieces: Array.from(selectedLibrarySetPieces),
           selectedSceneIndex,
           selectedCharacter,
           voiceAssignments,
@@ -1153,6 +1180,10 @@ MOM: See? You were ready.`,
     currentProjectId,
     scriptInput,
     sceneMode,
+    loadSource,
+    libraryLoadMode,
+    selectedLibrarySceneIds,
+    selectedLibrarySetPieces,
     selectedSceneIndex,
     selectedCharacter,
     voiceAssignments,
@@ -1580,10 +1611,15 @@ MOM: See? You were ready.`,
       return;
     }
 
-    // Combined line is "mine" if any speaker matches selectedCharacter
-    const isMine = splitSpeaker(line.character).some((name) =>
-      characterNamesMatch(name, selectedCharacter),
-    );
+    // Combined line is "mine" if any speaker matches selectedCharacter.
+    // Stage directions never count as a character's line — guard on the
+    // canonical `isStageDirection` flag rather than `character`, since some
+    // persisted lines retain the original speaker name after reclassification.
+    const isMine =
+      !line.isStageDirection &&
+      splitSpeaker(line.character).some((name) =>
+        characterNamesMatch(name, selectedCharacter),
+      );
 
     if (isMine && !readOwnLines) {
       setCurrentSpeaker(line.character);
@@ -1640,7 +1676,10 @@ MOM: See? You were ready.`,
     // cue (the line directly before the next user line).
     if (rehearsalMode === "cue-only") {
       const nextUserIdx = rehearsal.lines.findIndex(
-        (l, i) => i > rehearsal.index && l.character === selectedCharacter,
+        (l, i) =>
+          i > rehearsal.index &&
+          !l.isStageDirection &&
+          l.character === selectedCharacter,
       );
       if (nextUserIdx !== -1 && rehearsal.index < nextUserIdx - 1) {
         setRehearsal((prev) => ({ ...prev, index: prev.index + 1 }));
@@ -1658,9 +1697,11 @@ MOM: See? You were ready.`,
       if (ttsSettings.kokoroPreGenEnabled !== false) {
         for (let i = rehearsal.index + 1; i < rehearsal.lines.length; i++) {
           const upcoming = rehearsal.lines[i];
-          const upcomingIsMine = splitSpeaker(upcoming.character).some((n) =>
-            characterNamesMatch(n, selectedCharacter),
-          );
+          const upcomingIsMine =
+            !upcoming.isStageDirection &&
+            splitSpeaker(upcoming.character).some((n) =>
+              characterNamesMatch(n, selectedCharacter),
+            );
           if (!upcomingIsMine && upcoming.dialogue.trim()) {
             const primary =
               splitSpeaker(upcoming.character)[0] || upcoming.character;

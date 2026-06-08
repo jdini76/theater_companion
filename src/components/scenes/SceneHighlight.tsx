@@ -856,7 +856,18 @@ function overrideToDialogueUpdate(override: LineOverride, currentLine?: Dialogue
       return { character: groupChar, characters: [groupChar], isStageDirection: false, isSong: false, songTitle: undefined };
     }
     case "stage-direction":
-      return { isStageDirection: true, isSong: false, songTitle: undefined };
+      // Reset character to the same sentinel the parser emits for auto-detected
+      // stage directions. Run-lines and other consumers match speakers by
+      // `character`, not `isStageDirection` — leaving the original speaker name
+      // in place causes reclassified lines to still be read as that character's
+      // dialogue.
+      return {
+        character: "[Stage Direction]",
+        characters: undefined,
+        isStageDirection: true,
+        isSong: false,
+        songTitle: undefined,
+      };
   }
 }
 

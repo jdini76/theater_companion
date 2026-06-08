@@ -14,7 +14,7 @@ import {
   getSceneParseFormat,
   reflowWrappedText,
 } from "@/lib/scenes";
-import { parseDialogueLines } from "@/lib/rehearsal";
+import { parseDialogueLines, normalizeStageDirectionLines } from "@/lib/rehearsal";
 import {
   buildCharColorMap,
   resolveGroupColor,
@@ -297,7 +297,13 @@ export function SceneViewer({
   // Fall back to parsing from scene.content only for scenes that have never
   // been opened since the rearchitecture (scene.lines is empty).
   const displayLines = useMemo(() => {
-    if (scene.lines && scene.lines.length > 0) return scene.lines;
+    if (scene.lines && scene.lines.length > 0) {
+      // Lines reclassified as stage directions before the character-reset fix
+      // still carry the original speaker's name — fix them up on read so the
+      // view (and anything fed from it, like Run Lines) sees `[Stage
+      // Direction]` consistently. The migration effect below persists this.
+      return normalizeStageDirectionLines(scene.lines).lines;
+    }
     if (!scene.content?.trim()) return [];
     const knownCast = projectCast.length > 0 ? projectCast : [];
     const extracted = extractSceneCharacters(
@@ -352,6 +358,17 @@ export function SceneViewer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id, displayLines]);
+
+  // Persist the stage-direction `character` fix-up from `displayLines` so
+  // stale data (lines reclassified before the fix) only needs correcting once.
+  useEffect(() => {
+    if (!scene.id || !scene.lines || scene.lines.length === 0) return;
+    const { lines: fixedLines, changed } = normalizeStageDirectionLines(scene.lines);
+    if (changed) {
+      updateScene(scene.id, { lines: fixedLines });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.id, scene.lines]);
 
   useEffect(() => {
     if (!isFullscreen) return;
