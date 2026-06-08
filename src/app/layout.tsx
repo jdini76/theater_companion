@@ -3,6 +3,7 @@ import { ProjectProvider } from "@/contexts/ProjectContext";
 import { SceneProvider } from "@/contexts/SceneContext";
 import { VoiceProvider } from "@/contexts/VoiceContext";
 import { RehearsalProvider } from "@/contexts/RehearsalContext";
+import { WelcomeModal } from "@/components/common/WelcomeModal";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -31,7 +32,10 @@ export default function RootLayout({
         <ProjectProvider>
           <SceneProvider>
             <VoiceProvider>
-              <RehearsalProvider>{children}</RehearsalProvider>
+              <RehearsalProvider>
+                <WelcomeModal />
+                {children}
+              </RehearsalProvider>
             </VoiceProvider>
           </SceneProvider>
         </ProjectProvider>
