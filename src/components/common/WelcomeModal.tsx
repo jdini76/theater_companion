@@ -17,6 +17,11 @@ interface ReleaseNotes {
 // older entries stay here for reference when writing the next one.
 const RELEASE_NOTES: ReleaseNotes[] = [
   {
+    version: "0.1.1-beta.1",
+    date: "June 2026",
+    highlights: ["Initial release of 0.1.1-beta.1."],
+  },
+  {
     version: "0.1.0-beta.1",
     date: "June 2026",
     highlights: [
@@ -30,7 +35,7 @@ const RELEASE_NOTES: ReleaseNotes[] = [
   },
 ];
 
-type Tab = "welcome" | "whats-new";
+type Tab = "welcome" | "whats-new" | "history";
 
 function readDismissedVersion(): string | null {
   try {
@@ -62,6 +67,9 @@ export function WelcomeModal() {
   if (!open) return null;
 
   const latest = RELEASE_NOTES[0];
+  const recentHighlights = [...latest.highlights].reverse().slice(0, 5);
+  const olderHighlights = [...latest.highlights].reverse().slice(5);
+  const hasHistory = olderHighlights.length > 0 || RELEASE_NOTES.length > 1;
 
   const handleClose = () => {
     if (neverShowAgain) {
@@ -108,26 +116,27 @@ export function WelcomeModal() {
             [
               { id: "welcome", label: "Welcome" },
               { id: "whats-new", label: "What's New" },
+              ...(hasHistory ? [{ id: "history", label: "History" }] : []),
             ] as { id: Tab; label: string }[]
           )
-            .filter((t) => !whatsNewOnly || t.id === "whats-new")
+            .filter((t) => !whatsNewOnly || t.id !== "welcome")
             .map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-4 py-2 text-sm font-semibold transition-colors rounded-t ${
-                tab === t.id
-                  ? "text-accent-cyan border-b-2 border-accent-cyan bg-dark-panel"
-                  : "text-muted hover:text-light"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`px-4 py-2 text-sm font-semibold transition-colors rounded-t ${
+                  tab === t.id
+                    ? "text-accent-cyan border-b-2 border-accent-cyan bg-dark-panel"
+                    : "text-muted hover:text-light"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 text-sm text-muted leading-relaxed">
-          {tab === "welcome" ? (
+          {tab === "welcome" && (
             <div className="space-y-3">
               <p>
                 Hello, and welcome — whether you&apos;re an actor, director, or
@@ -146,11 +155,14 @@ export function WelcomeModal() {
               <p>
                 Organize everything by production, build out your cast, and
                 practice scene by scene or run full set pieces back to back.
-                Check the <span className="text-light font-semibold">About</span>{" "}
-                page from the navigation any time for a full walkthrough.
+                Check the{" "}
+                <span className="text-light font-semibold">About</span> page
+                from the navigation any time for a full walkthrough.
               </p>
             </div>
-          ) : (
+          )}
+
+          {tab === "whats-new" && (
             <div className="space-y-4">
               <div>
                 <h3 className="text-light font-semibold">
@@ -160,11 +172,61 @@ export function WelcomeModal() {
                   </span>
                 </h3>
                 <ul className="list-disc list-inside mt-2 space-y-1.5">
-                  {latest.highlights.map((item, i) => (
+                  {recentHighlights.map((item, i) => (
                     <li key={i}>{item}</li>
                   ))}
                 </ul>
+                {hasHistory && (
+                  <button
+                    onClick={() => setTab("history")}
+                    className="mt-3 text-xs text-accent-cyan hover:underline"
+                  >
+                    See full history →
+                  </button>
+                )}
               </div>
+            </div>
+          )}
+
+          {tab === "history" && (
+            <div className="space-y-6">
+              {/* Remaining bullets from current version beyond the top 5 */}
+              {olderHighlights.length > 0 && (
+                <div>
+                  <h3 className="text-light font-semibold">
+                    v{latest.version}{" "}
+                    <span className="text-muted text-xs font-normal">
+                      — {latest.date}
+                    </span>
+                  </h3>
+                  <ul className="list-disc list-inside mt-2 space-y-1.5">
+                    {olderHighlights.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* All older versions */}
+              {RELEASE_NOTES.slice(1).map((entry) => (
+                <div key={entry.version}>
+                  <h3 className="text-light font-semibold">
+                    v{entry.version}{" "}
+                    <span className="text-muted text-xs font-normal">
+                      — {entry.date}
+                    </span>
+                  </h3>
+                  <ul className="list-disc list-inside mt-2 space-y-1.5">
+                    {[...entry.highlights].reverse().map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {!olderHighlights.length && RELEASE_NOTES.length === 1 && (
+                <p className="text-muted text-sm italic">
+                  No prior releases yet.
+                </p>
+              )}
             </div>
           )}
         </div>

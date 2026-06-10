@@ -48,6 +48,7 @@ jobs:
           NEXT_PUBLIC_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           NEXT_PUBLIC_OPENROUTER_API_URL: ${{ vars.OPENROUTER_API_URL }}
           NEXT_PUBLIC_OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
