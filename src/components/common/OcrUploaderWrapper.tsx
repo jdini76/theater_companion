@@ -217,6 +217,11 @@ export function OcrUploaderWrapper({
   );
 }
 
+// Threshold for showing a "this may take a while" hint. The OCR path has no
+// hard size cap — it loads one rendered page into memory at a time — but very
+// large scanned PDFs can still take minutes to chew through with Tesseract.
+const LARGE_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 function OcrUploaderWithCallback(props: { onExtract: (text: string) => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -311,6 +316,12 @@ function OcrUploaderWithCallback(props: { onExtract: (text: string) => void }) {
         onChange={handleFileChange}
         className="mb-2"
       />
+      {file && file.size > LARGE_FILE_BYTES && (
+        <div className="mb-2 text-sm text-muted">
+          This is a large file ({(file.size / (1024 * 1024)).toFixed(1)} MB) —
+          OCR processes it page by page, so extraction may take a few minutes.
+        </div>
+      )}
       <button
         className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
         onClick={handleOcr}

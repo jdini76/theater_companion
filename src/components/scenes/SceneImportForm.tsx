@@ -22,6 +22,7 @@ import {
 import { parseDialogueLines } from "@/lib/rehearsal";
 import type { ParsedToc } from "@/types/scene";
 import { extractTextFromPdf } from "@/lib/pdf-client";
+import { capture } from "@/lib/analytics";
 
 // import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/Button";
@@ -305,6 +306,7 @@ export function SceneImportForm({
   const [castImportMode, setCastImportMode] = useState<
     "add" | "replace" | "skip"
   >("add");
+  const [pendingSourceType, setPendingSourceType] = useState<string>("unknown");
   // Names auto-resolved against the master list (not shown in review UI)
   const [autoAcceptedNames, setAutoAcceptedNames] = useState<string[]>([]);
   // Partial match suggestions: detected name → canonical master name
@@ -445,9 +447,11 @@ export function SceneImportForm({
           allCats,
           new Map(),
           "add",
+          sourceType,
         );
       } else {
         // Show review for flagged names only
+        setPendingSourceType(sourceType);
         setAutoAcceptedNames(autoAccepted);
         setPartialMatchSuggestions(suggestions);
         setParsedSceneData(localScenesData);
@@ -514,6 +518,7 @@ export function SceneImportForm({
     categories: Map<string, CastCategory>,
     aliases: Map<string, string[]>,
     importMode: "add" | "replace" | "skip",
+    sourceType?: string,
   ) => {
     setError(null);
     try {
@@ -555,6 +560,10 @@ export function SceneImportForm({
       }
 
       createScenes(projectId, finalScenes, activeProductionType);
+      capture("scenes_imported", {
+        scene_count: finalScenes.length,
+        source_type: sourceType ?? "unknown",
+      });
 
       // Build per-character metadata
       const charData = new Map<
@@ -614,6 +623,7 @@ export function SceneImportForm({
       allCategories,
       mergeAliases,
       castImportMode,
+      pendingSourceType,
     );
   };
 

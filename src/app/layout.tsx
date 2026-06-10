@@ -4,6 +4,7 @@ import { SceneProvider } from "@/contexts/SceneContext";
 import { VoiceProvider } from "@/contexts/VoiceContext";
 import { RehearsalProvider } from "@/contexts/RehearsalContext";
 import { WelcomeModal } from "@/components/common/WelcomeModal";
+import { PostHogProvider } from "@/providers/PostHogProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -29,16 +30,18 @@ export default function RootLayout({
         }}
       />
       <body className="antialiased">
-        <ProjectProvider>
-          <SceneProvider>
-            <VoiceProvider>
-              <RehearsalProvider>
-                <WelcomeModal />
-                {children}
-              </RehearsalProvider>
-            </VoiceProvider>
-          </SceneProvider>
-        </ProjectProvider>
+        <PostHogProvider>
+          <ProjectProvider>
+            <SceneProvider>
+              <VoiceProvider>
+                <RehearsalProvider>
+                  <WelcomeModal />
+                  {children}
+                </RehearsalProvider>
+              </VoiceProvider>
+            </SceneProvider>
+          </ProjectProvider>
+        </PostHogProvider>
       </body>
     </html>
   );

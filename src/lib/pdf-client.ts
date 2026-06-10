@@ -4,7 +4,11 @@
  * Runs entirely in the browser — no server required.
  */
 
-const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+// Text-layer extraction loads the whole PDF into memory but doesn't render
+// pages, so it tolerates much larger files than the OCR path's per-page
+// rendering. 40 MB comfortably covers large scripts while still guarding
+// against pathological uploads freezing the tab.
+const MAX_BYTES = 40 * 1024 * 1024; // 40 MB
 
 const PDFJS_CDN_URL =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.min.mjs";
@@ -178,7 +182,11 @@ export function normalizePdfExtractedText(text: string): string {
  */
 export async function extractTextFromPdf(file: File): Promise<string> {
   if (file.size > MAX_BYTES) {
-    throw new Error("File too large (max 10 MB)");
+    throw new Error(
+      `File too large (max ${Math.round(MAX_BYTES / (1024 * 1024))} MB). ` +
+        `Try the "Upload Image (OCR)" mode instead — it processes large, ` +
+        `scanned PDFs page by page without this limit.`,
+    );
   }
 
   const pdfjs = await loadPdfjs();

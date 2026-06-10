@@ -24,6 +24,8 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Run Lines now correctly skips reclassified stage directions instead of reading them as a character's dialogue.",
       "Run Lines remembers the scenes you loaded, so navigating away and back no longer requires reloading them.",
       "Added character color selection and a more consistent layout for Voice Settings.",
+      "Raised the size limit for PDF script imports, and Image (OCR) uploads now warn you up front when a large scanned PDF will take a while to process.",
+      "Added anonymous usage analytics (PostHog) to understand which features are being used — no personal data is collected.",
     ],
   },
 ];
@@ -42,10 +44,18 @@ export function WelcomeModal() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("welcome");
   const [neverShowAgain, setNeverShowAgain] = useState(false);
+  // True once we know the user has previously checked "don't show again" —
+  // they've already read the welcome blurb, so later update popups should
+  // jump straight to What's New instead of repeating the intro.
+  const [whatsNewOnly, setWhatsNewOnly] = useState(false);
 
   useEffect(() => {
-    if (readDismissedVersion() !== CURRENT_VERSION) {
-      setOpen(true);
+    const dismissedVersion = readDismissedVersion();
+    if (dismissedVersion === CURRENT_VERSION) return;
+    setOpen(true);
+    if (dismissedVersion !== null) {
+      setWhatsNewOnly(true);
+      setTab("whats-new");
     }
   }, []);
 
@@ -99,7 +109,9 @@ export function WelcomeModal() {
               { id: "welcome", label: "Welcome" },
               { id: "whats-new", label: "What's New" },
             ] as { id: Tab; label: string }[]
-          ).map((t) => (
+          )
+            .filter((t) => !whatsNewOnly || t.id === "whats-new")
+            .map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}

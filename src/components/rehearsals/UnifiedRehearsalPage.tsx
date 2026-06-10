@@ -36,6 +36,7 @@ import {
   pregenerateText,
 } from "@/lib/kokoro-tts";
 import { useVoice } from "@/contexts/VoiceContext";
+import { capture } from "@/lib/analytics";
 
 const CURRENT_PROJECT_KEY = "theater_current_project_id";
 
@@ -1770,6 +1771,12 @@ MOM: See? You were ready.`,
     ensureVoiceAssignments();
 
     const scene = scenes[selectedSceneIndex];
+    capture("rehearsal_started", {
+      tts_provider: ttsProvider,
+      scene_count: scenes.length,
+      load_source: loadSource,
+      rehearsal_mode: rehearsalMode,
+    });
     setRehearsal({
       lines: scene.lines,
       index: 0,
