@@ -153,7 +153,11 @@ export function SongViewer({ song, url = "", onSetUrl }: SongViewerProps) {
       <div className="flex-1 overflow-y-auto pt-4 pr-1">
         <div className="space-y-1">
           {song.lines.map((line, idx) => {
-            const showChar = isEnsemble && line.character !== "[Song]";
+            const prevChar = idx > 0 ? song.lines[idx - 1]!.character : null;
+            const showChar =
+              isEnsemble &&
+              line.character !== "[Song]" &&
+              line.character !== prevChar;
             return (
               <div key={idx} className={showChar ? "mt-3 first:mt-0" : ""}>
                 {showChar && (

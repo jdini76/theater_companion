@@ -4,28 +4,12 @@ import React, { useMemo, useState, useCallback } from "react";
 import { useScenes } from "@/contexts/SceneContext";
 import { useVoice } from "@/contexts/VoiceContext";
 import { extractSongsFromScenes, SongEntry } from "@/lib/songs";
-import { type LineOverride } from "@/types/line-override";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import type { ProductionType } from "@/types/project";
 import { SongList } from "./SongList";
 import { SongViewer } from "./SongViewer";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-/** Read canonical line overrides stored on the scene records. */
-function readAllSceneOverrides(
-  scenes: Array<{ id: string; lineOverrides?: Record<number, LineOverride> }>,
-): Map<string, Map<number, LineOverride>> {
-  const result = new Map<string, Map<number, LineOverride>>();
-  for (const scene of scenes) {
-    const entries = Object.entries(scene.lineOverrides ?? {}).map(
-      ([index, value]) => [Number(index), value] as const,
-    );
-    if (entries.length > 0) {
-      result.set(scene.id, new Map(entries));
-    }
-  }
-  return result;
-}
 
 interface SongManagerProps {
   projectId: string;
@@ -61,11 +45,9 @@ export function SongManager({
   );
 
   const allSongs = useMemo(() => {
-    const overrides = readAllSceneOverrides(scenes);
     return extractSongsFromScenes(
       scenes,
       knownCast.length > 0 ? knownCast : undefined,
-      overrides,
     );
   }, [scenes, knownCast]);
 
