@@ -17,11 +17,11 @@ interface ReleaseNotes {
 // older entries stay here for reference when writing the next one.
 const RELEASE_NOTES: ReleaseNotes[] = [
   {
-    version: "0.1.1-beta.1",
+    version: "0.1.2-beta.1",
     date: "June 2026",
     highlights: [
-      "Initial release of 0.1.1-beta.1.",
-      "Fixed \"Continue\" button not working in Run Lines when using the Pause and Wait mode.",
+      "Initial release of 0.1.2-beta.1.",
+      'Fixed "Continue" button not working in Run Lines when using the Pause and Wait mode.',
       "Song lyrics now display as individual lines in the Scene Viewer instead of one long merged block of text.",
     ],
   },
