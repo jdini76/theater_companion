@@ -1811,7 +1811,14 @@ MOM: See? You were ready.`,
       window.speechSynthesis.resume();
     }
 
-    setRehearsal((prev) => ({ ...prev, isPaused: false }));
+    // When paused waiting for the user's own line (manual pause mode),
+    // advance past that line so the next line plays instead of immediately
+    // re-pausing on the same user line.
+    if (isMyTurn) {
+      setRehearsal((prev) => ({ ...prev, isPaused: false, index: prev.index + 1 }));
+    } else {
+      setRehearsal((prev) => ({ ...prev, isPaused: false }));
+    }
   };
 
   // Reset rehearsal back to beginning
@@ -2449,15 +2456,13 @@ MOM: See? You were ready.`,
                     <div>
                       <label className={labelCls}>Countdown Seconds</label>
                       <input
-                        type="number"
-                        min={1}
-                        max={20}
+                        type="text"
+                        inputMode="numeric"
                         value={countdownSeconds}
-                        onChange={(e) =>
-                          setCountdownSeconds(
-                            Math.max(1, parseInt(e.target.value) || 1),
-                          )
-                        }
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9]/g, "");
+                          setCountdownSeconds(raw === "" ? 1 : Math.max(1, parseInt(raw)));
+                        }}
                         className={inputCls}
                       />
                     </div>

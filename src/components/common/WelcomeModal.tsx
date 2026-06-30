@@ -19,7 +19,10 @@ const RELEASE_NOTES: ReleaseNotes[] = [
   {
     version: "0.1.1-beta.1",
     date: "June 2026",
-    highlights: ["Initial release of 0.1.1-beta.1."],
+    highlights: [
+      "Initial release of 0.1.1-beta.1.",
+      "Fixed \"Continue\" button not working in Run Lines when using the Pause and Wait mode.",
+    ],
   },
   {
     version: "0.1.0-beta.1",
