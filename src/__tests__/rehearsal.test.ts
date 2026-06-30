@@ -601,7 +601,7 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
   // ── Song sections ──────────────────────────────────────────────────────
 
   describe("songs in standalone format", () => {
-    it("assigns all-caps lyrics to the preceding speaker", () => {
+    it("assigns all-caps lyrics to the preceding speaker as separate lines", () => {
       const text = [
         "OLDER FRANK JUNIOR",
         "LIVE IN LIVING COLOR",
@@ -609,9 +609,10 @@ describe("parseDialogueLines – CMIYC standalone format", () => {
       ].join("\n");
       const result = parseDialogueLines(text, "standalone");
       const frank = result.filter((l) => l.character === "OLDER FRANK JUNIOR");
-      expect(frank).toHaveLength(1);
-      expect(frank[0].dialogue).toContain("LIVE IN LIVING COLOR");
-      expect(frank[0].dialogue).toContain("LET ME TAKE YOU FOR A RIDE");
+      // Each ALL-CAPS lyric line is kept separate (not merged into one entry).
+      expect(frank).toHaveLength(2);
+      expect(frank[0].dialogue).toBe("LIVE IN LIVING COLOR");
+      expect(frank[1].dialogue).toBe("LET ME TAKE YOU FOR A RIDE");
     });
 
     it("does not create a new speaker for lyric lines mid-verse", () => {
@@ -1242,14 +1243,14 @@ describe("parseDialogueLines – Groundhog Day libretto format", () => {
       expect(phil[0].dialogue).toBe("LUMPY BED, UGLY CURTAINS");
     });
 
-    it("appends subsequent lines to the same verse (no blank between)", () => {
+    it("keeps each all-caps lyric line separate (no blank between)", () => {
       const content = "PHIL:\nLUMPY BED, UGLY CURTAINS\nPOINTLESS PERFECTION.";
       const result = parseDialogueLines(content);
       const phil = result.filter((l) => l.character === "PHIL");
-      expect(phil).toHaveLength(1);
-      expect(phil[0].dialogue).toBe(
-        "LUMPY BED, UGLY CURTAINS POINTLESS PERFECTION.",
-      );
+      // Each ALL-CAPS lyric line is its own entry — not merged.
+      expect(phil).toHaveLength(2);
+      expect(phil[0].dialogue).toBe("LUMPY BED, UGLY CURTAINS");
+      expect(phil[1].dialogue).toBe("POINTLESS PERFECTION.");
     });
 
     it("creates a new entry per blank-line-separated verse block", () => {

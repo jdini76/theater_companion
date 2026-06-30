@@ -1354,8 +1354,8 @@ export function parseDialogueLines(
           });
           if (lastDialogueIdx >= 0) {
             // Append to existing entry (hard-wrapped continuation).
-            // Song blocks and ALL-CAPS lines stay separate — each is a distinct lyric.
-            if (!afterBlank && !inSongBlock && !ALL_CAPS_LYRIC_RE.test(trimmed)) {
+            // ALL-CAPS lines stay separate — each is a distinct lyric line.
+            if (!afterBlank && !ALL_CAPS_LYRIC_RE.test(trimmed)) {
               output[lastDialogueIdx].dialogue += " " + trimmed;
             } else {
               const idx = output.length;
@@ -1750,12 +1750,11 @@ export function parseDialogueLines(
         !standaloneCharLooksLikeSpeaker &&
         !afterBlank &&
         lastDialogueIdx >= 0 &&
-        !(enableSongParsing && inSongBlock) &&
         !ALL_CAPS_LYRIC_RE.test(trimmed)
       ) {
         // Hard-wrapped continuation: append so TTS reads as one speech.
-        // Excluded: song blocks, and ALL-CAPS lines which are almost always
-        // distinct lyric lines in musical scripts (not wrapped prose).
+        // ALL-CAPS lines are excluded — they are almost always distinct lyric
+        // lines in musical scripts, not wrapped prose.
         debugParse("hard-wrapped continuation", {
           currentCharacter: lastCharacter,
           text: trimmed,
