@@ -22,6 +22,7 @@ const RELEASE_NOTES: ReleaseNotes[] = [
     highlights: [
       "Initial release of 0.1.1-beta.1.",
       "Fixed \"Continue\" button not working in Run Lines when using the Pause and Wait mode.",
+      "Song lyrics now display as individual lines in the Scene Viewer instead of one long merged block of text.",
     ],
   },
   {

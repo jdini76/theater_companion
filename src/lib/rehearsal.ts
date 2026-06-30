@@ -107,7 +107,7 @@ const STANDALONE_STAGE_DIR_RE = /^\([\s\S]*\)$|^\[[\s\S]*\]$/;
  *   [SONG]  [Song: Tomorrow]  [Music]  [Singing]
  */
 const SONG_CUE_START_RE =
-  /^\((?:sing(?:s|ing)?|sung|song(?:\s+begins?)?|music\s+(?:begins?|starts?|up)|underscore|(?:musical\s+)?number|reprise)(?:\s*:\s*["']?([^"')]+?)["']?)?\)$|^\[(?:song|singing|sung|music|underscore)(?:\s*:\s*([^\]]+))?\]$/i;
+  /^\((?:sing(?:s|ing)?|sung|song(?:\s+begins?)?|music\s+(?:begins?|starts?|up)|(?:musical\s+)?number|reprise)(?:\s*:\s*["']?([^"')]+?)["']?)?\)$|^\[(?:song|singing|sung|music)(?:\s*:\s*([^\]]+))?\]$/i;
 
 /**
  * Stage direction patterns that CLOSE a song block and return to speech.
@@ -131,6 +131,13 @@ const SONG_CUE_END_RE =
  */
 const MODERN_SONG_CUE_RE =
   /^\((?:(?:she|he|they|we|i|all)\s+)?sing(?:s|ing)?(?:\s+(?:the\s+following|along|and\s+danc(?:es?|ing)))?\s*\.?\)$/i;
+
+export function isSongCueStart(text: string): boolean {
+  return SONG_CUE_START_RE.test(text) || MODERN_SONG_CUE_RE.test(text);
+}
+export function isSongCueEnd(text: string): boolean {
+  return SONG_CUE_END_RE.test(text);
+}
 
 /**
  * Matches a line that is entirely uppercase — used by the post-parse pass
@@ -1346,10 +1353,10 @@ export function parseDialogueLines(
             inSongBlock,
           });
           if (lastDialogueIdx >= 0) {
-            // Append to existing entry (hard-wrapped continuation)
-            if (!afterBlank) {
+            // Append to existing entry (hard-wrapped continuation).
+            // Song blocks and ALL-CAPS lines stay separate — each is a distinct lyric.
+            if (!afterBlank && !inSongBlock && !ALL_CAPS_LYRIC_RE.test(trimmed)) {
               output[lastDialogueIdx].dialogue += " " + trimmed;
-              if (inSongBlock) output[lastDialogueIdx].isSong = true;
             } else {
               const idx = output.length;
               const entry: DialogueLine = {
@@ -1582,9 +1589,9 @@ export function parseDialogueLines(
               isStageDirection: true,
             });
           }
-          // Entering character speech: exit song mode if active.
-          inSongBlock = false;
-          currentSongTitle = null;
+          // Do NOT exit song mode here — character labels within a song block
+          // are singers, not speakers ending the song. Song mode ends only via
+          // an explicit SONG_CUE_END_RE stage direction or a scene heading.
           lastDialogueIdx = -1;
           afterBlank = false;
           if (outTextLineMap) outTextLineMap[i] = { kind: "header", char: nameCandidate };
@@ -1646,11 +1653,16 @@ export function parseDialogueLines(
       }
 
       const idx = output.length;
-      output.push({
+      const pendingEntry: DialogueLine = {
         lineNumber: lineNumber++,
         character: lastCharacter,
         dialogue: trimmed,
-      });
+      };
+      if (enableSongParsing && inSongBlock) {
+        pendingEntry.isSong = true;
+        if (currentSongTitle) pendingEntry.songTitle = currentSongTitle;
+      }
+      output.push(pendingEntry);
       lastDialogueIdx = idx;
       afterBlank = false;
       if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter };
@@ -1737,16 +1749,18 @@ export function parseDialogueLines(
       if (
         !standaloneCharLooksLikeSpeaker &&
         !afterBlank &&
-        lastDialogueIdx >= 0
+        lastDialogueIdx >= 0 &&
+        !(enableSongParsing && inSongBlock) &&
+        !ALL_CAPS_LYRIC_RE.test(trimmed)
       ) {
         // Hard-wrapped continuation: append so TTS reads as one speech.
+        // Excluded: song blocks, and ALL-CAPS lines which are almost always
+        // distinct lyric lines in musical scripts (not wrapped prose).
         debugParse("hard-wrapped continuation", {
           currentCharacter: lastCharacter,
           text: trimmed,
         });
         output[lastDialogueIdx].dialogue += " " + trimmed;
-        if (enableSongParsing && inSongBlock)
-          output[lastDialogueIdx].isSong = true;
         if (outTextLineMap) outTextLineMap[i] = { kind: "dialogue", char: lastCharacter };
       } else if (
         !standaloneCharLooksLikeSpeaker &&
