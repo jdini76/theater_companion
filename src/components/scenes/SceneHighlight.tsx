@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
+import { isSongCueStart, isSongCueEnd } from "@/lib/rehearsal";
 
 import type { LineOverride } from "@/types/line-override";
 import type { DialogueLine } from "@/types/rehearsal";
@@ -926,7 +927,26 @@ export function HighlightedLines({
     <div
       className={`font-mono ${textSize} ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}
     >
-      {lines.map((line, i) => {
+      {(() => {
+        // Track song block state from cue lines only — do NOT use stored
+        // line.isSong, which reflects parser state at import time and becomes
+        // stale when the user reclassifies a song-title or cue line.
+        let inSongBlockRender = false;
+        return lines.map((line, i) => {
+        if (line.songTitle) {
+          inSongBlockRender = true;
+        } else if (line.character === "[Scene Heading]") {
+          inSongBlockRender = false;
+        } else if (line.isStageDirection && line.dialogue) {
+          const t = line.dialogue.trim();
+          if (isSongCueStart(t)) inSongBlockRender = true;
+          else if (isSongCueEnd(t)) inSongBlockRender = false;
+        }
+        // Only treat as a lyric if ALL-CAPS — mixed-case text is spoken
+        // dialogue even when inside a song block.
+        const looksLikeLyric = line.dialogue ? !/[a-z]/.test(line.dialogue) : false;
+        const effectiveIsSong = inSongBlockRender && !line.songTitle && !line.isStageDirection && looksLikeLyric;
+
         const isActive = activeLine === i;
         const toggle = () => onLineUpdate && setActiveLine(isActive ? null : i);
         const clickClass = onLineUpdate ? "cursor-pointer" : "";
@@ -1062,8 +1082,11 @@ export function HighlightedLines({
 
         const dialogueRow = line.dialogue ? (
           <div
-            className={`pl-2 ${clickClass}`}
-            style={{ color: charColor?.color }}
+            className={`${effectiveIsSong ? "pl-3 border-l-2 italic" : "pl-2"} ${clickClass}`}
+            style={{
+              color: charColor?.color,
+              ...(effectiveIsSong && charColor ? { borderColor: charColor.color } : {}),
+            }}
             onClick={toggle}
           >
             {line.dialogue}
@@ -1071,7 +1094,7 @@ export function HighlightedLines({
         ) : null;
 
         return (
-          <div key={i} className="mb-2">
+          <div key={i} className={effectiveIsSong ? "mb-0.5" : "mb-2"}>
             {charNameRow}
             {dialogueRow}
             {isActive && onLineUpdate && renderPanel(i, line)}
@@ -1106,7 +1129,8 @@ export function HighlightedLines({
             />
           );
         }
-      })}
+      });
+      })()}
     </div>
   );
 }
