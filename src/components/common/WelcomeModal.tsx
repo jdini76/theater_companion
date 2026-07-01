@@ -5,7 +5,7 @@ import Image from "next/image";
 
 const DISMISSED_VERSION_KEY = "theater_welcome_dismissed_version";
 
-const CURRENT_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.0-beta.1";
+const CURRENT_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.2-beta.1";
 
 interface ReleaseNotes {
   version: string;

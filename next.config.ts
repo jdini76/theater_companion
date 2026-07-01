@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   output: isProd ? "export" : undefined,
   env: {
     NEXT_PUBLIC_APP_VERSION:
-      process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.1-beta.1",
+      process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.2-beta.1",
     NEXT_PUBLIC_BUILD_NUMBER: process.env.NEXT_PUBLIC_BUILD_NUMBER ?? "local",
     NEXT_PUBLIC_GIT_SHA: process.env.NEXT_PUBLIC_GIT_SHA ?? "dev",
   },
