@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
-import { parseDialogueLines, normalizeStageDirectionLines } from "@/lib/rehearsal";
+import { parseDialogueLines, normalizeStageDirectionLines, resolveSongBlockFlags } from "@/lib/rehearsal";
 import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
 import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
@@ -402,20 +402,20 @@ export default function UnifiedRehearsalPage({
 
   const getImportedSceneLines = useCallback(
     (scene: StoredScene): DialogueLine[] => {
-      if (scene.lines && scene.lines.length > 0) {
-        // Lines reclassified as stage directions before the character-reset
-        // fix still carry the original speaker's name — fix them up so Run
-        // Lines never mistakes them for that character's dialogue. SceneViewer
-        // persists this fix once a scene is opened there; this is a fallback
-        // for scenes only ever loaded through the rehearsal page.
-        return normalizeStageDirectionLines(scene.lines).lines;
-      }
-      // Fallback for scenes never opened in SceneViewer (no stored lines).
-      return parseDialogueLines(
-        scene.content,
-        productionType === "Film" ? "screenplay" : "mixed",
-        buildKnownCharacters(collectImportedCharacterNames(scene, undefined)),
-      );
+      const raw =
+        scene.lines && scene.lines.length > 0
+          ? normalizeStageDirectionLines(scene.lines).lines
+          : parseDialogueLines(
+              scene.content,
+              productionType === "Film" ? "screenplay" : "mixed",
+              buildKnownCharacters(
+                collectImportedCharacterNames(scene, scene.lineOverrides),
+              ),
+              scene.lineOverrides,
+            );
+      // Re-evaluate isSong from cue context so all views agree on which lines
+      // are song lyrics (stored flag can be stale after user reclassifies a cue).
+      return resolveSongBlockFlags(raw);
     },
     [buildKnownCharacters, productionType],
   );

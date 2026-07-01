@@ -14,7 +14,7 @@ import {
   getSceneParseFormat,
   reflowWrappedText,
 } from "@/lib/scenes";
-import { parseDialogueLines, normalizeStageDirectionLines } from "@/lib/rehearsal";
+import { parseDialogueLines, normalizeStageDirectionLines, resolveSongBlockFlags } from "@/lib/rehearsal";
 import {
   buildCharColorMap,
   resolveGroupColor,
@@ -297,33 +297,38 @@ export function SceneViewer({
   // Fall back to parsing from scene.content only for scenes that have never
   // been opened since the rearchitecture (scene.lines is empty).
   const displayLines = useMemo(() => {
+    let lines: DialogueLine[];
     if (scene.lines && scene.lines.length > 0) {
       // Lines reclassified as stage directions before the character-reset fix
       // still carry the original speaker's name — fix them up on read so the
       // view (and anything fed from it, like Run Lines) sees `[Stage
       // Direction]` consistently. The migration effect below persists this.
-      return normalizeStageDirectionLines(scene.lines).lines;
+      lines = normalizeStageDirectionLines(scene.lines).lines;
+    } else {
+      if (!scene.content?.trim()) return [];
+      const knownCast = projectCast.length > 0 ? projectCast : [];
+      const extracted = extractSceneCharacters(
+        scene.content,
+        knownCast,
+        productionType,
+      );
+      const characters = [
+        ...new Set([
+          ...knownCast.map((c) => c.toUpperCase()),
+          ...(scene.characters ?? []).map((c) => c.toUpperCase()),
+          ...extracted.map((c) => c.toUpperCase()),
+        ]),
+      ];
+      lines = parseDialogueLines(
+        scene.content,
+        getSceneParseFormat(productionType),
+        characters,
+        scene.lineOverrides,
+      );
     }
-    if (!scene.content?.trim()) return [];
-    const knownCast = projectCast.length > 0 ? projectCast : [];
-    const extracted = extractSceneCharacters(
-      scene.content,
-      knownCast,
-      productionType,
-    );
-    const characters = [
-      ...new Set([
-        ...knownCast.map((c) => c.toUpperCase()),
-        ...(scene.characters ?? []).map((c) => c.toUpperCase()),
-        ...extracted.map((c) => c.toUpperCase()),
-      ]),
-    ];
-    return parseDialogueLines(
-      scene.content,
-      getSceneParseFormat(productionType),
-      characters,
-      scene.lineOverrides,
-    );
+    // Re-evaluate isSong from cue context so the stored flag (which can be
+    // stale after reclassification) always matches what every view displays.
+    return resolveSongBlockFlags(lines);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.lines, scene.content]);
 
@@ -786,15 +791,20 @@ export function SceneViewer({
     };
 
     for (const screenplayScene of screenplaySourceScenes) {
-      // Use pre-parsed lines when available; fall back to parsing only for
-      // set-piece scenes that haven't been opened yet (no scene.lines).
-      const screenplayLines: DialogueLine[] =
-        screenplayScene.lines && screenplayScene.lines.length > 0
-          ? screenplayScene.lines
-          : parseDialogueLines(
-              screenplayScene.content,
-              getSceneParseFormat(productionType),
-            );
+      // For the current scene, use displayLines — already parsed with the full
+      // character list and lineOverrides so it always matches the interactive
+      // view and correctly splits song-block character changes.
+      // For other set-piece scenes fall back to stored lines or a fresh parse.
+      const rawLines =
+        screenplayScene.id === scene.id
+          ? displayLines
+          : screenplayScene.lines && screenplayScene.lines.length > 0
+            ? screenplayScene.lines
+            : parseDialogueLines(
+                screenplayScene.content,
+                getSceneParseFormat(productionType),
+              );
+      const screenplayLines: DialogueLine[] = resolveSongBlockFlags(rawLines);
 
       const hasLeadingHeading =
         screenplayLines[0]?.character === "[Scene Heading]";
@@ -870,7 +880,7 @@ export function SceneViewer({
     }
 
     return pages.length > 0 ? pages : [{ items: [] }];
-  }, [productionType, screenplayPageBudget, screenplaySourceScenes]);
+  }, [productionType, screenplayPageBudget, screenplaySourceScenes, displayLines, scene.id]);
 
   const screenplayPage =
     screenplayPages[screenplayPageIndex] ?? screenplayPages[0];
@@ -909,7 +919,7 @@ export function SceneViewer({
     screenplayScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
   };
 
-  const renderScreenplayLine = (line: DialogueLine, index: number) => {
+  const renderScreenplayLine = (line: DialogueLine, index: number, prevItem?: ScreenplayPageItem) => {
     const text = line.dialogue.trim();
     const isHeading = line.character === "[Scene Heading]";
     const isNarrative = line.character === "[Narrative]";
@@ -939,6 +949,42 @@ export function SceneViewer({
     }
 
     if (isNarrative || isSong) {
+      // Named song line: show character header when the singer changes.
+      // [Song] pseudo-character has no attribution to show.
+      if (isSong && line.character !== "[Song]") {
+        const prevLine = prevItem?.kind === "line" ? prevItem.line : undefined;
+        const prevIsSong = prevLine && (prevLine.isSong || prevLine.character === "[Song]");
+        const showHeader = !prevIsSong || prevLine?.character !== line.character;
+        const isMyLyric =
+          highlightMyOnly &&
+          myRoleNames.length > 0 &&
+          myRoleNames.includes(line.character.toUpperCase());
+        return (
+          <div key={index}>
+            {showHeader && (
+              <div
+                className="uppercase font-semibold tracking-wide"
+                style={{
+                  margin: "0 auto",
+                  width: "2.4in",
+                  textAlign: "center",
+                  ...(isMyLyric
+                    ? { backgroundColor: "#ffe066", borderRadius: "2px", padding: "0 4px" }
+                    : {}),
+                }}
+              >
+                {line.character}
+              </div>
+            )}
+            <div
+              className="italic text-amber-900 leading-[1.45] whitespace-pre-wrap"
+              style={{ margin: "0 auto", maxWidth: "3.9in" }}
+            >
+              {text}
+            </div>
+          </div>
+        );
+      }
       return (
         <div key={index} className={isSong ? "italic text-amber-900" : ""}>
           <div className="whitespace-pre-wrap leading-[1.3]">{text}</div>
@@ -1021,10 +1067,13 @@ export function SceneViewer({
         >
           <button
             onClick={() => {
-              console.log(
-                "[SceneViewer] Run Lines clicked, sceneId:",
-                scene.id,
-              );
+              // Sync scene.lines with the current view's parsed data so Run
+              // Lines always reads what the scene view is showing. Batched
+              // with navigateToRunLines so libraryScenes is up-to-date when
+              // the pendingSceneId effect fires in UnifiedRehearsalPage.
+              if (displayLines.length > 0) {
+                updateScene(scene.id, { lines: displayLines });
+              }
               navigateToRunLines(scene.id);
             }}
             title="Run lines with this scene"
@@ -1522,7 +1571,7 @@ export function SceneViewer({
                           aria-hidden="true"
                         />
                       ) : (
-                        renderScreenplayLine(item.line, index)
+                        renderScreenplayLine(item.line, index, screenplayPage.items[index - 1])
                       ),
                     )}
                   </div>

@@ -845,7 +845,7 @@ function overrideToDialogueUpdate(override: LineOverride, currentLine?: Dialogue
     case "multi-header":
       return { character: override.chars.join(" & "), characters: override.chars, isStageDirection: false, isSong: false, songTitle: undefined, isNarratorCue: false };
     case "song-title":
-      return { songTitle: override.text, isSong: false, isStageDirection: false };
+      return { character: "[Song]", dialogue: override.text, songTitle: override.text, isSong: true, isStageDirection: false };
     case "group": {
       // Preserve the existing character name when it's already a recognized group/ensemble
       // name (ENSEMBLE, CHORUS, etc.) so marking a line as "group" doesn't force "ALL".

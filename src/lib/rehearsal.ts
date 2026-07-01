@@ -132,8 +132,19 @@ const SONG_CUE_END_RE =
 const MODERN_SONG_CUE_RE =
   /^\((?:(?:she|he|they|we|i|all)\s+)?sing(?:s|ing)?(?:\s+(?:the\s+following|along|and\s+danc(?:es?|ing)))?\s*\.?\)$/i;
 
+/**
+ * Keyword-based fallback for longer descriptive stage directions that signal
+ * a song is starting but don't fit the short-cue patterns above.
+ *
+ * Matches phrases like:
+ *   (SANDRA cues the music.)
+ *   (She cues the band, and they begin.)
+ *   (He cues the orchestra.)
+ */
+const SONG_CUE_KEYWORD_RE = /\bcues?\s+(?:the\s+)?(?:music|band|orchestra)\b/i;
+
 export function isSongCueStart(text: string): boolean {
-  return SONG_CUE_START_RE.test(text) || MODERN_SONG_CUE_RE.test(text);
+  return SONG_CUE_START_RE.test(text) || MODERN_SONG_CUE_RE.test(text) || SONG_CUE_KEYWORD_RE.test(text);
 }
 export function isSongCueEnd(text: string): boolean {
   return SONG_CUE_END_RE.test(text);
@@ -1861,6 +1872,48 @@ export function normalizeStageDirectionLines(
     return line;
   });
   return { lines: changed ? normalized : lines, changed };
+}
+
+/**
+ * Re-evaluates isSong on each line from surrounding song-cue context.
+ * The stored isSong flag can become stale when users reclassify a song-title
+ * line or a cue stage direction. This mirrors the runtime detection in
+ * HighlightedLines so all views (screenplay, run lines) agree on which lines
+ * are song lyrics.
+ */
+export function resolveSongBlockFlags(lines: DialogueLine[]): DialogueLine[] {
+  let inSongBlock = false;
+  let changed = false;
+  const resolved = lines.map((line) => {
+    if (line.songTitle) {
+      inSongBlock = true;
+      // Normalize stale song-title lines: character should be "[Song]", dialogue
+      // should be the title text, isSong should be true. Old UI code set songTitle
+      // without updating character/dialogue/isSong, leaving them inconsistent.
+      if (line.character !== "[Song]" || line.dialogue !== line.songTitle || !line.isSong) {
+        changed = true;
+        return { ...line, character: "[Song]", dialogue: line.songTitle, isSong: true, isStageDirection: false };
+      }
+      return line;
+    }
+    if (line.character === "[Scene Heading]") {
+      inSongBlock = false;
+      return line;
+    }
+    if (line.isStageDirection && line.dialogue) {
+      const t = line.dialogue.trim();
+      if (isSongCueStart(t)) inSongBlock = true;
+      else if (isSongCueEnd(t)) inSongBlock = false;
+      return line;
+    }
+    // Only ALL-CAPS dialogue is treated as a lyric — mixed-case is spoken dialogue.
+    const looksLikeLyric = !line.dialogue || !/[a-z]/.test(line.dialogue);
+    const effectiveIsSong = inSongBlock && looksLikeLyric;
+    if (effectiveIsSong === !!line.isSong) return line;
+    changed = true;
+    return { ...line, isSong: effectiveIsSong };
+  });
+  return changed ? resolved : lines;
 }
 
 export function extractCharacterNames(lines: DialogueLine[]): string[] {
