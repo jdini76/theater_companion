@@ -429,9 +429,9 @@ export async function executeImport(
       try {
         const oldUrls = JSON.parse(bundle.songsUrlsJson) as Record<
           string,
-          string
+          unknown
         >;
-        const newUrls: Record<string, string> = {};
+        const newUrls: Record<string, unknown> = {};
         for (const [oldId, url] of Object.entries(oldUrls)) {
           const newId = remapSongStorageId(oldId, sceneIdMap);
           newUrls[newId] = url;

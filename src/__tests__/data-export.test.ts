@@ -52,6 +52,20 @@ describe("data export/import", () => {
             old_scene_legacy: "https://example.com/legacy",
             "old-scene-id_song_1": "https://example.com/song-1",
             "old-scene-id_songs": "https://example.com/scene-legacy",
+            "old-scene-id_song_2": [
+              "https://example.com/song-2-a",
+              "https://example.com/song-2-b",
+            ],
+            "old-scene-id_song_3": [
+              {
+                title: "Studio Track",
+                url: "https://example.com/song-3-studio",
+              },
+              {
+                title: "Live Mix",
+                url: "https://example.com/song-3-live",
+              },
+            ],
           }),
         },
       },
@@ -86,6 +100,20 @@ describe("data export/import", () => {
     expect(urls[`${newSceneId}_songs`]).toBe(
       "https://example.com/scene-legacy",
     );
+    expect(urls[`${newSceneId}_song_2`]).toEqual([
+      "https://example.com/song-2-a",
+      "https://example.com/song-2-b",
+    ]);
+    expect(urls[`${newSceneId}_song_3`]).toEqual([
+      {
+        title: "Studio Track",
+        url: "https://example.com/song-3-studio",
+      },
+      {
+        title: "Live Mix",
+        url: "https://example.com/song-3-live",
+      },
+    ]);
     expect(urls.old_scene_legacy).toBe("https://example.com/legacy");
   });
 });

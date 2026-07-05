@@ -10,6 +10,15 @@ import { SongList } from "./SongList";
 import { SongViewer } from "./SongViewer";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+interface SongReferenceLink {
+  title: string;
+  url: string;
+}
+
+interface StoredSongReferenceLink {
+  title?: unknown;
+  url?: unknown;
+}
 
 interface SongManagerProps {
   projectId: string;
@@ -33,9 +42,34 @@ export function SongManager({
     `theater_songs_hidden_${projectId}`,
     [],
   );
-  const [songUrls, setSongUrls] = useLocalStorage<Record<string, string>>(
-    `theater_songs_urls_${projectId}`,
-    {},
+  const [songUrls, setSongUrls] = useLocalStorage<
+    Record<string, string | string[] | StoredSongReferenceLink[]>
+  >(`theater_songs_urls_${projectId}`, {});
+
+  const getSongLinks = useCallback(
+    (songId: string): SongReferenceLink[] => {
+      const value = songUrls[songId];
+      if (Array.isArray(value)) {
+        if (value.every((entry) => typeof entry === "string")) {
+          return (value as string[])
+            .map((url) => ({ title: "", url: url.trim() }))
+            .filter((entry) => Boolean(entry.url));
+        }
+
+        return (value as StoredSongReferenceLink[])
+          .map((entry) => ({
+            title: typeof entry.title === "string" ? entry.title.trim() : "",
+            url: typeof entry.url === "string" ? entry.url.trim() : "",
+          }))
+          .filter((entry) => Boolean(entry.url));
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed ? [{ title: "", url: trimmed }] : [];
+      }
+      return [];
+    },
+    [songUrls],
   );
 
   const scenes = getProjectScenes(projectId);
@@ -74,12 +108,18 @@ export function SongManager({
     [setHiddenSongIds, selectedSongId],
   );
 
-  const handleSetUrl = useCallback(
-    (id: string, url: string) => {
+  const handleSetSongLinks = useCallback(
+    (id: string, links: SongReferenceLink[]) => {
       setSongUrls((prev) => {
         const next = { ...prev };
-        if (url.trim()) {
-          next[id] = url.trim();
+        const cleaned = links
+          .map((entry) => ({
+            title: entry.title.trim(),
+            url: entry.url.trim(),
+          }))
+          .filter((entry) => Boolean(entry.url));
+        if (cleaned.length > 0) {
+          next[id] = cleaned;
         } else {
           delete next[id];
         }
@@ -175,8 +215,8 @@ export function SongManager({
           {selectedSong ? (
             <SongViewer
               song={selectedSong}
-              url={songUrls[selectedSong.id] ?? ""}
-              onSetUrl={(url) => handleSetUrl(selectedSong.id, url)}
+              links={getSongLinks(selectedSong.id)}
+              onSetLinks={(links) => handleSetSongLinks(selectedSong.id, links)}
             />
           ) : (
             <div className="card flex-1 flex flex-col items-center justify-center text-center py-16">
