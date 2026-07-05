@@ -562,64 +562,6 @@ export default function UnifiedRehearsalPage({
     buildSetPieceScenePage,
   ]);
 
-  // Auto-load a scene when navigated from SceneViewer via "Run Lines" button
-  useEffect(() => {
-    if (!pendingSceneId) return;
-
-    const saved = loadSavedForProject(currentProjectId) as Record<
-      string,
-      unknown
-    > | null;
-    const savedSceneIds = Array.isArray(saved?.selectedLibrarySceneIds)
-      ? (saved?.selectedLibrarySceneIds as string[])
-      : [];
-    const savedLoadSource = saved?.loadSource as string | undefined;
-    const savedLibraryLoadMode = saved?.libraryLoadMode as string | undefined;
-
-    const shouldRestoreSavedConfigForPendingScene =
-      savedLoadSource === "library" &&
-      savedLibraryLoadMode === "scenes" &&
-      savedSceneIds.length === 1 &&
-      savedSceneIds[0] === pendingSceneId;
-
-    if (shouldRestoreSavedConfigForPendingScene) {
-      applySettings(saved);
-      setCurrentSpeaker("READY");
-      setCurrentDialogue("Scene loaded from your saved Run Lines setup.");
-      setCurrentPrompt("");
-      setScenesOpen(false);
-      onSceneNavigated?.();
-      return;
-    }
-
-    console.log(
-      "[UnifiedRehearsalPage] Loading scene from SceneViewer with sceneId:",
-      pendingSceneId,
-    );
-    const stored = libraryScenes.find((s) => s.id === pendingSceneId);
-    if (!stored) return;
-    const scene = buildLibraryScenePage(stored);
-    if (!scene) return;
-    loadedFromLibraryRef.current = true;
-    setLoadSource("library");
-    setLibraryLoadMode("scenes");
-    setSelectedLibrarySceneIds(new Set([pendingSceneId]));
-    setScenes([scene]);
-    setSelectedSceneIndex(0);
-    setCurrentSpeaker("READY");
-    setCurrentDialogue("Scene loaded from library.");
-    setCurrentPrompt("");
-    setScenesOpen(false);
-    onSceneNavigated?.();
-  }, [
-    pendingSceneId,
-    libraryScenes,
-    buildLibraryScenePage,
-    onSceneNavigated,
-    currentProjectId,
-    applySettings,
-  ]);
-
   const normalizeScriptInput = useCallback(
     (text: string) => decodeHtmlEntities(text),
     [],
@@ -732,6 +674,64 @@ export default function UnifiedRehearsalPage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-load a scene when navigated from SceneViewer via "Run Lines" button
+  useEffect(() => {
+    if (!pendingSceneId) return;
+
+    const saved = loadSavedForProject(currentProjectId) as Record<
+      string,
+      unknown
+    > | null;
+    const savedSceneIds = Array.isArray(saved?.selectedLibrarySceneIds)
+      ? (saved?.selectedLibrarySceneIds as string[])
+      : [];
+    const savedLoadSource = saved?.loadSource as string | undefined;
+    const savedLibraryLoadMode = saved?.libraryLoadMode as string | undefined;
+
+    const shouldRestoreSavedConfigForPendingScene =
+      savedLoadSource === "library" &&
+      savedLibraryLoadMode === "scenes" &&
+      savedSceneIds.length === 1 &&
+      savedSceneIds[0] === pendingSceneId;
+
+    if (shouldRestoreSavedConfigForPendingScene) {
+      applySettings(saved);
+      setCurrentSpeaker("READY");
+      setCurrentDialogue("Scene loaded from your saved Run Lines setup.");
+      setCurrentPrompt("");
+      setScenesOpen(false);
+      onSceneNavigated?.();
+      return;
+    }
+
+    console.log(
+      "[UnifiedRehearsalPage] Loading scene from SceneViewer with sceneId:",
+      pendingSceneId,
+    );
+    const stored = libraryScenes.find((s) => s.id === pendingSceneId);
+    if (!stored) return;
+    const scene = buildLibraryScenePage(stored);
+    if (!scene) return;
+    loadedFromLibraryRef.current = true;
+    setLoadSource("library");
+    setLibraryLoadMode("scenes");
+    setSelectedLibrarySceneIds(new Set([pendingSceneId]));
+    setScenes([scene]);
+    setSelectedSceneIndex(0);
+    setCurrentSpeaker("READY");
+    setCurrentDialogue("Scene loaded from library.");
+    setCurrentPrompt("");
+    setScenesOpen(false);
+    onSceneNavigated?.();
+  }, [
+    pendingSceneId,
+    libraryScenes,
+    buildLibraryScenePage,
+    onSceneNavigated,
+    currentProjectId,
+    applySettings,
+  ]);
 
   // Load browser voices (with iOS primer)
   useEffect(() => {
