@@ -36,6 +36,7 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Browser voices in Run Lines now refresh with delayed follow-up checks after navigation, improving voice list reliability when returning to a scene.",
       "Run Lines browser voices now also re-check on focus and interaction, improving reliability on devices that delay voice availability until after navigation.",
       "Saved Run Lines voice settings now auto-populate character dropdown lists when you return, including built-in AI voice lists, so manual Load Voices is needed less often.",
+      "On iPad/Safari, Run Lines now pauses instead of skipping ahead if AI voice playback fails to start, so lines don't race past while waiting for audio.",
     ],
   },
   {

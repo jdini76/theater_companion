@@ -1540,7 +1540,10 @@ MOM: See? You were ready.`,
               forceProxy: ttsProvider === "proxy",
             });
             onDone();
-          })().catch(() => onDone());
+          })().catch(() => {
+            setCurrentPrompt("Voice playback failed. Tap Continue to retry.");
+            setRehearsal((prev) => ({ ...prev, isPaused: true }));
+          });
           return;
         }
 
@@ -1730,7 +1733,12 @@ MOM: See? You were ready.`,
           const speakViaApi = (text: string, voice: string, speed: number) => {
             doApiSpeak(text, voice, speed)
               .then(onDone)
-              .catch(() => onDone());
+              .catch(() => {
+                setCurrentPrompt(
+                  "Voice playback failed. Tap Continue to retry.",
+                );
+                setRehearsal((prev) => ({ ...prev, isPaused: true }));
+              });
           };
 
           if (speakNames) {
