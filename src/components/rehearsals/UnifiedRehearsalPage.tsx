@@ -9,7 +9,11 @@ import React, {
 } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { parseScenes, extractSceneCharacters } from "@/lib/scenes";
-import { parseDialogueLines, normalizeStageDirectionLines, resolveSongBlockFlags } from "@/lib/rehearsal";
+import {
+  parseDialogueLines,
+  normalizeStageDirectionLines,
+  resolveSongBlockFlags,
+} from "@/lib/rehearsal";
 import { useScenes } from "@/contexts/SceneContext";
 import { useProjects } from "@/contexts/ProjectContext";
 import { useDeviceCapabilities } from "@/hooks/useDeviceCapabilities";
@@ -561,6 +565,33 @@ export default function UnifiedRehearsalPage({
   // Auto-load a scene when navigated from SceneViewer via "Run Lines" button
   useEffect(() => {
     if (!pendingSceneId) return;
+
+    const saved = loadSavedForProject(currentProjectId) as Record<
+      string,
+      unknown
+    > | null;
+    const savedSceneIds = Array.isArray(saved?.selectedLibrarySceneIds)
+      ? (saved?.selectedLibrarySceneIds as string[])
+      : [];
+    const savedLoadSource = saved?.loadSource as string | undefined;
+    const savedLibraryLoadMode = saved?.libraryLoadMode as string | undefined;
+
+    const shouldRestoreSavedConfigForPendingScene =
+      savedLoadSource === "library" &&
+      savedLibraryLoadMode === "scenes" &&
+      savedSceneIds.length === 1 &&
+      savedSceneIds[0] === pendingSceneId;
+
+    if (shouldRestoreSavedConfigForPendingScene) {
+      applySettings(saved);
+      setCurrentSpeaker("READY");
+      setCurrentDialogue("Scene loaded from your saved Run Lines setup.");
+      setCurrentPrompt("");
+      setScenesOpen(false);
+      onSceneNavigated?.();
+      return;
+    }
+
     console.log(
       "[UnifiedRehearsalPage] Loading scene from SceneViewer with sceneId:",
       pendingSceneId,
@@ -580,7 +611,14 @@ export default function UnifiedRehearsalPage({
     setCurrentPrompt("");
     setScenesOpen(false);
     onSceneNavigated?.();
-  }, [pendingSceneId, libraryScenes, buildLibraryScenePage, onSceneNavigated]);
+  }, [
+    pendingSceneId,
+    libraryScenes,
+    buildLibraryScenePage,
+    onSceneNavigated,
+    currentProjectId,
+    applySettings,
+  ]);
 
   const normalizeScriptInput = useCallback(
     (text: string) => decodeHtmlEntities(text),
@@ -617,7 +655,8 @@ export default function UnifiedRehearsalPage({
     if (saved.scriptInput)
       setScriptInput(normalizeScriptInput(saved.scriptInput as string));
     if (saved.sceneMode) setSceneMode(saved.sceneMode as "single" | "multiple");
-    if (saved.loadSource) setLoadSource(saved.loadSource as "paste" | "library");
+    if (saved.loadSource)
+      setLoadSource(saved.loadSource as "paste" | "library");
     if (saved.libraryLoadMode)
       setLibraryLoadMode(saved.libraryLoadMode as "scenes" | "set-pieces");
     // Restore the previously loaded library selection so scenes reload
@@ -1149,34 +1188,45 @@ MOM: See? You were ready.`,
   useEffect(() => {
     if (!loadedRef.current) return;
     const pid = currentProjectId;
-    const timer = setTimeout(() => {
+    const toSave = {
+      scriptInput,
+      sceneMode,
+      loadSource,
+      libraryLoadMode,
+      selectedLibrarySceneIds: Array.from(selectedLibrarySceneIds),
+      selectedLibrarySetPieces: Array.from(selectedLibrarySetPieces),
+      selectedSceneIndex,
+      selectedCharacter,
+      voiceAssignments,
+      speakNames,
+      readOwnLines,
+      rehearsalMode,
+      pauseMode,
+      countdownSeconds,
+      wordsPerMinute,
+      narratorVoiceIndex,
+      ttsProvider,
+      apiVoiceAssignments,
+    };
+
+    const persist = () => {
       try {
-        const toSave = {
-          scriptInput,
-          sceneMode,
-          loadSource,
-          libraryLoadMode,
-          selectedLibrarySceneIds: Array.from(selectedLibrarySceneIds),
-          selectedLibrarySetPieces: Array.from(selectedLibrarySetPieces),
-          selectedSceneIndex,
-          selectedCharacter,
-          voiceAssignments,
-          speakNames,
-          readOwnLines,
-          rehearsalMode,
-          pauseMode,
-          countdownSeconds,
-          wordsPerMinute,
-          narratorVoiceIndex,
-          ttsProvider,
-          apiVoiceAssignments,
-        };
         localStorage.setItem(saveKeyForProject(pid), JSON.stringify(toSave));
       } catch {
         // Ignore storage errors
       }
+    };
+
+    const timer = setTimeout(() => {
+      persist();
     }, 500);
-    return () => clearTimeout(timer);
+
+    // Flush latest settings immediately when effect is torn down (including
+    // tab switches/unmount) so rapid navigation does not drop voice changes.
+    return () => {
+      clearTimeout(timer);
+      persist();
+    };
   }, [
     currentProjectId,
     scriptInput,
@@ -1815,7 +1865,11 @@ MOM: See? You were ready.`,
     // advance past that line so the next line plays instead of immediately
     // re-pausing on the same user line.
     if (isMyTurn) {
-      setRehearsal((prev) => ({ ...prev, isPaused: false, index: prev.index + 1 }));
+      setRehearsal((prev) => ({
+        ...prev,
+        isPaused: false,
+        index: prev.index + 1,
+      }));
     } else {
       setRehearsal((prev) => ({ ...prev, isPaused: false }));
     }
@@ -2461,7 +2515,9 @@ MOM: See? You were ready.`,
                         value={countdownSeconds}
                         onChange={(e) => {
                           const raw = e.target.value.replace(/[^0-9]/g, "");
-                          setCountdownSeconds(raw === "" ? 1 : Math.max(1, parseInt(raw)));
+                          setCountdownSeconds(
+                            raw === "" ? 1 : Math.max(1, parseInt(raw)),
+                          );
                         }}
                         className={inputCls}
                       />

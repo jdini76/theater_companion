@@ -28,6 +28,8 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Song reference links now import correctly from exported project JSON files.",
       "Songs now support multiple reference links with tabs so you can switch sources while keeping lyrics visible.",
       "The song link editor now stacks tab title and URL inputs for a cleaner, more even layout.",
+      "Run Lines now keeps your previous setup when reopening the same scene from Scene Viewer, instead of resetting your configuration.",
+      "Run Lines now reliably saves your voice selections even if you switch tabs quickly, so voice settings persist when you come back.",
     ],
   },
   {
