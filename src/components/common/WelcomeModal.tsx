@@ -24,7 +24,8 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       'Fixed "Continue" button not working in Run Lines when using the Pause and Wait mode.',
       "Song lyrics now display as individual lines in the Scene Viewer instead of one long merged block of text.",
       "Fixed the Screenplay view merging song lyrics and character names into one block instead of splitting them correctly — it now always matches the Scene view.",
-      "Song blocks now correctly start when a stage direction says someone \"cues the music\" (or band/orchestra), so lyrics that follow are styled as song lines in all views.",
+      'Song blocks now correctly start when a stage direction says someone "cues the music" (or band/orchestra), so lyrics that follow are styled as song lines in all views.',
+      "Song reference links now import correctly from exported project JSON files.",
     ],
   },
   {
