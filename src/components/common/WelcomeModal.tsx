@@ -30,6 +30,8 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "The song link editor now stacks tab title and URL inputs for a cleaner, more even layout.",
       "Run Lines now keeps your previous setup when reopening the same scene from Scene Viewer, instead of resetting your configuration.",
       "Run Lines now reliably saves your voice selections even if you switch tabs quickly, so voice settings persist when you come back.",
+      "Run Lines now has a Cover my lines option to mask your own dialogue in the display box while you rehearse.",
+      "When Cover my lines is enabled, Run Lines now shows a Reveal button so you can unmask only the current line on demand.",
     ],
   },
   {

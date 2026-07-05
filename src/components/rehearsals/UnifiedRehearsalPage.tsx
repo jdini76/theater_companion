@@ -292,6 +292,7 @@ export default function UnifiedRehearsalPage({
   // Rehearsal options
   const [speakNames, setSpeakNames] = useState<boolean>(false);
   const [readOwnLines, setReadOwnLines] = useState<boolean>(false);
+  const [coverMyLines, setCoverMyLines] = useState<boolean>(false);
   const [pauseMode, setPauseMode] = useState<"manual" | "countdown" | "wpm">(
     "manual",
   );
@@ -309,6 +310,9 @@ export default function UnifiedRehearsalPage({
     isPlaying: false,
     isPaused: false,
   });
+  const [revealedLineIndex, setRevealedLineIndex] = useState<number | null>(
+    null,
+  );
   const [currentSpeaker, setCurrentSpeaker] = useState<string>("");
   const [currentDialogue, setCurrentDialogue] = useState<string>(
     "Load a scene, pick your role, and press Start.",
@@ -580,6 +584,7 @@ export default function UnifiedRehearsalPage({
     setVoiceAssignments({});
     setSpeakNames(false);
     setReadOwnLines(false);
+    setCoverMyLines(false);
     setRehearsalMode("full");
     setPauseMode("manual");
     setCountdownSeconds(4);
@@ -591,6 +596,7 @@ export default function UnifiedRehearsalPage({
     setCurrentDialogue("Load a scene, pick your role, and press Start.");
     setCurrentPrompt("");
     setRehearsal({ lines: [], index: 0, isPlaying: false, isPaused: false });
+    setRevealedLineIndex(null);
 
     if (!saved) return;
 
@@ -625,6 +631,8 @@ export default function UnifiedRehearsalPage({
     if (typeof saved.speakNames === "boolean") setSpeakNames(saved.speakNames);
     if (typeof saved.readOwnLines === "boolean")
       setReadOwnLines(saved.readOwnLines);
+    if (typeof saved.coverMyLines === "boolean")
+      setCoverMyLines(saved.coverMyLines);
     if (saved.rehearsalMode)
       setRehearsalMode(saved.rehearsalMode as "full" | "cue-only");
     if (saved.pauseMode)
@@ -1200,6 +1208,7 @@ MOM: See? You were ready.`,
       voiceAssignments,
       speakNames,
       readOwnLines,
+      coverMyLines,
       rehearsalMode,
       pauseMode,
       countdownSeconds,
@@ -1240,6 +1249,7 @@ MOM: See? You were ready.`,
     voiceAssignments,
     speakNames,
     readOwnLines,
+    coverMyLines,
     rehearsalMode,
     pauseMode,
     countdownSeconds,
@@ -1672,9 +1682,14 @@ MOM: See? You were ready.`,
         characterNamesMatch(name, selectedCharacter),
       );
 
+    const dialogueForDisplay =
+      coverMyLines && isMine && revealedLineIndex !== idx
+        ? line.dialogue.replace(/[^\s]/g, "•")
+        : line.dialogue;
+
     if (isMine && !readOwnLines) {
       setCurrentSpeaker(line.character);
-      setCurrentDialogue(line.dialogue);
+      setCurrentDialogue(dialogueForDisplay);
       setCurrentPrompt("Your turn.");
 
       if (pauseMode === "countdown") {
@@ -1739,7 +1754,7 @@ MOM: See? You were ready.`,
     }
 
     setCurrentSpeaker(line.character);
-    setCurrentDialogue(line.dialogue);
+    setCurrentDialogue(dialogueForDisplay);
     setCurrentPrompt(isMine ? "Read-through mode" : "Listening...");
 
     // Pre-generate the next non-user Kokoro line in the background (if enabled)
@@ -1781,6 +1796,7 @@ MOM: See? You were ready.`,
     rehearsal,
     selectedCharacter,
     readOwnLines,
+    coverMyLines,
     rehearsalMode,
     pauseMode,
     countdownSeconds,
@@ -1791,6 +1807,7 @@ MOM: See? You were ready.`,
     voiceAssignments,
     skipNarration,
     skipStageDirections,
+    revealedLineIndex,
   ]);
 
   // Trigger rehearsal advancement
@@ -1804,6 +1821,11 @@ MOM: See? You were ready.`,
     rehearsal.isPaused,
     runRehearsalLine,
   ]);
+
+  // Reveal is line-specific; clear it whenever playback advances.
+  useEffect(() => {
+    setRevealedLineIndex(null);
+  }, [rehearsal.index]);
 
   // Start rehearsal
   const handleStart = () => {
@@ -1833,6 +1855,7 @@ MOM: See? You were ready.`,
       isPlaying: true,
       isPaused: false,
     });
+    setRevealedLineIndex(null);
   };
 
   // Pause rehearsal
@@ -1883,9 +1906,26 @@ MOM: See? You were ready.`,
     if (countdownInterval) clearInterval(countdownInterval);
     if (nextLineTimeout) clearTimeout(nextLineTimeout);
     setRehearsal({ lines: [], index: 0, isPlaying: false, isPaused: false });
+    setRevealedLineIndex(null);
     setCurrentSpeaker("");
     setCurrentDialogue("Load a scene, pick your role, and press Start.");
     setCurrentPrompt("");
+  };
+
+  const handleRevealCurrentLine = () => {
+    const line = rehearsal.lines[rehearsal.index];
+    if (!line || !coverMyLines) return;
+
+    const isMine =
+      !line.isStageDirection &&
+      splitSpeaker(line.character).some((name) =>
+        characterNamesMatch(name, selectedCharacter),
+      );
+
+    if (!isMine) return;
+
+    setRevealedLineIndex(rehearsal.index);
+    setCurrentDialogue(line.dialogue);
   };
 
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -1897,6 +1937,18 @@ MOM: See? You were ready.`,
     : [];
   const isActive = rehearsal.isPlaying || rehearsal.isPaused;
   const isMyTurn = rehearsal.isPaused && currentPrompt.startsWith("Your turn");
+  const activeLine = rehearsal.lines[rehearsal.index];
+  const activeLineIsMine =
+    !!activeLine &&
+    !activeLine.isStageDirection &&
+    splitSpeaker(activeLine.character).some((name) =>
+      characterNamesMatch(name, selectedCharacter),
+    );
+  const canRevealCurrentLine =
+    !!activeLine &&
+    coverMyLines &&
+    activeLineIsMine &&
+    revealedLineIndex !== rehearsal.index;
 
   // â”€â”€ helpers for button styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const btnPrimary =
@@ -2003,6 +2055,15 @@ MOM: See? You were ready.`,
               ) : (
                 <button onClick={handlePause} className={btnSecondary}>
                   ⏸ Pause
+                </button>
+              )}
+              {coverMyLines && (
+                <button
+                  onClick={handleRevealCurrentLine}
+                  disabled={!canRevealCurrentLine}
+                  className={btnSecondary}
+                >
+                  👁 Reveal
                 </button>
               )}
               {isActive && (
@@ -2556,6 +2617,11 @@ MOM: See? You were ready.`,
                         state: readOwnLines,
                         set: setReadOwnLines,
                         label: "Read my lines",
+                      },
+                      {
+                        state: coverMyLines,
+                        set: setCoverMyLines,
+                        label: "Cover my lines in box",
                       },
                       {
                         state: skipNarration,
