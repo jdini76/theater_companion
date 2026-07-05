@@ -88,6 +88,39 @@ function loadSavedForProject(projectId: string | null) {
   }
 }
 
+function sceneProfileKey(projectId: string | null, sceneId: string) {
+  return projectId
+    ? `theater_rehearsal_scene_settings_${projectId}_${sceneId}`
+    : `theater_rehearsal_scene_settings_default_${sceneId}`;
+}
+
+function loadSceneProfile(
+  projectId: string | null,
+  sceneId: string,
+): SceneRunLinesProfile | null {
+  try {
+    const raw = localStorage.getItem(sceneProfileKey(projectId, sceneId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSceneProfile(
+  projectId: string | null,
+  sceneId: string,
+  profile: SceneRunLinesProfile,
+) {
+  try {
+    localStorage.setItem(
+      sceneProfileKey(projectId, sceneId),
+      JSON.stringify(profile),
+    );
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 function collectImportedCharacterNames(
   scene: StoredScene,
   overrides?: Record<number, LineOverride>,
@@ -165,10 +198,37 @@ function canonicalizeSceneCharacterNames(
 }
 
 interface Scene {
+  id: string;
   title: string;
   lines: DialogueLine[];
   characters?: string[];
   setPiece?: string;
+}
+
+interface SceneRunLinesProfile {
+  selectedCharacter: string;
+  voiceAssignments: Record<string, VoiceAssignment>;
+  apiVoiceAssignments: Record<string, string>;
+  speakNames: boolean;
+  readOwnLines: boolean;
+  coverMyLines: boolean;
+  skipNarration: boolean;
+  skipStageDirections: boolean;
+  rehearsalMode: "full" | "cue-only";
+  pauseMode: "manual" | "countdown" | "wpm";
+  countdownSeconds: number;
+  wordsPerMinute: number;
+  narratorVoiceIndex: number;
+  ttsProvider: "browser" | "api" | "kokoro" | "proxy";
+}
+
+function buildParsedSceneId(title: string, index: number): string {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `paste:${index}:${slug || "scene"}`;
 }
 
 interface LibrarySetPieceGroup {
@@ -470,6 +530,7 @@ export default function UnifiedRehearsalPage({
       );
 
       return {
+        id: scene.id,
         title: scene.title,
         lines: dialogueLines,
         characters: mergedChars.length > 0 ? mergedChars : scene.characters,
@@ -529,6 +590,7 @@ export default function UnifiedRehearsalPage({
       if (flattenedLines.length === 0) return null;
 
       return {
+        id: buildParsedSceneId(label, 0),
         title: label,
         lines: flattenedLines,
         characters: Array.from(mergedChars),
@@ -690,7 +752,8 @@ export default function UnifiedRehearsalPage({
         productionType,
       });
       const processedScenes: Scene[] = parsedScenes
-        .map((ps) => ({
+        .map((ps, i) => ({
+          id: buildParsedSceneId(ps.title, i),
           title: ps.title,
           lines: parseDialogueLines(
             ps.content,
@@ -1072,6 +1135,29 @@ export default function UnifiedRehearsalPage({
       }
     });
 
+    // Narrator and stage-direction lines aren't real cast characters, so
+    // getCharacters() excludes them above and they'd otherwise never get a
+    // pinned voice — they'd keep floating on whatever the global default
+    // voice happens to be, which silently invalidates their audio cache
+    // signature (kokoro:<voice> / <apiType>:<voiceId>) any time that default
+    // changes elsewhere in Settings.
+    const ttsSettings = getTTSSettings();
+    (["NARRATOR", "[Stage Direction]"] as const).forEach((bucket) => {
+      if (!updatedVoice[bucket]) {
+        updatedVoice[bucket] = {
+          voiceIndex: narratorVoiceIndex,
+          rate: 1,
+          pitch: 1,
+        };
+      }
+      if (!updatedApi[bucket]) {
+        updatedApi[bucket] =
+          ttsProvider === "kokoro"
+            ? ttsSettings.kokoroVoice || "am_puck"
+            : ttsSettings.defaultVoiceId || "af_heart";
+      }
+    });
+
     setVoiceAssignments(updatedVoice);
     setApiVoiceAssignments(updatedApi);
   }, [
@@ -1082,6 +1168,8 @@ export default function UnifiedRehearsalPage({
     availableVoices,
     getVoiceConfigByCharacter,
     projectCast,
+    narratorVoiceIndex,
+    ttsProvider,
   ]);
 
   // Parse script
@@ -1105,13 +1193,14 @@ export default function UnifiedRehearsalPage({
     }
 
     // Then, convert each ParsedScene to a Scene with dialogue lines
-    const processedScenes: Scene[] = parsedScenes.map((ps) => {
+    const processedScenes: Scene[] = parsedScenes.map((ps, i) => {
       const dialogueLines = parseDialogueLines(
         ps.content,
         productionType === "Film" ? "screenplay" : "mixed",
         buildKnownCharacters(),
       );
       return {
+        id: buildParsedSceneId(ps.title, i),
         title: ps.title,
         lines: dialogueLines,
       };
@@ -1442,6 +1531,102 @@ MOM: See? You were ready.`,
     narratorVoiceIndex,
     ttsProvider,
     apiVoiceAssignments,
+  ]);
+
+  // When exactly one scene is loaded, its Run Lines settings (role, voice
+  // assignments, pause mode, etc.) are remembered per-scene so switching
+  // between scenes in the same project no longer clobbers each other's setup.
+  const activeSceneId = scenes.length === 1 ? scenes[0].id : null;
+  const appliedSceneProfileIdRef = useRef<string | null>(null);
+  const skipSceneProfileSaveRef = useRef(false);
+
+  useEffect(() => {
+    if (!activeSceneId) {
+      appliedSceneProfileIdRef.current = null;
+      return;
+    }
+    if (appliedSceneProfileIdRef.current === activeSceneId) return;
+    appliedSceneProfileIdRef.current = activeSceneId;
+    skipSceneProfileSaveRef.current = true;
+
+    const profile = loadSceneProfile(currentProjectId, activeSceneId);
+    if (!profile) return;
+
+    if (profile.selectedCharacter)
+      setSelectedCharacter(profile.selectedCharacter);
+    if (profile.voiceAssignments) setVoiceAssignments(profile.voiceAssignments);
+    if (profile.apiVoiceAssignments)
+      setApiVoiceAssignments(profile.apiVoiceAssignments);
+    if (typeof profile.speakNames === "boolean")
+      setSpeakNames(profile.speakNames);
+    if (typeof profile.readOwnLines === "boolean")
+      setReadOwnLines(profile.readOwnLines);
+    if (typeof profile.coverMyLines === "boolean")
+      setCoverMyLines(profile.coverMyLines);
+    if (typeof profile.skipNarration === "boolean")
+      setSkipNarration(profile.skipNarration);
+    if (typeof profile.skipStageDirections === "boolean")
+      setSkipStageDirections(profile.skipStageDirections);
+    if (profile.rehearsalMode) setRehearsalMode(profile.rehearsalMode);
+    if (profile.pauseMode) setPauseMode(profile.pauseMode);
+    if (typeof profile.countdownSeconds === "number")
+      setCountdownSeconds(profile.countdownSeconds);
+    if (typeof profile.wordsPerMinute === "number")
+      setWordsPerMinute(profile.wordsPerMinute);
+    if (typeof profile.narratorVoiceIndex === "number")
+      setNarratorVoiceIndex(profile.narratorVoiceIndex);
+    if (profile.ttsProvider) setTtsProvider(profile.ttsProvider);
+  }, [activeSceneId, currentProjectId]);
+
+  useEffect(() => {
+    if (!activeSceneId) return;
+    if (skipSceneProfileSaveRef.current) {
+      skipSceneProfileSaveRef.current = false;
+      return;
+    }
+
+    const profile: SceneRunLinesProfile = {
+      selectedCharacter,
+      voiceAssignments,
+      apiVoiceAssignments,
+      speakNames,
+      readOwnLines,
+      coverMyLines,
+      skipNarration,
+      skipStageDirections,
+      rehearsalMode,
+      pauseMode,
+      countdownSeconds,
+      wordsPerMinute,
+      narratorVoiceIndex,
+      ttsProvider,
+    };
+
+    const timer = setTimeout(() => {
+      saveSceneProfile(currentProjectId, activeSceneId, profile);
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      saveSceneProfile(currentProjectId, activeSceneId, profile);
+    };
+  }, [
+    activeSceneId,
+    currentProjectId,
+    selectedCharacter,
+    voiceAssignments,
+    apiVoiceAssignments,
+    speakNames,
+    readOwnLines,
+    coverMyLines,
+    skipNarration,
+    skipStageDirections,
+    rehearsalMode,
+    pauseMode,
+    countdownSeconds,
+    wordsPerMinute,
+    narratorVoiceIndex,
+    ttsProvider,
   ]);
 
   // Rehearsal playback logic
@@ -3097,6 +3282,96 @@ MOM: See? You were ready.`,
                     <div />
                   </div>
                 )}
+
+                {(() => {
+                  const stageCfg = voiceAssignments["[Stage Direction]"] || {
+                    voiceIndex: 0,
+                    rate: 1,
+                    pitch: 1,
+                  };
+                  return (
+                    <div
+                      className="grid items-center gap-2 p-3 bg-dark-input border border-border rounded-lg"
+                      style={{ gridTemplateColumns: "6rem 1fr auto auto auto" }}
+                    >
+                      <span className="text-sm font-semibold text-light truncate">
+                        📋 Stage Dir.
+                      </span>
+                      {ttsProvider === "browser" ? (
+                        <select
+                          value={stageCfg.voiceIndex}
+                          onChange={(e) =>
+                            setVoiceAssignments((p) => ({
+                              ...p,
+                              "[Stage Direction]": {
+                                ...stageCfg,
+                                voiceIndex: parseInt(e.target.value),
+                              },
+                            }))
+                          }
+                          className={inputCls}
+                        >
+                          {availableVoices.length === 0 ? (
+                            <option>Default</option>
+                          ) : (
+                            availableVoices.map((v, i) => (
+                              <option key={i} value={i}>
+                                {v.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      ) : ttsProvider === "kokoro" ? (
+                        <select
+                          value={apiVoiceAssignments["[Stage Direction]"] || ""}
+                          onChange={(e) =>
+                            setApiVoiceAssignments((p) => ({
+                              ...p,
+                              "[Stage Direction]": e.target.value,
+                            }))
+                          }
+                          className={inputCls}
+                        >
+                          <option value="">
+                            Default ({getTTSSettings().kokoroVoice || "am_puck"})
+                          </option>
+                          {KOKORO_VOICES.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select
+                          value={apiVoiceAssignments["[Stage Direction]"] || ""}
+                          onChange={(e) =>
+                            setApiVoiceAssignments((p) => ({
+                              ...p,
+                              "[Stage Direction]": e.target.value,
+                            }))
+                          }
+                          className={inputCls}
+                        >
+                          <option value="">
+                            {apiVoices.length === 0
+                              ? apiVoicesLoading
+                                ? "Loading…"
+                                : "Refresh voices"
+                              : "Default"}
+                          </option>
+                          {apiVoices.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.name ? `${v.name} (${v.id})` : v.id}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <div />
+                      <div />
+                      <div />
+                    </div>
+                  );
+                })()}
 
                 {characters.length === 0 ? (
                   <p className="text-muted text-sm">

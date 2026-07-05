@@ -37,6 +37,9 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Run Lines browser voices now also re-check on focus and interaction, improving reliability on devices that delay voice availability until after navigation.",
       "Saved Run Lines voice settings now auto-populate character dropdown lists when you return, including built-in AI voice lists, so manual Load Voices is needed less often.",
       "On iPad/Safari, Run Lines now pauses instead of skipping ahead if AI voice playback fails to start, so lines don't race past while waiting for audio.",
+      "AI voice playback now auto-retries failed first-play attempts on iPad/Safari, reducing manual Continue retries when audio generation succeeded.",
+      "Settings now includes a Cache Inspector so you can review cached voice-line keys and text directly when troubleshooting cache matching.",
+      "Run Lines now saves your role, voice assignments, and playback options separately for each scene, so switching between scenes no longer overwrites another scene's setup.",
     ],
   },
   {

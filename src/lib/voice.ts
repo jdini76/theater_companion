@@ -692,23 +692,62 @@ export async function speakTextViaApi(
   const objectUrl = URL.createObjectURL(blob);
   currentObjectUrl = objectUrl;
 
-  const audio = new Audio(objectUrl);
-  audio.volume = options.volume ?? 1;
-  currentAudio = audio;
-
+  // Safari/iPad can intermittently reject the first `audio.play()` even when
+  // the audio data is valid. Retry a couple of short delayed attempts before
+  // failing so Run Lines doesn't require manual Continue taps.
   return new Promise<void>((resolve, reject) => {
-    audio.onended = () => {
+    let settled = false;
+    let attempt = 0;
+    const retryDelaysMs = [0, 120, 320];
+
+    const fail = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanupAudio();
+      reject(err instanceof Error ? err : new Error("Audio playback failed"));
+    };
+
+    const succeed = () => {
+      if (settled) return;
+      settled = true;
       cleanupAudio();
       resolve();
     };
-    audio.onerror = () => {
-      cleanupAudio();
-      reject(new Error("Audio playback failed"));
+
+    const tryPlay = () => {
+      if (settled) return;
+
+      const audio = new Audio(objectUrl);
+      audio.preload = "auto";
+      (audio as HTMLAudioElement & { playsInline?: boolean }).playsInline =
+        true;
+      audio.volume = options.volume ?? 1;
+      currentAudio = audio;
+
+      audio.onended = () => succeed();
+      audio.onerror = () => {
+        if (attempt < retryDelaysMs.length - 1) {
+          attempt += 1;
+          setTimeout(tryPlay, retryDelaysMs[attempt]);
+          return;
+        }
+        fail(new Error("Audio playback failed"));
+      };
+
+      // Force metadata hydration before play() on Safari.
+      audio.load();
+
+      audio.play().catch((err) => {
+        if (attempt < retryDelaysMs.length - 1) {
+          attempt += 1;
+          setTimeout(tryPlay, retryDelaysMs[attempt]);
+          return;
+        }
+        fail(err);
+      });
     };
-    audio.play().catch((err) => {
-      cleanupAudio();
-      reject(err);
-    });
+
+    tryPlay();
   });
 }
 

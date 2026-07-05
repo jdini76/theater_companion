@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
-import { getAudioCacheStats } from "@/lib/audio-cache";
+import { getAudioCacheStats, getAllCachedAudio } from "@/lib/audio-cache";
+import type { CachedAudio } from "@/lib/audio-cache";
 import {
   exportAsZip,
   importFromZip,
@@ -179,11 +180,24 @@ export function VoiceCacheBackupPanel() {
     totalSizeBytes: number;
   } | null>(null);
   const [folderSupported, setFolderSupported] = useState(false);
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [entries, setEntries] = useState<CachedAudio[]>([]);
 
   useEffect(() => {
     getAudioCacheStats().then(setStats);
     setFolderSupported(isFolderAccessSupported());
   }, []);
+
+  const refreshEntries = async () => {
+    setInspectLoading(true);
+    try {
+      const all = await getAllCachedAudio();
+      setEntries(all.sort((a, b) => b.createdAt - a.createdAt));
+    } finally {
+      setInspectLoading(false);
+    }
+  };
 
   const isRunning = phase.kind === "running";
   const activeTarget = phase.kind === "running" ? phase.target : null;
@@ -331,6 +345,96 @@ export function VoiceCacheBackupPanel() {
 
       {/* Status / progress */}
       <StatusBar phase={phase} onDismiss={() => setPhase({ kind: "idle" })} />
+
+      {/* Cache Inspector */}
+      <div className="border border-border rounded-lg p-4 space-y-3 bg-dark-panel">
+        <button
+          onClick={() => {
+            setInspectOpen((open) => {
+              const next = !open;
+              if (next && entries.length === 0 && !inspectLoading) {
+                void refreshEntries();
+              }
+              return next;
+            });
+          }}
+          className="w-full flex items-center justify-between"
+        >
+          <span className="text-sm font-semibold text-light">
+            Cache Inspector
+          </span>
+          <span className="text-xs text-muted">
+            {inspectOpen ? "▲ Hide" : "▼ Show"}
+          </span>
+        </button>
+
+        {inspectOpen && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted">
+                Review stored cache keys, characters, and line text to verify
+                matching behavior.
+              </p>
+              <Button
+                variant="secondary"
+                onClick={() => void refreshEntries()}
+                disabled={inspectLoading}
+              >
+                {inspectLoading ? "Refreshing…" : "Refresh"}
+              </Button>
+            </div>
+
+            {inspectLoading ? (
+              <p className="text-xs text-muted">Loading cache entries…</p>
+            ) : entries.length === 0 ? (
+              <p className="text-xs text-muted">No cached entries found.</p>
+            ) : (
+              <div className="max-h-80 overflow-auto rounded border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-dark-base sticky top-0">
+                    <tr className="text-muted">
+                      <th className="text-left px-2 py-2 font-semibold">
+                        Character
+                      </th>
+                      <th className="text-left px-2 py-2 font-semibold">
+                        Text
+                      </th>
+                      <th className="text-left px-2 py-2 font-semibold">Key</th>
+                      <th className="text-left px-2 py-2 font-semibold">
+                        Size
+                      </th>
+                      <th className="text-left px-2 py-2 font-semibold">
+                        Saved
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((entry) => (
+                      <tr key={entry.key} className="border-t border-border/60">
+                        <td className="px-2 py-2 text-light whitespace-nowrap">
+                          {entry.characterName}
+                        </td>
+                        <td className="px-2 py-2 text-muted max-w-[24rem] truncate">
+                          {entry.text}
+                        </td>
+                        <td className="px-2 py-2 text-muted max-w-[16rem] truncate">
+                          {entry.key}
+                        </td>
+                        <td className="px-2 py-2 text-muted whitespace-nowrap">
+                          {(entry.blob.size / 1024).toFixed(1)} KB
+                        </td>
+                        <td className="px-2 py-2 text-muted whitespace-nowrap">
+                          {new Date(entry.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Hidden file input for ZIP restore */}
       <input
