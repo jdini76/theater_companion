@@ -32,6 +32,10 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Run Lines now reliably saves your voice selections even if you switch tabs quickly, so voice settings persist when you come back.",
       "Run Lines now has a Cover my lines option to mask your own dialogue in the display box while you rehearse.",
       "When Cover my lines is enabled, Run Lines now shows a Reveal button so you can unmask only the current line on demand.",
+      "Run Lines now remembers Skip narration and Skip stage directions, and browser voices auto-load when you return so you usually don't need to press Load Voices again.",
+      "Browser voices in Run Lines now refresh with delayed follow-up checks after navigation, improving voice list reliability when returning to a scene.",
+      "Run Lines browser voices now also re-check on focus and interaction, improving reliability on devices that delay voice availability until after navigation.",
+      "Saved Run Lines voice settings now auto-populate character dropdown lists when you return, including built-in AI voice lists, so manual Load Voices is needed less often.",
     ],
   },
   {

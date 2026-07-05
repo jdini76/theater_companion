@@ -44,6 +44,25 @@ import { capture } from "@/lib/analytics";
 
 const CURRENT_PROJECT_KEY = "theater_current_project_id";
 
+const BUILT_IN_PROXY_VOICES: ApiVoice[] = [
+  { id: "af_heart", name: "af_heart — US female (warm)" },
+  { id: "af_bella", name: "af_bella — US female" },
+  { id: "af_nicole", name: "af_nicole — US female" },
+  { id: "af_aoede", name: "af_aoede — US female" },
+  { id: "af_kore", name: "af_kore — US female" },
+  { id: "am_adam", name: "am_adam — US male" },
+  { id: "am_echo", name: "am_echo — US male" },
+  { id: "am_eric", name: "am_eric — US male" },
+  { id: "am_fenrir", name: "am_fenrir — US male" },
+  { id: "am_liam", name: "am_liam — US male" },
+  { id: "am_michael", name: "am_michael — US male" },
+  { id: "am_onyx", name: "am_onyx — US male (deep)" },
+  { id: "bf_emma", name: "bf_emma — UK female" },
+  { id: "bf_isabella", name: "bf_isabella — UK female" },
+  { id: "bm_george", name: "bm_george — UK male" },
+  { id: "bm_lewis", name: "bm_lewis — UK male" },
+];
+
 function parseStoredProjectId(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -633,6 +652,10 @@ export default function UnifiedRehearsalPage({
       setReadOwnLines(saved.readOwnLines);
     if (typeof saved.coverMyLines === "boolean")
       setCoverMyLines(saved.coverMyLines);
+    if (typeof saved.skipNarration === "boolean")
+      setSkipNarration(saved.skipNarration);
+    if (typeof saved.skipStageDirections === "boolean")
+      setSkipStageDirections(saved.skipStageDirections);
     if (saved.rehearsalMode)
       setRehearsalMode(saved.rehearsalMode as "full" | "cue-only");
     if (saved.pauseMode)
@@ -787,6 +810,164 @@ export default function UnifiedRehearsalPage({
       document.removeEventListener("touchstart", prime);
     };
   }, []);
+
+  // Some browsers populate voices after a longer delay (or only after route
+  // transitions). Retry automatically so returning to Run Lines does not
+  // require pressing "Load Voices" manually.
+  useEffect(() => {
+    if (ttsProvider !== "browser" || availableVoices.length > 0) return;
+
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    const tryLoad = () => {
+      const voices = synth.getVoices();
+      if (voices.length > 0) {
+        setAvailableVoices(voices);
+        return true;
+      }
+      return false;
+    };
+
+    if (tryLoad()) return;
+
+    let attempts = 0;
+    const maxAttempts = 20;
+    const retryTimer = setInterval(() => {
+      attempts += 1;
+      if (tryLoad() || attempts >= maxAttempts) {
+        clearInterval(retryTimer);
+      }
+    }, 250);
+
+    return () => clearInterval(retryTimer);
+  }, [ttsProvider, availableVoices.length]);
+
+  // Re-query browser voices with delayed calls and wake-up triggers when Run
+  // Lines is open. Some engines only populate voices after tab focus changes
+  // or a fresh user interaction.
+  useEffect(() => {
+    if (
+      ttsProvider !== "browser" ||
+      !runLinesOpen ||
+      availableVoices.length > 0
+    )
+      return;
+
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    let isDisposed = false;
+
+    const refreshVoices = () => {
+      if (isDisposed) return false;
+      const voices = synth.getVoices();
+      if (voices.length > 0) {
+        setAvailableVoices(voices);
+        return true;
+      }
+      return false;
+    };
+
+    const primeVoices = () => {
+      if (isDisposed) return;
+      try {
+        const utterance = new SpeechSynthesisUtterance(" ");
+        utterance.volume = 0;
+        utterance.rate = 10;
+        synth.speak(utterance);
+        setTimeout(() => {
+          synth.cancel();
+          refreshVoices();
+        }, 60);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const wakeAndRefresh = () => {
+      if (!refreshVoices()) {
+        primeVoices();
+      }
+    };
+
+    wakeAndRefresh();
+    const timers = [
+      setTimeout(wakeAndRefresh, 250),
+      setTimeout(wakeAndRefresh, 900),
+      setTimeout(wakeAndRefresh, 1800),
+      setTimeout(wakeAndRefresh, 3200),
+    ];
+
+    const onFocus = () => wakeAndRefresh();
+    const onKeyDown = () => wakeAndRefresh();
+    const onClick = () => wakeAndRefresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        wakeAndRefresh();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("click", onClick, { passive: true });
+
+    return () => {
+      isDisposed = true;
+      timers.forEach(clearTimeout);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("click", onClick);
+    };
+  }, [
+    ttsProvider,
+    runLinesOpen,
+    availableVoices.length,
+    scenes.length,
+    selectedSceneIndex,
+  ]);
+
+  // Hydrate non-browser voice lists automatically when restoring saved
+  // provider settings, so voice dropdowns don't require manual refresh.
+  useEffect(() => {
+    if (ttsProvider === "proxy") {
+      if (apiVoices.length === 0) {
+        setApiVoices(BUILT_IN_PROXY_VOICES);
+      }
+      return;
+    }
+
+    if (
+      ttsProvider === "api" &&
+      apiVoices.length === 0 &&
+      !apiVoicesLoading &&
+      !apiVoicesError
+    ) {
+      const settings = getTTSSettings();
+      if (!settings.apiUrl) return;
+
+      setApiVoicesLoading(true);
+      fetchApiVoices(settings)
+        .then((voices) => {
+          setApiVoices(voices);
+          if (voices.length === 0) {
+            setApiVoicesError("No voices returned.");
+          }
+        })
+        .catch((err) =>
+          setApiVoicesError(err instanceof Error ? err.message : "Failed"),
+        )
+        .finally(() => setApiVoicesLoading(false));
+    }
+  }, [
+    ttsProvider,
+    apiVoices.length,
+    apiVoicesLoading,
+    apiVoicesError,
+    runLinesOpen,
+  ]);
 
   // Load saved settings exactly once on mount.
   // Skip when pendingSceneId is set — the pendingSceneId effect (above) will load
@@ -1209,6 +1390,8 @@ MOM: See? You were ready.`,
       speakNames,
       readOwnLines,
       coverMyLines,
+      skipNarration,
+      skipStageDirections,
       rehearsalMode,
       pauseMode,
       countdownSeconds,
@@ -1250,6 +1433,8 @@ MOM: See? You were ready.`,
     speakNames,
     readOwnLines,
     coverMyLines,
+    skipNarration,
+    skipStageDirections,
     rehearsalMode,
     pauseMode,
     countdownSeconds,
@@ -2686,30 +2871,7 @@ MOM: See? You were ready.`,
                           | "proxy";
                         if (provider === "proxy") {
                           setTtsProvider("proxy");
-                          setApiVoices([
-                            {
-                              id: "af_heart",
-                              name: "af_heart — US female (warm)",
-                            },
-                            { id: "af_bella", name: "af_bella — US female" },
-                            { id: "af_nicole", name: "af_nicole — US female" },
-                            { id: "af_aoede", name: "af_aoede — US female" },
-                            { id: "af_kore", name: "af_kore — US female" },
-                            { id: "am_adam", name: "am_adam — US male" },
-                            { id: "am_echo", name: "am_echo — US male" },
-                            { id: "am_eric", name: "am_eric — US male" },
-                            { id: "am_fenrir", name: "am_fenrir — US male" },
-                            { id: "am_liam", name: "am_liam — US male" },
-                            { id: "am_michael", name: "am_michael — US male" },
-                            { id: "am_onyx", name: "am_onyx — US male (deep)" },
-                            { id: "bf_emma", name: "bf_emma — UK female" },
-                            {
-                              id: "bf_isabella",
-                              name: "bf_isabella — UK female",
-                            },
-                            { id: "bm_george", name: "bm_george — UK male" },
-                            { id: "bm_lewis", name: "bm_lewis — UK male" },
-                          ]);
+                          setApiVoices(BUILT_IN_PROXY_VOICES);
                         } else if (provider === "api") {
                           const s = getTTSSettings();
                           if (!s.apiUrl) {
@@ -2827,30 +2989,7 @@ MOM: See? You were ready.`,
                   {ttsProvider === "proxy" && (
                     <button
                       onClick={() => {
-                        setApiVoices([
-                          {
-                            id: "af_heart",
-                            name: "af_heart — US female (warm)",
-                          },
-                          { id: "af_bella", name: "af_bella — US female" },
-                          { id: "af_nicole", name: "af_nicole — US female" },
-                          { id: "af_aoede", name: "af_aoede — US female" },
-                          { id: "af_kore", name: "af_kore — US female" },
-                          { id: "am_adam", name: "am_adam — US male" },
-                          { id: "am_echo", name: "am_echo — US male" },
-                          { id: "am_eric", name: "am_eric — US male" },
-                          { id: "am_fenrir", name: "am_fenrir — US male" },
-                          { id: "am_liam", name: "am_liam — US male" },
-                          { id: "am_michael", name: "am_michael — US male" },
-                          { id: "am_onyx", name: "am_onyx — US male (deep)" },
-                          { id: "bf_emma", name: "bf_emma — UK female" },
-                          {
-                            id: "bf_isabella",
-                            name: "bf_isabella — UK female",
-                          },
-                          { id: "bm_george", name: "bm_george — UK male" },
-                          { id: "bm_lewis", name: "bm_lewis — UK male" },
-                        ]);
+                        setApiVoices(BUILT_IN_PROXY_VOICES);
                       }}
                       className={btnSecondary}
                     >
