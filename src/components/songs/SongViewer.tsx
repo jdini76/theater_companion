@@ -4,10 +4,15 @@ import React, { useState } from "react";
 import { SongEntry } from "@/lib/songs";
 import { Music, Link, X } from "lucide-react";
 
+interface SongReferenceLink {
+  title: string;
+  url: string;
+}
+
 interface SongViewerProps {
   song: SongEntry;
-  url?: string;
-  onSetUrl?: (url: string) => void;
+  links?: SongReferenceLink[];
+  onSetLinks?: (links: SongReferenceLink[]) => void;
 }
 
 /** Convert a YouTube watch URL or youtu.be short link to an embed URL. */
@@ -30,26 +35,102 @@ function toEmbedUrl(raw: string): string | null {
   return null;
 }
 
-export function SongViewer({ song, url = "", onSetUrl }: SongViewerProps) {
+function getUrlTabLabel(link: SongReferenceLink, index: number): string {
+  if (link.title.trim()) return link.title.trim();
+  try {
+    const parsed = new URL(link.url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    return host || `Link ${index + 1}`;
+  } catch {
+    return `Link ${index + 1}`;
+  }
+}
+
+export function SongViewer({ song, links = [], onSetLinks }: SongViewerProps) {
   const [editingUrl, setEditingUrl] = useState(false);
-  const [urlDraft, setUrlDraft] = useState(url);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [urlDraft, setUrlDraft] = useState("");
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
 
   // Keep draft in sync when the selected song changes
   React.useEffect(() => {
-    setUrlDraft(url);
+    setTitleDraft("");
+    setUrlDraft("");
+    setEditingIndex(null);
     setEditingUrl(false);
-  }, [song.id, url]);
+    setActiveTabIndex(0);
+  }, [song.id]);
+
+  React.useEffect(() => {
+    if (links.length === 0) {
+      setActiveTabIndex(0);
+      return;
+    }
+    if (activeTabIndex >= links.length) {
+      setActiveTabIndex(links.length - 1);
+    }
+  }, [links, activeTabIndex]);
 
   // Determine if there are multiple distinct characters (ensemble number)
   const distinctChars = new Set(
     song.lines.map((l) => l.character).filter((c) => c !== "[Song]"),
   );
   const isEnsemble = distinctChars.size > 1;
-  const embedUrl = url ? toEmbedUrl(url) : null;
+  const activeLink = links[activeTabIndex] ?? null;
+  const activeUrl = activeLink?.url ?? "";
+  const embedUrl = activeUrl ? toEmbedUrl(activeUrl) : null;
+
+  const startAddUrl = () => {
+    setEditingIndex(links.length);
+    setTitleDraft("");
+    setUrlDraft("");
+    setEditingUrl(true);
+  };
+
+  const startEditUrl = () => {
+    if (!links.length) {
+      startAddUrl();
+      return;
+    }
+    setEditingIndex(activeTabIndex);
+    setTitleDraft(links[activeTabIndex]?.title ?? "");
+    setUrlDraft(links[activeTabIndex]?.url ?? "");
+    setEditingUrl(true);
+  };
 
   const commitUrl = () => {
-    onSetUrl?.(urlDraft);
+    if (!onSetLinks || editingIndex === null) {
+      setEditingUrl(false);
+      return;
+    }
+
+    const cleaned = urlDraft.trim();
+    const cleanedTitle = titleDraft.trim();
+    const next = [...links];
+    if (cleaned) {
+      next[editingIndex] = { title: cleanedTitle, url: cleaned };
+      onSetLinks(next);
+      setActiveTabIndex(editingIndex);
+    }
     setEditingUrl(false);
+    setEditingIndex(null);
+    setTitleDraft("");
+    setUrlDraft("");
+  };
+
+  const removeTab = (index: number) => {
+    if (!onSetLinks || !links.length) return;
+    const next = links.filter((_, idx) => idx !== index);
+    onSetLinks(next);
+    setEditingUrl(false);
+    setEditingIndex(null);
+    setTitleDraft("");
+    setUrlDraft("");
+    setActiveTabIndex((prev) => {
+      if (index < prev) return prev - 1;
+      return Math.max(0, Math.min(prev, next.length - 1));
+    });
   };
 
   return (
@@ -71,51 +152,129 @@ export function SongViewer({ song, url = "", onSetUrl }: SongViewerProps) {
           )}
         </div>
         {/* URL button */}
-        {onSetUrl && (
+        {onSetLinks && (
           <button
-            onClick={() => setEditingUrl((v) => !v)}
-            className={`flex-shrink-0 p-1.5 rounded transition-colors ${url ? "text-accent-cyan hover:bg-accent-cyan/10" : "text-muted hover:text-light hover:bg-white/5"}`}
-            title={url ? "Edit link" : "Add link"}
+            onClick={startEditUrl}
+            className={`flex-shrink-0 p-1.5 rounded transition-colors ${links.length > 0 ? "text-accent-cyan hover:bg-accent-cyan/10" : "text-muted hover:text-light hover:bg-white/5"}`}
+            title={links.length > 0 ? "Edit selected link" : "Add link"}
           >
             <Link size={15} />
           </button>
         )}
       </div>
 
+      {/* URL tabs */}
+      {links.length > 0 && !editingUrl && (
+        <div className="flex gap-1 items-center py-2 border-b border-white/10 flex-shrink-0 overflow-x-auto">
+          {links.map((link, index) => (
+            <div
+              key={`${link.url}_${index}`}
+              className="inline-flex items-center"
+            >
+              <button
+                onClick={() => setActiveTabIndex(index)}
+                className={`px-2 py-1 text-xs rounded-l border whitespace-nowrap transition-colors ${
+                  index === activeTabIndex
+                    ? "border-accent-cyan text-accent-cyan bg-accent-cyan/10"
+                    : "border-white/10 text-muted hover:text-light hover:border-white/20"
+                }`}
+                title={link.url}
+              >
+                {getUrlTabLabel(link, index)}
+              </button>
+              {onSetLinks && (
+                <button
+                  onClick={() => removeTab(index)}
+                  className={`px-1.5 py-1 text-xs rounded-r border-l-0 border transition-colors ${
+                    index === activeTabIndex
+                      ? "border-accent-cyan text-accent-cyan bg-accent-cyan/10 hover:bg-accent-cyan/20"
+                      : "border-white/10 text-muted hover:text-red-300 hover:border-red-400/50"
+                  }`}
+                  title="Delete this link tab"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          ))}
+          {onSetLinks && (
+            <button
+              onClick={startAddUrl}
+              className="ml-1 px-2 py-1 text-xs rounded border border-dashed border-white/20 text-muted hover:text-light hover:border-white/40 transition-colors"
+              title="Add another link"
+            >
+              + Add link
+            </button>
+          )}
+        </div>
+      )}
+
       {/* URL editor */}
-      {editingUrl && onSetUrl && (
-        <div className="flex gap-2 items-center py-2 border-b border-white/10 flex-shrink-0">
+      {editingUrl && onSetLinks && (
+        <div className="py-2 border-b border-white/10 flex-shrink-0 space-y-2">
+          <input
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitUrl();
+              if (e.key === "Escape") {
+                setEditingUrl(false);
+                setEditingIndex(null);
+                setTitleDraft("");
+                setUrlDraft("");
+              }
+            }}
+            placeholder="Tab title (optional)"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-sm text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+          />
           <input
             type="url"
             value={urlDraft}
             onChange={(e) => setUrlDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitUrl();
-              if (e.key === "Escape") setEditingUrl(false);
+              if (e.key === "Escape") {
+                setEditingUrl(false);
+                setEditingIndex(null);
+                setTitleDraft("");
+                setUrlDraft("");
+              }
             }}
             placeholder="https://www.youtube.com/watch?v=..."
-            className="flex-1 bg-background border border-border rounded px-2 py-1 text-sm text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-sm text-light placeholder-muted focus:outline-none focus:border-accent-cyan"
             autoFocus
           />
-          <button
-            onClick={commitUrl}
-            className="px-2 py-1 text-xs bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors"
-          >
-            Save
-          </button>
-          {url && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={commitUrl}
+              className="px-2 py-1 text-xs bg-accent-cyan/20 text-accent-cyan rounded hover:bg-accent-cyan/30 transition-colors"
+            >
+              Save
+            </button>
+            {links.length > 0 &&
+              editingIndex !== null &&
+              editingIndex < links.length && (
+                <button
+                  onClick={() => removeTab(editingIndex)}
+                  className="p-1 text-muted hover:text-red-400 transition-colors"
+                  title="Remove selected link"
+                >
+                  <X size={14} />
+                </button>
+              )}
             <button
               onClick={() => {
-                onSetUrl("");
-                setUrlDraft("");
                 setEditingUrl(false);
+                setEditingIndex(null);
+                setTitleDraft("");
+                setUrlDraft("");
               }}
-              className="p-1 text-muted hover:text-red-400 transition-colors"
-              title="Remove link"
+              className="px-2 py-1 text-xs text-muted hover:text-light transition-colors"
             >
-              <X size={14} />
+              Cancel
             </button>
-          )}
+          </div>
         </div>
       )}
 
@@ -135,16 +294,16 @@ export function SongViewer({ song, url = "", onSetUrl }: SongViewerProps) {
       )}
 
       {/* Non-embeddable link */}
-      {url && !embedUrl && !editingUrl && (
+      {activeUrl && !embedUrl && !editingUrl && (
         <div className="flex-shrink-0 py-2 border-b border-white/10">
           <a
-            href={url}
+            href={activeUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-accent-cyan hover:underline flex items-center gap-1"
           >
             <Link size={11} />
-            {url}
+            {activeUrl}
           </a>
         </div>
       )}

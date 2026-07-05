@@ -10,14 +10,19 @@ import { idbGet, idbSet } from "@/lib/idb";
 // generateUUID() is unavailable on iOS < 15.4 and some older WebViews.
 // crypto.getRandomValues() is available everywhere (iOS 6+), so use it as a fallback.
 function generateUUID(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
   bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant bits
-  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -70,6 +75,25 @@ function readJson<T>(key: string, fallback: T): T {
 
 function getId(obj: RawRecord): string {
   return obj.id as string;
+}
+
+function remapSongStorageId(
+  songId: string,
+  sceneIdMap: Map<string, string>,
+): string {
+  for (const [oldSceneId, newSceneId] of sceneIdMap) {
+    // Legacy key format used one entry per scene.
+    if (songId === `${oldSceneId}_songs`) {
+      return `${newSceneId}_songs`;
+    }
+
+    // Current key format uses per-song IDs (for example: sceneId_song_1).
+    const modernPrefix = `${oldSceneId}_song_`;
+    if (songId.startsWith(modernPrefix)) {
+      return `${newSceneId}_song_${songId.slice(modernPrefix.length)}`;
+    }
+  }
+  return songId;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,17 +409,14 @@ export async function executeImport(
     }
 
     // Songs: hidden list and reference URLs.
-    // Song IDs are `${sceneId}_songs`, so old scene IDs must be remapped to
+    // Song IDs include scene IDs, so old scene IDs must be remapped to
     // the new scene IDs assigned during this import.
     if (bundle.songsHiddenJson) {
       try {
         const oldHidden = JSON.parse(bundle.songsHiddenJson) as string[];
-        const newHidden = oldHidden.map((id) => {
-          for (const [oldSceneId, newSceneId] of sceneIdMap) {
-            if (id === `${oldSceneId}_songs`) return `${newSceneId}_songs`;
-          }
-          return id;
-        });
+        const newHidden = oldHidden.map((id) =>
+          remapSongStorageId(id, sceneIdMap),
+        );
         localStorage.setItem(
           `theater_songs_hidden_${newProjectId}`,
           JSON.stringify(newHidden),
@@ -408,17 +429,11 @@ export async function executeImport(
       try {
         const oldUrls = JSON.parse(bundle.songsUrlsJson) as Record<
           string,
-          string
+          unknown
         >;
-        const newUrls: Record<string, string> = {};
+        const newUrls: Record<string, unknown> = {};
         for (const [oldId, url] of Object.entries(oldUrls)) {
-          let newId = oldId;
-          for (const [oldSceneId, newSceneId] of sceneIdMap) {
-            if (oldId === `${oldSceneId}_songs`) {
-              newId = `${newSceneId}_songs`;
-              break;
-            }
-          }
+          const newId = remapSongStorageId(oldId, sceneIdMap);
           newUrls[newId] = url;
         }
         localStorage.setItem(
