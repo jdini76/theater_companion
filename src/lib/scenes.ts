@@ -107,6 +107,8 @@ function isStructuralSceneLine(text: string): boolean {
     return true;
   }
   if (/^(?:SUPER|TITLE|TEXT)\s*:/i.test(trimmed)) return true;
+  // Explicit speaker cues must remain boundaries during source reflow.
+  if (/^[A-Z][A-Z0-9\s\-'.&,+]*?:/.test(trimmed)) return true;
   if (/^(?:>\s*\S|\(|\[)/.test(trimmed)) return true;
   if (/^[A-Z0-9\s\-'.&,+()/:]+$/.test(trimmed) && trimmed.length <= 80) {
     return true;
@@ -528,6 +530,7 @@ const CAST_END_RE =
 export interface CastMember {
   name: string;
   group?: string; // e.g. "Experts", "At the Bar"
+  description?: string;
 }
 
 /**
@@ -563,7 +566,7 @@ export function parseCastList(
   // ── Collect raw entries until a scene/act break or large gap ────
   // Bullet characters (•, -, *) and sub-bullets (o) may appear on their
   // own line with the name on the following line, or inline: "• Name".
-  const entries: { text: string; indent: number; lineIdx: number }[] = [];
+  const entries: { text: string; indent: number; bulleted: boolean }[] = [];
   let blankRun = 0;
   let pendingIndent: number | null = null; // set when we see a lone bullet
 
@@ -584,7 +587,7 @@ export function parseCastList(
 
     // ── Lone bullet on its own line ───────────────────────────────
     // "•" or "-" or "*" alone → main level, name on next line
-    if (/^[•\-\*▪►◦·‣⁃]$/.test(trimmed)) {
+    if (/^[•●\-\*▪►◦·‣⁃]$/.test(trimmed)) {
       pendingIndent = 0;
       continue;
     }
@@ -595,6 +598,7 @@ export function parseCastList(
     }
 
     // ── Name line (may follow a pending bullet) ───────────────────
+    let bulleted = pendingIndent !== null;
     let indent = pendingIndent ?? 0;
     let name = trimmed;
     pendingIndent = null;
@@ -606,20 +610,22 @@ export function parseCastList(
       const subBullet =
         raw.match(/^[\t ]+o\s+(.+)$/) || trimmed.match(/^o\s+(.+)$/);
       if (subBullet) {
+        bulleted = true;
         indent = 1;
         name = subBullet[1].trim();
       } else {
         // Main bullet inline: "•Name", "• Name", "- Name", "* Name"
         // Space after bullet is optional (PDF extraction may omit it)
-        const mainBullet = trimmed.match(/^[•\-\*▪►◦·‣⁃]\s*(.+)$/);
+        const mainBullet = trimmed.match(/^[•●\-\*▪►◦·‣⁃]\s*(.+)$/);
         if (mainBullet) {
+          bulleted = true;
           name = mainBullet[1].trim();
         }
       }
     }
 
     // Final cleanup: strip any remaining leading bullet/punctuation artifacts
-    name = name.replace(/^[•\-\*▪►◦·‣⁃]\s*/, "").trim();
+    name = name.replace(/^[•●\-\*▪►◦·‣⁃]\s*/, "").trim();
 
     // Skip empty after stripping bullet
     if (!name) continue;
@@ -630,14 +636,21 @@ export function parseCastList(
     // Skip TOC dot-leader entries: "Scene 1 .............. 6"
     // These appear when the cast section is not properly bounded and
     // the parser runs on into a scene/song listing page.
-    if (/\.{3,}/.test(name)) continue;
+    if (/\.{3,}\s*\d+\s*$/.test(name)) continue;
 
     // After bullet stripping, re-check for section-ending headings.
     // Lines like "- Scene 1: The Locked Stage" pass the raw CAST_END_RE
     // check (which is anchored at ^) because the leading "-" hides "SCENE".
     if (CAST_END_RE.test(name)) break;
 
-    entries.push({ text: name, indent, lineIdx: i });
+    // A wrapped description is not another cast member. Only join clearly
+    // continuing lowercase prose; title-case bare names remain valid roles.
+    const previous = entries[entries.length - 1];
+    if (!bulleted && /^[a-z]/.test(name) && previous?.text.includes(":")) {
+      previous.text += " " + name;
+      continue;
+    }
+    entries.push({ text: name, indent, bulleted });
   }
 
   if (entries.length === 0) return null;
@@ -648,26 +661,43 @@ export function parseCastList(
   const rawNames: string[] = [];
   let currentGroup: string | undefined;
 
+  let flatGroup = false;
+  const seen = new Set<string>();
+
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const nextEntry = entries[i + 1];
+    const colon = entry.text.indexOf(":");
+    const hasDescription = colon >= 0 && entry.text.slice(colon + 1).trim() !== "";
 
-    if (entry.indent === 0 && nextEntry && nextEntry.indent > 0) {
-      // This is a group heading
-      currentGroup = entry.text;
+    // PDF extraction often flattens indentation. A bare heading followed by
+    // bulleted members is also a group, even when all bullets are at column 0.
+    const isFlatHeading =
+      !entry.bulleted && !hasDescription && nextEntry?.bulleted;
+    if (
+      entry.indent === 0 &&
+      !hasDescription &&
+      nextEntry &&
+      (nextEntry.indent > 0 || isFlatHeading)
+    ) {
+      currentGroup = entry.text.replace(/:\s*$/, "").trim();
+      flatGroup = !!isFlatHeading;
       continue;
     }
 
-    if (entry.indent > 0) {
-      // Sub-item — belongs to currentGroup
-      characters.push({ name: entry.text, group: currentGroup });
-      rawNames.push(entry.text);
-    } else {
-      // Top-level character (no sub-items following)
+    if (entry.indent === 0 && !(flatGroup && entry.bulleted)) {
       currentGroup = undefined;
-      characters.push({ name: entry.text });
-      rawNames.push(entry.text);
+      flatGroup = false;
     }
+
+    const name = (colon >= 0 ? entry.text.slice(0, colon) : entry.text).trim();
+    if (!name || seen.has(name.toUpperCase())) continue;
+    seen.add(name.toUpperCase());
+    const member: CastMember = { name };
+    if (currentGroup) member.group = currentGroup;
+    if (hasDescription) member.description = entry.text.slice(colon + 1).trim();
+    characters.push(member);
+    rawNames.push(name);
   }
 
   return { characters, raw: rawNames };
