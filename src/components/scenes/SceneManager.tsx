@@ -32,6 +32,7 @@ export function SceneManager({
   const { getProjectScenes } = useScenes();
   const { getProjectCharacters } = useVoice();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [linkedSceneId, setLinkedSceneId] = useState<string | null>(null);
   const [sceneOpenMode, setSceneOpenMode] = useState<"scene" | "set-piece">(
     "scene",
   );
@@ -53,6 +54,7 @@ export function SceneManager({
   useEffect(() => {
     if (initialSceneId) {
       setSelectedSceneId(initialSceneId);
+      setLinkedSceneId(initialSceneId);
       setSceneOpenMode("scene");
       setIsEditingScene(false);
       setSidebarCollapsed(true);
@@ -142,20 +144,20 @@ export function SceneManager({
     searchQuery,
   ]);
 
-  useEffect(() => {
-    if (!selectedSceneId) return;
-    if (scenes.some((scene) => scene.id === selectedSceneId)) return;
-    setSelectedSceneId(scenes[0]?.id ?? null);
-  }, [scenes, selectedSceneId]);
+  // A direct link can open a scene excluded by the sidebar filters.
+  const selectedScene = (selectedSceneId === linkedSceneId ? allScenes : scenes)
+    .find((scene) => scene.id === selectedSceneId);
 
-  const selectedScene = selectedSceneId
-    ? (scenes.find((s) => s.id === selectedSceneId) ?? null)
-    : null;
+  useEffect(() => {
+    if (!selectedSceneId || selectedScene) return;
+    setSelectedSceneId(scenes[0]?.id ?? null);
+  }, [scenes, selectedScene, selectedSceneId]);
   const selectedIndex = selectedSceneId
     ? scenes.findIndex((s) => s.id === selectedSceneId)
     : -1;
 
   const handleSelectScene = (scene: Scene) => {
+    setLinkedSceneId(null);
     setSelectedSceneId(scene.id);
     setSceneOpenMode("scene");
     setIsEditingScene(false);
@@ -163,6 +165,7 @@ export function SceneManager({
   };
 
   const handleOpenSetPiece = (scene: Scene) => {
+    setLinkedSceneId(null);
     setSelectedSceneId(scene.id);
     setSceneOpenMode("set-piece");
     setIsEditingScene(false);

@@ -854,7 +854,7 @@ export function VoiceConfig({ characterId }: VoiceConfigProps) {
               characterScenes.map((scene) => (
                 <button
                   key={scene.id}
-                  onClick={() => navigateToScene(scene.id)}
+                  onClick={() => navigateToScene?.(scene.id)}
                   className="w-full text-left px-3 py-2 rounded border border-border bg-background hover:border-accent-cyan/50 hover:bg-white/5 transition-colors"
                 >
                   <p className="text-sm text-light font-medium">

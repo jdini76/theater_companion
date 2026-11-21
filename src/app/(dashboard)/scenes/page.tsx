@@ -1,11 +1,20 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { Suspense, useEffect } from "react";
 import { useProjects } from "@/contexts/ProjectContext";
 import { SceneManager } from "@/components/scenes/SceneManager";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function ScenesPage() {
+  return (
+    <Suspense fallback={null}>
+      <ScenesContent />
+    </Suspense>
+  );
+}
+
+function ScenesContent() {
+  const sceneId = useSearchParams().get("sceneId");
   const { currentProjectId, getCurrentProject } = useProjects();
   const router = useRouter();
 
@@ -44,6 +53,7 @@ export default function ScenesPage() {
     <div className="min-h-screen bg-dark-base py-8">
       <SceneManager
         projectId={currentProject.id}
+        initialSceneId={sceneId}
         projectName={currentProject.name}
         productionType={currentProject.productionType}
       />

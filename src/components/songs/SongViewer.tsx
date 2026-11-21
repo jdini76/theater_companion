@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import NextLink from "next/link";
+import { useRehearsalNav } from "@/contexts/RehearsalNavContext";
 import { SongEntry } from "@/lib/songs";
 import { ChevronDown, ChevronUp, Music, Link, X } from "lucide-react";
 
@@ -55,6 +57,7 @@ export function SongViewer({
   links = [],
   onSetLinks,
 }: SongViewerProps) {
+  const { navigateToScene } = useRehearsalNav();
   const [editingUrl, setEditingUrl] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
@@ -152,7 +155,19 @@ export function SongViewer({
           <h2 className="text-2xl font-bold text-light leading-tight">
             {song.title}
           </h2>
-          <p className="text-muted text-sm mt-1">{song.sceneTitle}</p>
+          <p className="mt-1 text-sm">
+            <NextLink
+              href={{ pathname: "/scenes", query: { sceneId: song.sceneId } }}
+              onClick={(event) => {
+                if (!navigateToScene || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                navigateToScene(song.sceneId);
+              }}
+              className="text-accent-cyan underline underline-offset-2 hover:text-light"
+            >
+              {song.sceneTitle}
+            </NextLink>
+          </p>
           {song.characters.length > 0 && (
             <p className="text-xs text-muted/70 mt-1">
               {song.characters.join(" · ")}

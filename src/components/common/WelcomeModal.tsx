@@ -43,6 +43,7 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Lines marked as song titles now appear on the Songs page even when no lyrics are detected.",
       "Mark the last lyric with End Song to include all dialogue from the Song Title through that line on the Songs page.",
       "Use the up and down arrows on the Songs page to move to the previous or next song.",
+      "Click a song’s scene title to open that scene in Scenes.",
     ],
   },
   {
