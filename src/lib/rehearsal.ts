@@ -1095,6 +1095,8 @@ function splitInlineSpeakerTurns(text: string, knownCharacters: Set<string>): st
  * An optional `formatHint` skips auto-detection when the caller already knows
  * the format (e.g. from a parsing wizard step).
  */
+const SONG_END_MARKER = "(End Song: Previous Line)";
+
 export function parseDialogueLines(
   sceneContent: string,
   formatHint?: ScriptFormat,
@@ -1156,6 +1158,20 @@ export function parseDialogueLines(
     ): void => {
       debugParseLog(path, { lineIndex: i, lineNumber, trimmed, ...details });
     };
+
+    if (enableSongParsing && trimmed === SONG_END_MARKER) {
+      const previous = output[output.length - 1];
+      if (previous?.dialogue && !previous.isStageDirection && !previous.songTitle &&
+          previous.character !== "[Scene Heading]") {
+        previous.isSongEnd = true;
+        inSongBlock = false;
+        currentSongTitle = null;
+        pendingStandaloneChar = null;
+        lastDialogueIdx = -1;
+        afterBlank = true;
+      }
+      continue;
+    }
 
     // ── Blank line ──────────────────────────────────────────────────
     if (!trimmed) {
@@ -1323,6 +1339,27 @@ export function parseDialogueLines(
         dialogue: trimmed,
         isStageDirection: true,
       });
+
+      // The editor serializes titles as their own line. Keep the title
+      // separate from the lyrics that follow it.
+      const serializedTitle = enableSongParsing
+        ? /^\(Song: "(.+)"\)$/.exec(trimmed)?.[1]
+        : undefined;
+      if (serializedTitle) {
+        output[output.length - 1] = {
+          lineNumber: lineNumber - 1,
+          character: "[Song]",
+          dialogue: serializedTitle,
+          songTitle: serializedTitle,
+          isSong: true,
+        };
+        inSongBlock = true;
+        currentSongTitle = null;
+        lastDialogueIdx = -1;
+        afterBlank = true;
+        if (outTextLineMap) outTextLineMap[sourceIndex] = { kind: "song-title", text: serializedTitle };
+        continue;
+      }
 
       // ── Approach A: song cue detection ──────────────────────────
       // Check whether this stage direction opens or closes a song block.
@@ -1904,7 +1941,10 @@ export function parseDialogueLines(
   // lines that weren't caught by active state (no cues, no cast list).
   tagConsecutiveLyrics(output, enableSongParsing);
 
-  return expandInlineParentheticals(output);
+  const resolved = output.some((line) => line.isSongEnd)
+    ? resolveSongBlockFlags(output)
+    : output;
+  return expandInlineParentheticals(resolved);
 }
 
 /**
@@ -1936,18 +1976,35 @@ export function normalizeStageDirectionLines(
 }
 
 /**
- * Re-evaluates isSong on each line from surrounding song-cue context.
- * The stored isSong flag can become stale when users reclassify a song-title
- * line or a cue stage direction. This mirrors the runtime detection in
- * HighlightedLines so all views (screenplay, run lines) agree on which lines
- * are song lyrics.
+ * Find explicitly bounded songs. A new title or scene heading starts a new
+ * search. Stage directions inside a bounded song do not close it.
  */
+export function getExplicitSongEnds(lines: DialogueLine[]): Map<number, number> {
+  const ends = new Map<number, number>();
+  let titleIndex: number | undefined;
+  lines.forEach((line, index) => {
+    if (line.songTitle) {
+      titleIndex = index;
+    } else if (line.character === "[Scene Heading]") {
+      titleIndex = undefined;
+    } else if (titleIndex !== undefined && line.isSongEnd && !line.isStageDirection && line.dialogue) {
+      ends.set(titleIndex, index);
+      titleIndex = undefined;
+    }
+  });
+  return ends;
+}
+
+/** Re-evaluates isSong from explicit song ranges and surrounding cues. */
 export function resolveSongBlockFlags(lines: DialogueLine[]): DialogueLine[] {
   let inSongBlock = false;
   let changed = false;
-  const resolved = lines.map((line) => {
+  const explicitEnds = getExplicitSongEnds(lines);
+  let explicitEnd: number | undefined;
+  const resolved = lines.map((line, index) => {
     if (line.songTitle) {
       inSongBlock = true;
+      explicitEnd = explicitEnds.get(index);
       // Normalize stale song-title lines: character should be "[Song]", dialogue
       // should be the title text, isSong should be true. Old UI code set songTitle
       // without updating character/dialogue/isSong, leaving them inconsistent.
@@ -1962,14 +2019,19 @@ export function resolveSongBlockFlags(lines: DialogueLine[]): DialogueLine[] {
       return line;
     }
     if (line.isStageDirection && line.dialogue) {
+      if (explicitEnd !== undefined) return line;
       const t = line.dialogue.trim();
       if (isSongCueStart(t)) inSongBlock = true;
       else if (isSongCueEnd(t)) inSongBlock = false;
       return line;
     }
-    // Only ALL-CAPS dialogue is treated as a lyric — mixed-case is spoken dialogue.
     const looksLikeLyric = !line.dialogue || !/[a-z]/.test(line.dialogue);
-    const effectiveIsSong = inSongBlock && looksLikeLyric;
+    const effectiveIsSong = !line.isStageDirection &&
+      (explicitEnd !== undefined ? Boolean(line.dialogue) : inSongBlock && looksLikeLyric);
+    if (line.isSongEnd) {
+      inSongBlock = false;
+      explicitEnd = undefined;
+    }
     if (effectiveIsSong === !!line.isSong) return line;
     changed = true;
     return { ...line, isSong: effectiveIsSong };
@@ -2189,6 +2251,9 @@ export function serializeDialogueLines(lines: DialogueLine[]): string {
       // Single character: standalone format — name on its own line, dialogue below
       parts.push(line.character);
       if (line.dialogue) parts.push(line.dialogue);
+    }
+    if (line.isSongEnd && line.dialogue && !line.songTitle && !line.isStageDirection) {
+      parts.push(SONG_END_MARKER);
     }
     parts.push("");
   }

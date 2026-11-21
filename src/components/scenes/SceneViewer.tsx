@@ -433,7 +433,7 @@ export function SceneViewer({
     if (update === "reset") {
       // Re-parse just this line from its serialized text so the parser
       // re-detects its classification from scratch.
-      const singleLineText = serializeDialogueLines([line]);
+      const singleLineText = serializeDialogueLines([{ ...line, isSongEnd: undefined }]);
       const reparsed = parseDialogueLines(
         singleLineText,
         getSceneParseFormat(productionType),
@@ -509,6 +509,7 @@ export function SceneViewer({
     if (!above || !current) return;
     const merged: DialogueLine = {
       ...above,
+      isSongEnd: current.isSongEnd || above.isSongEnd,
       dialogue: above.dialogue
         ? `${above.dialogue} ${current.dialogue}`
         : current.dialogue,
@@ -555,6 +556,7 @@ export function SceneViewer({
         ...original,
         lineNumber: original.lineNumber + idx,
         dialogue: chunk,
+        isSongEnd: idx === chunks.length - 1 ? original.isSongEnd : undefined,
       }));
       updatedLines = [
         ...displayLines.slice(0, lineIdx),

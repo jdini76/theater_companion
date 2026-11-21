@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
-import { isSongCueStart, isSongCueEnd } from "@/lib/rehearsal";
 
 import type { LineOverride } from "@/types/line-override";
 import type { DialogueLine } from "@/types/rehearsal";
@@ -388,6 +387,8 @@ interface LineAssignPanelProps {
   onClose: () => void;
   allCharacters?: string[];
   lineText?: string;
+  isSongEnd?: boolean;
+  onToggleSongEnd?: () => void;
   allowSongMenus?: boolean;
   stageDirectionLabel?: string;
   onMergeAbove?: () => void;
@@ -407,6 +408,8 @@ export function LineAssignPanel({
   onClose,
   allCharacters = [],
   lineText = "",
+  isSongEnd = false,
+  onToggleSongEnd,
   allowSongMenus = true,
   stageDirectionLabel = "Stage Direction",
   onMergeAbove,
@@ -534,6 +537,16 @@ export function LineAssignPanel({
             className={`px-2 py-0.5 rounded transition-colors ${mode === "song-title" ? "" : "text-muted hover:text-light"}`}
           >
             ♪ Song Title
+          </button>
+        )}
+        {allowSongMenus && onToggleSongEnd && (
+          <button
+            type="button"
+            aria-pressed={isSongEnd}
+            onClick={onToggleSongEnd}
+            className={`px-2 py-0.5 rounded transition-colors ${isSongEnd ? "bg-accent-cyan/20 text-accent-cyan" : "text-muted hover:text-light"}`}
+          >
+            End Song
           </button>
         )}
       </div>
@@ -927,25 +940,8 @@ export function HighlightedLines({
     <div
       className={`font-mono ${textSize} ${maxHeight} overflow-y-auto rounded border border-border p-3 bg-background/50 leading-relaxed`}
     >
-      {(() => {
-        // Track song block state from cue lines only — do NOT use stored
-        // line.isSong, which reflects parser state at import time and becomes
-        // stale when the user reclassifies a song-title or cue line.
-        let inSongBlockRender = false;
-        return lines.map((line, i) => {
-        if (line.songTitle) {
-          inSongBlockRender = true;
-        } else if (line.character === "[Scene Heading]") {
-          inSongBlockRender = false;
-        } else if (line.isStageDirection && line.dialogue) {
-          const t = line.dialogue.trim();
-          if (isSongCueStart(t)) inSongBlockRender = true;
-          else if (isSongCueEnd(t)) inSongBlockRender = false;
-        }
-        // Only treat as a lyric if ALL-CAPS — mixed-case text is spoken
-        // dialogue even when inside a song block.
-        const looksLikeLyric = line.dialogue ? !/[a-z]/.test(line.dialogue) : false;
-        const effectiveIsSong = inSongBlockRender && !line.songTitle && !line.isStageDirection && looksLikeLyric;
+      {lines.map((line, i) => {
+        const effectiveIsSong = allowSongMenus && line.isSong && !line.songTitle && !line.isStageDirection;
 
         const isActive = activeLine === i;
         const toggle = () => onLineUpdate && setActiveLine(isActive ? null : i);
@@ -994,6 +990,9 @@ export function HighlightedLines({
                 onClick={toggle}
               >
                 <span className="flex-1 text-muted italic">{line.dialogue}</span>
+                {allowSongMenus && line.isSongEnd && (
+                  <span className="text-xs text-muted">End Song</span>
+                )}
                 {editIcon}
               </div>
               {isActive && onLineUpdate && renderPanel(i, line)}
@@ -1090,6 +1089,9 @@ export function HighlightedLines({
             onClick={toggle}
           >
             {line.dialogue}
+            {allowSongMenus && line.isSongEnd && (
+              <span className="ml-2 text-xs text-muted">End Song</span>
+            )}
           </div>
         ) : null;
 
@@ -1110,9 +1112,20 @@ export function HighlightedLines({
               currentAssignment={dialogueLineToOverride(dl)}
               lineText={dl.dialogue}
               allowSongMenus={allowSongMenus}
+              isSongEnd={dl.isSongEnd}
+              onToggleSongEnd={dl.dialogue && !dl.isStageDirection && !dl.songTitle &&
+                dl.character !== "[Scene Heading]" ? () => {
+                  onLineUpdate!(idx, { isSongEnd: dl.isSongEnd ? undefined : true });
+                  setActiveLine(null);
+                } : undefined}
               stageDirectionLabel={stageDirectionLabel}
               onAssign={(override) => {
-                onLineUpdate!(idx, overrideToDialogueUpdate(override, dl));
+                onLineUpdate!(idx, {
+                  ...overrideToDialogueUpdate(override, dl),
+                  isSongEnd: override.kind === "song-title" || override.kind === "stage-direction"
+                    ? undefined
+                    : dl.isSongEnd,
+                });
                 setActiveLine(null);
               }}
               onReset={() => {
@@ -1129,8 +1142,7 @@ export function HighlightedLines({
             />
           );
         }
-      });
-      })()}
+      })}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { Scene } from "@/types/scene";
-import { parseDialogueLines, isSongCueStart, isSongCueEnd } from "@/lib/rehearsal";
+import { getExplicitSongEnds, parseDialogueLines, isSongCueStart, isSongCueEnd } from "@/lib/rehearsal";
 import type { DialogueLine } from "@/types/rehearsal";
 
 export interface SongLine {
@@ -46,9 +46,8 @@ function buildEntry(
 /**
  * Extract all song blocks from a list of scenes.
  *
- * Uses the same inSongBlock + looksLikeLyric logic as the SceneHighlight
- * renderer so the Songs page always mirrors what the scene viewer shows.
- * Prefers scene.lines (pre-parsed) over re-parsing from content.
+ * Explicitly bounded songs include dialogue of any casing. Songs without
+ * an End Song marker use the existing cue and lyric detection.
  */
 export function extractSongsFromScenes(
   scenes: Scene[],
@@ -61,12 +60,13 @@ export function extractSongsFromScenes(
       scene.lines && scene.lines.length > 0
         ? scene.lines
         : scene.content?.trim()
-          ? parseDialogueLines(scene.content, undefined, knownCast)
+          ? parseDialogueLines(scene.content, undefined, knownCast, scene.lineOverrides)
           : [];
 
     if (!lines.length) continue;
 
-    let inSongBlock = false;
+    const explicitEnds = getExplicitSongEnds(lines);
+    let explicitEnd: number | undefined;
     let currentSong: {
       title: string;
       id: string;
@@ -79,11 +79,11 @@ export function extractSongsFromScenes(
         results.push(buildEntry(scene, currentSong));
       }
       currentSong = null;
-      inSongBlock = false;
+      explicitEnd = undefined;
     };
     let songCounter = 0;
 
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       // Song-title line → flush current song and start a new named block
       if (line.songTitle) {
         finishSong();
@@ -94,7 +94,7 @@ export function extractSongsFromScenes(
           id: `${scene.id}_song_${songCounter}`,
           lines: [],
         };
-        inSongBlock = true;
+        explicitEnd = explicitEnds.get(index);
         continue;
       }
 
@@ -106,6 +106,7 @@ export function extractSongsFromScenes(
 
       // Stage directions update block state but are never lyrics
       if (line.isStageDirection) {
+        if (explicitEnd !== undefined) continue;
         const t = (line.dialogue ?? "").trim();
         if (isSongCueStart(t)) {
           if (!currentSong) {
@@ -117,25 +118,20 @@ export function extractSongsFromScenes(
               lines: [],
             };
           }
-          inSongBlock = true;
         } else if (isSongCueEnd(t)) {
           finishSong();
         }
         continue;
       }
 
-      // Collect lyric lines: must be in a song block AND all-caps (no lowercase)
-      if (
-        inSongBlock &&
-        currentSong &&
-        line.dialogue &&
-        !/[a-z]/.test(line.dialogue)
-      ) {
+      if (currentSong && line.dialogue &&
+          (explicitEnd !== undefined || !/[a-z]/.test(line.dialogue))) {
         currentSong.lines.push({
           character: line.character,
           text: line.dialogue,
         });
       }
+      if (line.isSongEnd) finishSong();
     }
 
     // Flush the last song in the scene

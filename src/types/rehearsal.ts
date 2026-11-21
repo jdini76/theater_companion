@@ -20,6 +20,8 @@ export interface DialogueLine {
    * Undefined when the line was detected heuristically (no cue present).
    */
   songTitle?: string;
+  /** True when this dialogue line is the final lyric of a song. */
+  isSongEnd?: boolean;
 }
 
 export interface RehearsalSession {

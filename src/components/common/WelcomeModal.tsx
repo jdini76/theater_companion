@@ -41,6 +41,7 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Settings now includes a Cache Inspector so you can review cached voice-line keys and text directly when troubleshooting cache matching.",
       "Run Lines now saves your role, voice assignments, and playback options separately for each scene, so switching between scenes no longer overwrites another scene's setup.",
       "Lines marked as song titles now appear on the Songs page even when no lyrics are detected.",
+      "Mark the last lyric with End Song to include all dialogue from the Song Title through that line on the Songs page.",
     ],
   },
   {
