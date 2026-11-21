@@ -67,17 +67,30 @@ export function extractSongsFromScenes(
     if (!lines.length) continue;
 
     let inSongBlock = false;
-    let currentSong: { title: string; id: string; lines: SongLine[] } | null =
-      null;
+    let currentSong: {
+      title: string;
+      id: string;
+      lines: SongLine[];
+      hasExplicitTitle: boolean;
+    } | null = null;
+
+    const finishSong = () => {
+      if (currentSong && (currentSong.hasExplicitTitle || currentSong.lines.length > 0)) {
+        results.push(buildEntry(scene, currentSong));
+      }
+      currentSong = null;
+      inSongBlock = false;
+    };
     let songCounter = 0;
 
     for (const line of lines) {
       // Song-title line → flush current song and start a new named block
       if (line.songTitle) {
-        if (currentSong?.lines.length) results.push(buildEntry(scene, currentSong));
+        finishSong();
         songCounter++;
         currentSong = {
           title: line.songTitle,
+          hasExplicitTitle: true,
           id: `${scene.id}_song_${songCounter}`,
           lines: [],
         };
@@ -87,9 +100,7 @@ export function extractSongsFromScenes(
 
       // Scene heading → close everything
       if (line.character === "[Scene Heading]") {
-        if (currentSong?.lines.length) results.push(buildEntry(scene, currentSong));
-        inSongBlock = false;
-        currentSong = null;
+        finishSong();
         continue;
       }
 
@@ -101,15 +112,14 @@ export function extractSongsFromScenes(
             songCounter++;
             currentSong = {
               title: scene.title,
+              hasExplicitTitle: false,
               id: `${scene.id}_song_${songCounter}`,
               lines: [],
             };
           }
           inSongBlock = true;
         } else if (isSongCueEnd(t)) {
-          if (currentSong?.lines.length) results.push(buildEntry(scene, currentSong));
-          inSongBlock = false;
-          currentSong = null;
+          finishSong();
         }
         continue;
       }
@@ -129,7 +139,7 @@ export function extractSongsFromScenes(
     }
 
     // Flush the last song in the scene
-    if (currentSong?.lines.length) results.push(buildEntry(scene, currentSong));
+    finishSong();
   }
 
   return results;

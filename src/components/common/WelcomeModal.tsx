@@ -40,6 +40,7 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "AI voice playback now auto-retries failed first-play attempts on iPad/Safari, reducing manual Continue retries when audio generation succeeded.",
       "Settings now includes a Cache Inspector so you can review cached voice-line keys and text directly when troubleshooting cache matching.",
       "Run Lines now saves your role, voice assignments, and playback options separately for each scene, so switching between scenes no longer overwrites another scene's setup.",
+      "Lines marked as song titles now appear on the Songs page even when no lyrics are detected.",
     ],
   },
   {
