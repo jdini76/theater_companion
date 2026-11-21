@@ -856,7 +856,7 @@ function overrideToDialogueUpdate(override: LineOverride, currentLine?: Dialogue
       // Both modes just reassign the character — no isHeader concept in DialogueLine
       return { character: override.char, characters: [override.char], isStageDirection: false, isSong: false, songTitle: undefined, isNarratorCue: false };
     case "multi-header":
-      return { character: override.chars.join(" & "), characters: override.chars, isStageDirection: false, isSong: false, songTitle: undefined, isNarratorCue: false };
+      return { character: override.chars.join(" & "), characters: override.chars, isStageDirection: false, songTitle: undefined, isNarratorCue: false };
     case "song-title":
       return { character: "[Song]", dialogue: override.text, songTitle: override.text, isSong: true, isStageDirection: false };
     case "group": {
@@ -990,9 +990,6 @@ export function HighlightedLines({
                 onClick={toggle}
               >
                 <span className="flex-1 text-muted italic">{line.dialogue}</span>
-                {allowSongMenus && line.isSongEnd && (
-                  <span className="text-xs text-muted">End Song</span>
-                )}
                 {editIcon}
               </div>
               {isActive && onLineUpdate && renderPanel(i, line)}
@@ -1005,6 +1002,7 @@ export function HighlightedLines({
         const charColor = isGroup
           ? groupColor
           : colorMap.get(line.character.toUpperCase());
+        const lyricColor = charColor?.color ?? songColor.color;
         const bgColor = charColor?.bgColor;
 
         // Suppress the character header for consecutive same-character lines
@@ -1083,15 +1081,12 @@ export function HighlightedLines({
           <div
             className={`${effectiveIsSong ? "pl-3 border-l-2 italic" : "pl-2"} ${clickClass}`}
             style={{
-              color: charColor?.color,
-              ...(effectiveIsSong && charColor ? { borderColor: charColor.color } : {}),
+              color: effectiveIsSong ? lyricColor : charColor?.color,
+              borderColor: effectiveIsSong ? lyricColor : undefined,
             }}
             onClick={toggle}
           >
             {line.dialogue}
-            {allowSongMenus && line.isSongEnd && (
-              <span className="ml-2 text-xs text-muted">End Song</span>
-            )}
           </div>
         ) : null;
 

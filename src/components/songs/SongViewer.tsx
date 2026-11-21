@@ -83,11 +83,7 @@ export function SongViewer({
     }
   }, [links, activeTabIndex]);
 
-  // Determine if there are multiple distinct characters (ensemble number)
-  const distinctChars = new Set(
-    song.lines.map((l) => l.character).filter((c) => c !== "[Song]"),
-  );
-  const isEnsemble = distinctChars.size > 1;
+  const isEnsemble = song.characters.length > 1;
   const activeLink = links[activeTabIndex] ?? null;
   const activeUrl = activeLink?.url ?? "";
   const embedUrl = activeUrl ? toEmbedUrl(activeUrl) : null;

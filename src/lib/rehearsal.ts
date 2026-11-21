@@ -588,6 +588,7 @@ function expandInlineParentheticals(lines: DialogueLine[]): DialogueLine[] {
           lineNumber: lineNumber++,
           character: line.character,
           dialogue: seg.text,
+          ...(line.characters ? { characters: line.characters } : {}),
         });
       }
     }
@@ -946,6 +947,19 @@ function isValidCharacterName(name: string): boolean {
 
 // ── Song detection helpers ───────────────────────────────────────────────────
 
+function splitSpeakerNames(name: string): string[] {
+  return name
+    .split(/\s*[,&+]\s*/)
+    .map((part) => part.replace(/^AND\b\s*/i, "").trim())
+    .filter(Boolean);
+}
+
+export function getDialogueSpeakers(line: DialogueLine): string[] {
+  if (line.characters?.length) return line.characters;
+  if (line.character.startsWith("[")) return [];
+  return splitSpeakerNames(line.character);
+}
+
 /**
  * Returns true when `name` (ALL CAPS) appears in the known cast set, either
  * as a full match or as a word within a multi-word name.
@@ -966,11 +980,8 @@ function isKnownCharacter(name: string, knownCharSet: Set<string>): boolean {
 
   // Multi-character label: "NORA & ELI", "NORA, ELI, AND MARA"
   // True when every individual name in the group is known.
-  if (/[,&]/.test(upper)) {
-    const parts = upper
-      .split(/\s*[,&]\s*/)
-      .map((p) => p.replace(/^\bAND\b\s*/i, "").trim())
-      .filter((p) => p && !/^\bAND\b$/i.test(p));
+  if (/[,&+]/.test(upper)) {
+    const parts = splitSpeakerNames(upper);
     if (
       parts.length > 1 &&
       parts.every((p) => isKnownCharacter(p, knownCharSet))
@@ -1940,6 +1951,14 @@ export function parseDialogueLines(
   // Approach B: tag any remaining runs of 2+ consecutive ALL-CAPS [Narrative]
   // lines that weren't caught by active state (no cues, no cast list).
   tagConsecutiveLyrics(output, enableSongParsing);
+
+  for (const line of output) {
+    if (line.isStageDirection) continue;
+    const speakers = getDialogueSpeakers(line);
+    if (speakers.length > 1) {
+      line.characters = speakers;
+    }
+  }
 
   const resolved = output.some((line) => line.isSongEnd)
     ? resolveSongBlockFlags(output)

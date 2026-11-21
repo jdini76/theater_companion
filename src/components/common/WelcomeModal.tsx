@@ -44,6 +44,8 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Mark the last lyric with End Song to include all dialogue from the Song Title through that line on the Songs page.",
       "Use the up and down arrows on the Songs page to move to the previous or next song.",
       "Click a song’s scene title to open that scene in Scenes.",
+      "Shared lyrics now show song styling in Scenes and list each singer on the Songs tab.",
+      "The End Song marker no longer appears in the scene text.",
     ],
   },
   {

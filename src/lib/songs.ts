@@ -1,5 +1,5 @@
 import { Scene } from "@/types/scene";
-import { getExplicitSongEnds, parseDialogueLines, isSongCueStart, isSongCueEnd } from "@/lib/rehearsal";
+import { getDialogueSpeakers, getExplicitSongEnds, parseDialogueLines, isSongCueStart, isSongCueEnd } from "@/lib/rehearsal";
 import type { DialogueLine } from "@/types/rehearsal";
 
 export interface SongLine {
@@ -24,15 +24,9 @@ export interface SongEntry {
 
 function buildEntry(
   scene: Scene,
-  song: { title: string; id: string; lines: SongLine[] },
+  song: { title: string; id: string; lines: SongLine[]; singers: Set<string> },
 ): SongEntry {
-  const characters = Array.from(
-    new Set(
-      song.lines
-        .map((l) => l.character)
-        .filter((c) => c && !c.startsWith("[")),
-    ),
-  ).sort();
+  const characters = Array.from(song.singers).sort();
   return {
     id: song.id,
     sceneId: scene.id,
@@ -72,6 +66,7 @@ export function extractSongsFromScenes(
       id: string;
       lines: SongLine[];
       hasExplicitTitle: boolean;
+      singers: Set<string>;
     } | null = null;
 
     const finishSong = () => {
@@ -91,6 +86,7 @@ export function extractSongsFromScenes(
         currentSong = {
           title: line.songTitle,
           hasExplicitTitle: true,
+          singers: new Set(),
           id: `${scene.id}_song_${songCounter}`,
           lines: [],
         };
@@ -114,6 +110,7 @@ export function extractSongsFromScenes(
             currentSong = {
               title: scene.title,
               hasExplicitTitle: false,
+              singers: new Set(),
               id: `${scene.id}_song_${songCounter}`,
               lines: [],
             };
@@ -126,6 +123,9 @@ export function extractSongsFromScenes(
 
       if (currentSong && line.dialogue &&
           (explicitEnd !== undefined || !/[a-z]/.test(line.dialogue))) {
+        for (const speaker of getDialogueSpeakers(line)) {
+          currentSong.singers.add(speaker);
+        }
         currentSong.lines.push({
           character: line.character,
           text: line.dialogue,
