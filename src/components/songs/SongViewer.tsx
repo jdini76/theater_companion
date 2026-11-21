@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { SongEntry } from "@/lib/songs";
-import { Music, Link, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Music, Link, X } from "lucide-react";
 
 interface SongReferenceLink {
   title: string;
@@ -11,6 +11,8 @@ interface SongReferenceLink {
 
 interface SongViewerProps {
   song: SongEntry;
+  onPreviousSong?: () => void;
+  onNextSong?: () => void;
   links?: SongReferenceLink[];
   onSetLinks?: (links: SongReferenceLink[]) => void;
 }
@@ -46,7 +48,13 @@ function getUrlTabLabel(link: SongReferenceLink, index: number): string {
   }
 }
 
-export function SongViewer({ song, links = [], onSetLinks }: SongViewerProps) {
+export function SongViewer({
+  song,
+  onPreviousSong,
+  onNextSong,
+  links = [],
+  onSetLinks,
+}: SongViewerProps) {
   const [editingUrl, setEditingUrl] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
@@ -150,6 +158,28 @@ export function SongViewer({ song, links = [], onSetLinks }: SongViewerProps) {
               {song.characters.join(" · ")}
             </p>
           )}
+        </div>
+        <div role="group" aria-label="Song navigation" className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            onClick={onPreviousSong}
+            disabled={!onPreviousSong}
+            aria-label="Previous song"
+            title="Previous song"
+            className="rounded p-2 text-muted transition-colors enabled:hover:bg-white/10 enabled:hover:text-light disabled:opacity-40"
+          >
+            <ChevronUp size={18} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={onNextSong}
+            disabled={!onNextSong}
+            aria-label="Next song"
+            title="Next song"
+            className="rounded p-2 text-muted transition-colors enabled:hover:bg-white/10 enabled:hover:text-light disabled:opacity-40"
+          >
+            <ChevronDown size={18} aria-hidden="true" />
+          </button>
         </div>
         {/* URL button */}
         {onSetLinks && (
@@ -309,7 +339,7 @@ export function SongViewer({ song, links = [], onSetLinks }: SongViewerProps) {
       )}
 
       {/* Lyrics */}
-      <div className="flex-1 overflow-y-auto pt-4 pr-1">
+      <div key={song.id} className="flex-1 overflow-y-auto pt-4 pr-1">
         <div className="space-y-1">
           {song.lines.map((line, idx) => {
             const prevChar = idx > 0 ? song.lines[idx - 1]!.character : null;

@@ -91,9 +91,10 @@ export function SongManager({
     [allSongs, hiddenSet],
   );
 
-  const selectedSong = selectedSongId
-    ? (songs.find((s) => s.id === selectedSongId) ?? null)
-    : null;
+  const selectedSongIndex = songs.findIndex((song) => song.id === selectedSongId);
+  const selectedSong = songs[selectedSongIndex];
+  const previousSong = songs[selectedSongIndex - 1];
+  const nextSong = songs[selectedSongIndex + 1];
 
   const handleSelectSong = (song: SongEntry) => {
     setSelectedSongId(song.id);
@@ -215,6 +216,8 @@ export function SongManager({
           {selectedSong ? (
             <SongViewer
               song={selectedSong}
+              onPreviousSong={previousSong ? () => handleSelectSong(previousSong) : undefined}
+              onNextSong={nextSong ? () => handleSelectSong(nextSong) : undefined}
               links={getSongLinks(selectedSong.id)}
               onSetLinks={(links) => handleSetSongLinks(selectedSong.id, links)}
             />
