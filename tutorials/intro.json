@@ -1,0 +1,251 @@
+{
+  "url": "https://www.rehearselines.com/",
+  "project": "The Clockwork Curtain",
+  "title": "Tutorial 01 · Introduction to RehearseLines",
+  "steps": [
+    {
+      "seconds": 13,
+      "say": "Welcome to RehearseLines. If you've ever tried to practice a scene on your own, you know how easy it is to lose the rhythm without someone reading the other parts.",
+      "label": "Introduction to RehearseLines",
+      "browser": "main",
+      "zoom": 1,
+      "actions": []
+    },
+    {
+      "seconds": 11,
+      "say": "RehearseLines gives you a scene partner in your browser. You can organize a show, bring in a script, and hear the other characters read their lines while you practice yours.",
+      "label": "Your scene partner",
+      "browser": "main",
+      "zoom": 1,
+      "actions": []
+    },
+    {
+      "seconds": 12,
+      "say": "I'll start on the dashboard and create a production. This one is a play called The Clockwork Curtain. A production keeps this show's scenes, cast, and rehearsal settings together.",
+      "label": "Create a production",
+      "browser": "main",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 1,
+          "target": "role:link:+ Create a Production",
+          "op": "click"
+        },
+        {
+          "at": 2.4,
+          "target": "role:button:+ Production",
+          "op": "click"
+        },
+        {
+          "at": 3.4,
+          "target": "css:input[type=text]",
+          "op": "type",
+          "value": "The Clockwork Curtain"
+        },
+        {
+          "at": 6.4,
+          "target": "role:button:Create Project",
+          "op": "click"
+        },
+        {
+          "at": 7,
+          "target": "role:heading:The Clockwork Curtain",
+          "op": "visible"
+        }
+      ]
+    },
+    {
+      "seconds": 13,
+      "say": "Now I'll open Rehearse, go to Scenes, and choose Import Scenes. I'll paste a short original scene for this demo. You can also start with a file using Upload File.",
+      "label": "Import a script",
+      "browser": "main",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 0.6,
+          "target": "role:link:Rehearse",
+          "op": "click"
+        },
+        {
+          "at": 2.8,
+          "target": "role:button:+ Import Scenes",
+          "op": "click"
+        },
+        {
+          "at": 5,
+          "target": "css:textarea",
+          "op": "fill",
+          "value": "SCENE 1: Backstage\n\nMARA: The clock has stopped.\n\nELI: Then we have time for one more rehearsal.\n\nMARA: Only if you wind it before the curtain rises.\n\nELI: Hand me the key."
+        }
+      ]
+    },
+    {
+      "seconds": 11,
+      "say": "I'll parse the text and check the character names before creating the scene. This gives me a chance to correct anything the app couldn't identify on its own.",
+      "label": "Review the cast",
+      "browser": "main",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 0.6,
+          "target": "role:button:Parse Text",
+          "op": "click"
+        },
+        {
+          "at": 5.1,
+          "target": "role:button:Create 1 Scene",
+          "op": "click"
+        }
+      ]
+    },
+    {
+      "seconds": 11,
+      "say": "Over in Cast, there are the two characters, Mara and Eli. I can manage each character here. I'll open Eli's voice settings and give him a voice.",
+      "label": "Assign a voice",
+      "browser": "main",
+      "zoom": 1.09,
+      "actions": [
+        {
+          "at": 0.55,
+          "target": "role:button:Cast",
+          "op": "click"
+        },
+        {
+          "at": 2.8,
+          "target": "text:ELI",
+          "op": "click"
+        },
+        {
+          "at": 5.8,
+          "target": "role:button:Voice",
+          "op": "click"
+        },
+        {
+          "at": 7,
+          "target": "role:combobox:",
+          "op": "select",
+          "value": "Microsoft Mark - English (United States) (en-US)"
+        }
+      ]
+    },
+    {
+      "seconds": 12,
+      "say": "Now I'll open Run Lines, pick the scene, and choose Mara as my character. I'll leave it on Pause and wait, so I can take my turn at my own pace.",
+      "label": "Set up a rehearsal",
+      "browser": "main",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 0.55,
+          "target": "role:button:Run Lines",
+          "op": "click"
+        },
+        {
+          "at": 2.4,
+          "target": "role:checkbox:Scene 1 ELI, MARA",
+          "op": "check"
+        },
+        {
+          "at": 4.2,
+          "target": "css:select >> nth=0",
+          "op": "select",
+          "value": "MARA"
+        }
+      ]
+    },
+    {
+      "seconds": 9,
+      "say": "I'll start the scene. The app waits on Mara's line. When I'm ready, I'll move on and let it read Eli's reply.",
+      "label": "Run the scene",
+      "browser": "main",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 0.6,
+          "target": "role:button:▶ Start",
+          "op": "click"
+        },
+        {
+          "at": 5.2,
+          "target": "role:button:▶ Continue",
+          "op": "click"
+        }
+      ]
+    },
+    {
+      "seconds": 14,
+      "say": "One thing to know before you start your own show. Productions and imported scripts are saved locally in the browser you use. That keeps scripts private by default and helps avoid distributing copyrighted material.",
+      "label": "Stored in this browser",
+      "browser": "main",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 0.7,
+          "target": "role:link:List",
+          "op": "click"
+        },
+        {
+          "at": 2.5,
+          "target": "role:link:Import Data",
+          "op": "click"
+        },
+        {
+          "at": 3.2,
+          "target": "role:heading:Data Management",
+          "op": "visible"
+        }
+      ]
+    },
+    {
+      "seconds": 12,
+      "say": "Here's the same site in a fresh browser. The Clockwork Curtain isn't on this list. Switching browsers or devices doesn't bring your productions over automatically.",
+      "label": "Fresh browser · Microsoft Edge",
+      "browser": "fresh",
+      "zoom": 1,
+      "actions": [
+        {
+          "at": 0.7,
+          "target": "role:heading:Productions",
+          "op": "visible"
+        },
+        {
+          "at": 1.1,
+          "target": "text:No projects yet. Create one to get started!",
+          "op": "visible"
+        }
+      ]
+    },
+    {
+      "seconds": 12,
+      "say": "You can move a production yourself. In Data Management, you can export a project and then import it in the other browser. We'll walk through that in a future tutorial.",
+      "label": "Transfer a production",
+      "browser": "main",
+      "zoom": 1.09,
+      "actions": [
+        {
+          "at": 0.7,
+          "target": "role:heading:Export Projects",
+          "op": "visible"
+        },
+        {
+          "at": 3,
+          "target": "role:button:Export 1 Project (ZIP)",
+          "op": "point"
+        },
+        {
+          "at": 5.1,
+          "target": "role:button:Choose File to Import",
+          "op": "point"
+        }
+      ]
+    },
+    {
+      "seconds": 11,
+      "say": "This is the first video in the series. We'll take a closer look at setting up productions, importing scripts, and running scenes. For now, you're ready to take a look around.",
+      "label": "Coming up in this series",
+      "browser": "main",
+      "zoom": 1,
+      "actions": []
+    }
+  ]
+}

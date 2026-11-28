@@ -1,5 +1,6 @@
 "use client";
 
+import { VideoTutorialsLink } from "@/components/common/VideoTutorialsLink";
 import { useEffect, useState } from "react";
 import Image from "next/image";
 
@@ -18,7 +19,7 @@ interface ReleaseNotes {
 const RELEASE_NOTES: ReleaseNotes[] = [
   {
     version: "0.1.2-beta.1",
-    date: "June 2026",
+    date: "Updated November 2026",
     highlights: [
       "Initial release of 0.1.2-beta.1.",
       'Fixed "Continue" button not working in Run Lines when using the Pause and Wait mode.',
@@ -46,6 +47,8 @@ const RELEASE_NOTES: ReleaseNotes[] = [
       "Click a song’s scene title to open that scene in Scenes.",
       "Shared lyrics now show song styling in Scenes and list each singer on the Songs tab.",
       "The End Song marker no longer appears in the scene text.",
+      "Script import recognizes more cast-list formats and keeps character turns separate when dialogue runs together on one line.",
+      "Open the RehearseLines YouTube channel from Video tutorials on the welcome screen, Productions page, or About page.",
     ],
   },
   {
@@ -259,6 +262,7 @@ export function WelcomeModal() {
         </div>
 
         <div className="border-t border-border p-5 space-y-3">
+          <VideoTutorialsLink />
           <label className="flex items-start gap-2 cursor-pointer select-none">
             <input
               type="checkbox"

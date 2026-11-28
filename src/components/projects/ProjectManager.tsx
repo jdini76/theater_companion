@@ -1,5 +1,6 @@
 "use client";
 
+import { VideoTutorialsLink } from "@/components/common/VideoTutorialsLink";
 import React, { useState } from "react";
 import Link from "next/link";
 import { CreateProjectForm } from "./CreateProjectForm";
@@ -30,13 +31,14 @@ export function ProjectManager() {
               Create and manage your theater productions
             </p>
             {/* Get Started Button */}
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <Link
                 href="/about"
                 className="inline-flex items-center px-4 py-2 rounded font-semibold bg-accent-cyan text-dark-base hover:opacity-90 transition-opacity text-sm"
               >
                 Get Started
               </Link>
+              <VideoTutorialsLink />
             </div>
           </div>
           <div className="flex items-center gap-2">

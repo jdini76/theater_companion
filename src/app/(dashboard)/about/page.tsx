@@ -1,5 +1,6 @@
 "use client";
 
+import { VideoTutorialsLink } from "@/components/common/VideoTutorialsLink";
 import React, { useState } from "react";
 
 type MainTab = "general" | "productions" | "rehearse";
@@ -1072,6 +1073,8 @@ export default function AboutPage() {
           )}
         </p>
       </div>
+
+      <VideoTutorialsLink />
 
       {/* Main tabs */}
       <div className="flex gap-1 border-b border-border">

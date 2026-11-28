@@ -1,0 +1,19 @@
+{
+  "name": "rehearselines-tutorial",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "record": "node --experimental-strip-types record.ts",
+    "inspect": "node --experimental-strip-types record.ts --inspect",
+    "revoice": "node --experimental-strip-types revoice.ts"
+  },
+  "dependencies": {
+    "ffmpeg-static": "5.3.0",
+    "ffprobe-static": "3.1.0",
+    "kokoro-js": "1.2.1",
+    "playwright": "^1.56.1"
+  }
+}

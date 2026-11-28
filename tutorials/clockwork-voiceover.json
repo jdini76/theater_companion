@@ -1,0 +1,62 @@
+[
+  {
+    "start": 0.45,
+    "end": 4.65,
+    "say": "Okay, let's take a look at RehearseLines.",
+    "speed": 0.94
+  },
+  {
+    "start": 5.15,
+    "end": 10.8,
+    "say": "I'm going to set up a production for a play called The Clockwork Curtain.",
+    "speed": 0.98
+  },
+  {
+    "start": 11.15,
+    "end": 20.55,
+    "say": "So, from the dashboard, I'll click Create a Production. This is where all your shows will live.",
+    "speed": 0.94
+  },
+  {
+    "start": 21.15,
+    "end": 30.75,
+    "say": "I'll hit plus Production up here. That opens the form, and there are only a couple of things to fill in.",
+    "speed": 0.98
+  },
+  {
+    "start": 32.65,
+    "end": 40.8,
+    "say": "Alright, under Project Name, I'll put The Clockwork Curtain. That's the name I'll look for later.",
+    "speed": 0.95
+  },
+  {
+    "start": 41.65,
+    "end": 46.1,
+    "say": "Um, for this one… I'll stick with Play.",
+    "speed": 0.94
+  },
+  {
+    "start": 46.15,
+    "end": 53.6,
+    "say": "I'm going to go ahead and add a quick description, too. You've also got Musical and Film up here.",
+    "speed": 0.97
+  },
+  {
+    "start": 54.25,
+    "end": 57.8,
+    "say": "Okay, I'll click Create Project.",
+    "speed": 0.96
+  },
+  {
+    "start": 58.05,
+    "end": 64.6,
+    "say": "There we go. The Clockwork Curtain is right here under Your Productions, with the description I just added.",
+    "speed": 0.96
+  },
+  {
+    "start": 65,
+    "end": 73.1,
+    "say": "And that's it. When I come back to rehearse, I can find the show right here in the list.",
+    "speed": 0.93
+  }
+]

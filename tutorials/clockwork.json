@@ -1,0 +1,85 @@
+{
+  "url": "https://www.rehearselines.com/",
+  "title": "Create your first production",
+  "project": "The Clockwork Curtain",
+  "ready": "role:heading:Dashboard",
+  "empty": "text:Create your first production to get started. Each production keeps its scenes, cast, and rehearsal settings separate.",
+  "steps": [
+    {
+      "say": "Welcome to RehearseLines. In this walkthrough, we’ll create a production called The Clockwork Curtain, using the app’s production form.",
+      "actions": [
+        {
+          "op": "optionalClick",
+          "target": "role:button:Let's get started"
+        }
+      ]
+    },
+    {
+      "say": "From the Dashboard, choose Create a Production. That takes you to the Productions page, where you can see and manage your shows.",
+      "actions": [
+        {
+          "op": "click",
+          "target": "role:link:+ Create a Production"
+        },
+        {
+          "op": "visible",
+          "target": "role:heading:Productions"
+        }
+      ]
+    },
+    {
+      "say": "Select the plus Production button. The new production form opens above the list, with a name, a production type, and an optional description.",
+      "actions": [
+        {
+          "op": "click",
+          "target": "role:button:+ Production"
+        },
+        {
+          "op": "visible",
+          "target": "role:heading:Create a New Production"
+        }
+      ]
+    },
+    {
+      "say": "Under Project Name, enter The Clockwork Curtain. This is the name you’ll look for when you come back to work on the show.",
+      "actions": [
+        {
+          "op": "type",
+          "target": "css:input[type=text]",
+          "value": "$project"
+        }
+      ]
+    },
+    {
+      "say": "For Production Type, we’ll use Play. You can also choose Musical or Film. Add a short description if you want a reminder of what this production is for.",
+      "actions": [
+        {
+          "op": "click",
+          "target": "css:label:has(input[name=productionType][value=Play])"
+        },
+        {
+          "op": "type",
+          "target": "css:textarea",
+          "value": "An original demo play for a rehearsal walkthrough."
+        }
+      ]
+    },
+    {
+      "say": "Select Create Project to save it. The Clockwork Curtain now appears under Your Productions, along with its type and the description we entered.",
+      "actions": [
+        {
+          "op": "click",
+          "target": "role:button:Create Project"
+        },
+        {
+          "op": "visible",
+          "target": "role:heading:$project"
+        }
+      ]
+    },
+    {
+      "say": "You now have a production in RehearseLines. You can return to this list whenever you want to find it again.",
+      "actions": []
+    }
+  ]
+}
